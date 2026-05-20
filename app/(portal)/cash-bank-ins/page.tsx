@@ -14,7 +14,7 @@ import {
 } from "@/lib/bank-reporting";
 import { getBankingData, totalBy } from "@/lib/data";
 import { formatCurrency, formatDate } from "@/lib/format";
-import { requirePermission } from "@/lib/permissions";
+import { normalizeRole, requirePermission } from "@/lib/permissions";
 import { Banknote, Landmark, WalletCards } from "lucide-react";
 
 type CashBankInsSearchParams = {
@@ -28,10 +28,19 @@ function todayInput() {
 }
 
 export default async function CashBankInsPage({ searchParams }: { searchParams: Promise<CashBankInsSearchParams> }) {
-  await requirePermission("record_cash_bank_in");
+  const profile = await requirePermission("record_cash_bank_in");
   const params = await searchParams;
   const range = resolveDateRange(params);
   const data = await getBankingData();
+  const role = normalizeRole(profile.role);
+  const creatableBankAccountIds = new Set(
+    data.bankAccountPermissions
+      .filter((permission) => permission.user_id === profile.id && (permission.can_create_transaction || permission.can_manage_account))
+      .map((permission) => permission.bank_account_id)
+  );
+  const destinationBankAccounts = role === "admin" || role === "finance"
+    ? data.bankAccounts.filter((account) => creatableBankAccountIds.has(account.id))
+    : data.bankAccounts;
   const bankAccountById = getBankAccountById(data);
   const branchById = getBranchById(data);
   const selectedBankIns = data.cashBankIns.filter((bankIn) => isWithinDateRange(bankIn.bank_in_date, range));
@@ -74,7 +83,7 @@ export default async function CashBankInsPage({ searchParams }: { searchParams: 
           <label>
             Destination bank account
             <select name="bank_account_id" required>
-              {data.bankAccounts.map((account) => (
+              {destinationBankAccounts.map((account) => (
                 <option key={account.id} value={account.id}>
                   {bankAccountLabel(account)}
                 </option>
@@ -93,9 +102,10 @@ export default async function CashBankInsPage({ searchParams }: { searchParams: 
             Notes
             <textarea name="notes" placeholder="Optional cash bank-in notes" />
           </label>
-          <button className="primary-button" type="submit">
+          <button className="primary-button" disabled={!destinationBankAccounts.length} type="submit">
             Save cash bank-in
           </button>
+          {!destinationBankAccounts.length ? <p className="muted-copy">No editable bank accounts are assigned to your user.</p> : null}
         </form>
 
         <form className="form-card" method="get">

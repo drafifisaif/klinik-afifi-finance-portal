@@ -1,6 +1,6 @@
 import { canManageTargetProfile, getCurrentProfile, normalizeProfileRow } from "@/lib/permissions";
 import { createClient, hasSupabaseEnv } from "@/lib/supabase-server";
-import type { Branch, Profile } from "@/lib/types";
+import type { BankAccount, BankAccountPermission, Branch, Profile } from "@/lib/types";
 
 const demoUsers: Profile[] = [
   {
@@ -23,10 +23,20 @@ const demoUsers: Profile[] = [
   }
 ];
 
+const demoBankAccounts: BankAccount[] = [
+  { id: "bank-cimb-ranau-operation", name: "CIMB Ranau Operation", bank_name: "CIMB", account_no: null, is_active: true },
+  { id: "bank-cimb-ranau-panel", name: "CIMB Ranau Panel", bank_name: "CIMB", account_no: null, is_active: true },
+  { id: "bank-cimb-putatan-operation", name: "CIMB Putatan Operation", bank_name: "CIMB", account_no: null, is_active: true },
+  { id: "bank-cimb-putatan-panel", name: "CIMB Putatan Panel", bank_name: "CIMB", account_no: null, is_active: true },
+  { id: "bank-agrobank", name: "Agrobank", bank_name: "Agrobank", account_no: null, is_active: true }
+];
+
 export type UserManagementData = {
   currentUser: Profile;
   users: Profile[];
   branches: Branch[];
+  bankAccounts: BankAccount[];
+  bankAccountPermissions: BankAccountPermission[];
 };
 
 export async function getUserManagementData(): Promise<UserManagementData> {
@@ -37,6 +47,8 @@ export async function getUserManagementData(): Promise<UserManagementData> {
     return {
       currentUser,
       users: demoUsers,
+      bankAccounts: demoBankAccounts,
+      bankAccountPermissions: [],
       branches: [
         { id: "putatan", name: "Putatan", code: "PUT", is_active: true },
         { id: "papar", name: "Papar", code: "PAP", is_active: true },
@@ -59,17 +71,25 @@ export async function getUserManagementData(): Promise<UserManagementData> {
         .order("full_name")
     : usersWithEmail;
 
-  const [branchRows] = await Promise.all([
-    supabase.from("branches").select("*").eq("is_active", true).order("name")
+  const [branchRows, bankAccountRows, bankPermissionRows] = await Promise.all([
+    supabase.from("branches").select("*").eq("is_active", true).order("name"),
+    supabase.from("bank_accounts").select("*").eq("is_active", true).order("name"),
+    supabase
+      .from("bank_account_permissions")
+      .select("id, user_id, bank_account_id, can_view, can_create_transaction, can_edit_transaction, can_manage_account, granted_by, created_at, updated_at")
   ]);
 
   if (userRows.error) throw userRows.error;
   if (branchRows.error) throw branchRows.error;
+  if (bankAccountRows.error && bankAccountRows.error.code !== "42P01") throw bankAccountRows.error;
+  if (bankPermissionRows.error && bankPermissionRows.error.code !== "42P01") throw bankPermissionRows.error;
 
   return {
     currentUser,
     users: (userRows.data ?? []).map(normalizeProfileRow),
-    branches: (branchRows.data ?? []) as Branch[]
+    branches: (branchRows.data ?? []) as Branch[],
+    bankAccounts: (bankAccountRows.data ?? []) as BankAccount[],
+    bankAccountPermissions: (bankPermissionRows.data ?? []) as BankAccountPermission[]
   };
 }
 

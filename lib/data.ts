@@ -1,9 +1,10 @@
 import { hasSupabaseEnv, createClient } from "@/lib/supabase-server";
-import { canViewAllBranches, filterBranchesForProfile, filterDashboardDataForProfile, getCurrentProfile } from "@/lib/permissions";
+import { canViewAllBranches, filterBranchesForProfile, filterDashboardDataForProfile, getCurrentProfile, normalizeRole } from "@/lib/permissions";
 import type {
-  Branch,
   BankAccount,
+  BankAccountPermission,
   BankingData,
+  Branch,
   BranchBankMapping,
   CashBankIn,
   DailySale,
@@ -210,8 +211,10 @@ const panels: PanelClaim[] = [
 ];
 
 const bankAccounts: BankAccount[] = [
-  { id: "bank-cimb-ranau", name: "CIMB Ranau", bank_name: "CIMB", account_no: null, is_active: true },
-  { id: "bank-cimb-putatan", name: "CIMB Putatan", bank_name: "CIMB", account_no: null, is_active: true },
+  { id: "bank-cimb-ranau-operation", name: "CIMB Ranau Operation", bank_name: "CIMB", account_no: null, is_active: true },
+  { id: "bank-cimb-ranau-panel", name: "CIMB Ranau Panel", bank_name: "CIMB", account_no: null, is_active: true },
+  { id: "bank-cimb-putatan-operation", name: "CIMB Putatan Operation", bank_name: "CIMB", account_no: null, is_active: true },
+  { id: "bank-cimb-putatan-panel", name: "CIMB Putatan Panel", bank_name: "CIMB", account_no: null, is_active: true },
   { id: "bank-agrobank", name: "Agrobank", bank_name: "Agrobank", account_no: null, is_active: true }
 ];
 
@@ -219,18 +222,18 @@ const branchBankMappings: BranchBankMapping[] = [
   {
     id: "mapping-ranau",
     branch_id: "ranau",
-    bank_account_id: "bank-cimb-ranau",
+    bank_account_id: "bank-cimb-ranau-operation",
     is_active: true,
     branches: { name: "Ranau", code: "RAN" },
-    bank_accounts: { name: "CIMB Ranau", bank_name: "CIMB", account_no: null }
+    bank_accounts: { name: "CIMB Ranau Operation", bank_name: "CIMB", account_no: null }
   },
   {
     id: "mapping-putatan",
     branch_id: "putatan",
-    bank_account_id: "bank-cimb-putatan",
+    bank_account_id: "bank-cimb-putatan-operation",
     is_active: true,
     branches: { name: "Putatan", code: "PUT" },
-    bank_accounts: { name: "CIMB Putatan", bank_name: "CIMB", account_no: null }
+    bank_accounts: { name: "CIMB Putatan Operation", bank_name: "CIMB", account_no: null }
   },
   {
     id: "mapping-papar",
@@ -251,6 +254,7 @@ const branchBankMappings: BranchBankMapping[] = [
 ];
 
 const cashBankIns: CashBankIn[] = [];
+const bankAccountPermissions: BankAccountPermission[] = [];
 
 export const demoData: DashboardData = {
   branches,
@@ -265,6 +269,7 @@ export const demoBankingData: BankingData = {
   branches,
   sales,
   bankAccounts,
+  bankAccountPermissions,
   branchBankMappings,
   cashBankIns
 };
@@ -335,25 +340,71 @@ export async function getDashboardData(): Promise<DashboardData> {
   }, profile);
 }
 
-function filterBankingDataForProfile(data: BankingData, profile: Awaited<ReturnType<typeof getCurrentProfile>>): BankingData {
+type BankingDataOptions = {
+  bankAccessOnly?: boolean;
+};
+
+function permissionHasVisibleAccount(permission: BankAccountPermission) {
+  return permission.can_view || permission.can_create_transaction || permission.can_edit_transaction || permission.can_manage_account;
+}
+
+function filterBankingDataForProfile(data: BankingData, profile: Awaited<ReturnType<typeof getCurrentProfile>>, options: BankingDataOptions = {}): BankingData {
   const filteredBranches = filterBranchesForProfile(data.branches, profile);
   const branchIds = new Set(filteredBranches.map((branch) => branch.id));
+  const role = normalizeRole(profile?.role);
+  const shouldFilterByBankPermissions = profile?.is_active && (role === "admin" || role === "finance");
+  const shouldUseAssignedBranchPicBanks = role === "branch_pic" && options.bankAccessOnly;
+  const branchPicBankAccountIds = role === "branch_pic" && !options.bankAccessOnly
+    ? new Set(
+        data.branchBankMappings
+          .filter((mapping) => mapping.is_active && branchIds.has(mapping.branch_id))
+          .map((mapping) => mapping.bank_account_id)
+      )
+    : null;
+  const assignedBankAccountIds = shouldFilterByBankPermissions || shouldUseAssignedBranchPicBanks
+    ? new Set(
+        data.bankAccountPermissions
+          .filter((permission) => permission.user_id === profile?.id && permissionHasVisibleAccount(permission))
+          .map((permission) => permission.bank_account_id)
+      )
+    : null;
+  const permittedBankAccountIds = assignedBankAccountIds
+    ? assignedBankAccountIds
+    : branchPicBankAccountIds;
+
+  const permittedMappings = data.branchBankMappings.filter((mapping) => {
+    if (!mapping.is_active || !branchIds.has(mapping.branch_id)) return false;
+    return !permittedBankAccountIds || permittedBankAccountIds.has(mapping.bank_account_id);
+  });
+  const mappedBranchIds = new Set(permittedMappings.map((mapping) => mapping.branch_id));
+  const filteredCashBankIns = data.cashBankIns.filter((bankIn) => {
+    if (!branchIds.has(bankIn.branch_id)) return false;
+    return !permittedBankAccountIds || permittedBankAccountIds.has(bankIn.bank_account_id);
+  });
+  const visibleBranchIds = permittedBankAccountIds
+    ? new Set([...mappedBranchIds, ...filteredCashBankIns.map((bankIn) => bankIn.branch_id)])
+    : branchIds;
 
   return {
-    branches: filteredBranches,
-    sales: data.sales.filter((sale) => branchIds.has(sale.branch_id)),
-    bankAccounts: data.bankAccounts.filter((account) => account.is_active),
-    branchBankMappings: data.branchBankMappings.filter((mapping) => branchIds.has(mapping.branch_id) && mapping.is_active),
-    cashBankIns: data.cashBankIns.filter((bankIn) => branchIds.has(bankIn.branch_id))
+    branches: filteredBranches.filter((branch) => visibleBranchIds.has(branch.id)),
+    sales: data.sales.filter((sale) => visibleBranchIds.has(sale.branch_id) && (!permittedBankAccountIds || mappedBranchIds.has(sale.branch_id))),
+    bankAccounts: data.bankAccounts.filter((account) => account.is_active && (!permittedBankAccountIds || permittedBankAccountIds.has(account.id))),
+    bankAccountPermissions: data.bankAccountPermissions.filter((permission) => !profile || permission.user_id === profile.id),
+    branchBankMappings: permittedMappings,
+    cashBankIns: filteredCashBankIns
   };
 }
 
 export async function getBankingData(): Promise<BankingData> {
+  return getBankingDataForScope();
+}
+
+export async function getBankingDataForScope(options: BankingDataOptions = {}): Promise<BankingData> {
   const profile = await getCurrentProfile();
-  if (!hasSupabaseEnv()) return filterBankingDataForProfile(demoBankingData, profile);
+  if (!hasSupabaseEnv()) return filterBankingDataForProfile(demoBankingData, profile, options);
 
   const supabase = await createClient();
-  const [branchRows, salesRows, bankRows, mappingRows, cashBankInRows] = await Promise.all([
+  const [branchRows, salesRows, bankRows, permissionRows, mappingRows, cashBankInRows] = await Promise.all([
     fetchOrDemo(supabase.from("branches").select("*").eq("is_active", true).order("name"), demoBankingData.branches),
     fetchOrDemo(
       supabase
@@ -364,6 +415,12 @@ export async function getBankingData(): Promise<BankingData> {
       demoBankingData.sales
     ),
     fetchOrDemo(supabase.from("bank_accounts").select("*").eq("is_active", true).order("name"), demoBankingData.bankAccounts),
+    fetchOrDemo<BankAccountPermission[]>(
+      supabase
+        .from("bank_account_permissions")
+        .select("id, user_id, bank_account_id, can_view, can_create_transaction, can_edit_transaction, can_manage_account, granted_by, created_at, updated_at"),
+      demoBankingData.bankAccountPermissions
+    ),
     fetchOrDemo(
       supabase
         .from("branch_bank_mappings")
@@ -386,10 +443,12 @@ export async function getBankingData(): Promise<BankingData> {
       branches: branchRows as Branch[],
       sales: salesRows as DailySale[],
       bankAccounts: bankRows as BankAccount[],
+      bankAccountPermissions: permissionRows as BankAccountPermission[],
       branchBankMappings: mappingRows as BranchBankMapping[],
       cashBankIns: cashBankInRows as CashBankIn[]
     },
-    profile
+    profile,
+    options
   );
 }
 

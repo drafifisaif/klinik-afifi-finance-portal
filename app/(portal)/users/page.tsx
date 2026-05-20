@@ -15,7 +15,13 @@ export default async function UsersPage() {
         description="Manage existing authenticated users from the profiles table. New users are created manually in Supabase Authentication."
       />
 
-      <UserManagementTable actor={profile} branches={data.branches} users={data.users} />
+      <UserManagementTable
+        actor={profile}
+        bankAccountPermissions={data.bankAccountPermissions}
+        bankAccounts={data.bankAccounts}
+        branches={data.branches}
+        users={data.users}
+      />
     </>
   );
 }

@@ -2,7 +2,7 @@ import Link from "next/link";
 import { signOut } from "@/app/actions";
 import { APP_NAME } from "@/lib/constants";
 import { getBranches } from "@/lib/data";
-import { getCurrentProfile, hasPermission, type PermissionKey } from "@/lib/permissions";
+import { getCurrentBankAccountPermissions, getCurrentProfile, hasAnyBankAccountAccess, hasPermission, type PermissionKey } from "@/lib/permissions";
 import {
   Banknote,
   BarChart3,
@@ -40,7 +40,11 @@ const navigation: { href: string; label: string; icon: LucideIcon; permission: P
 export async function AppShell({ children }: { children: React.ReactNode }) {
   const profile = await getCurrentProfile();
   const branches = await getBranches();
-  const allowedNavigation = navigation.filter((item) => hasPermission(profile, item.permission));
+  const bankAccountPermissions = await getCurrentBankAccountPermissions(profile);
+  const allowedNavigation = navigation.filter((item) => {
+    if (item.href === "/bank") return hasAnyBankAccountAccess(profile, bankAccountPermissions);
+    return hasPermission(profile, item.permission);
+  });
 
   return (
     <div className="shell">

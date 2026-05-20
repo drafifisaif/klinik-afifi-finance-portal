@@ -3,7 +3,15 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient, hasSupabaseEnv } from "@/lib/supabase-server";
-import { canEditBranch, canManageTargetProfile, canViewAllBranches, requirePermission } from "@/lib/permissions";
+import {
+  canEditBranch,
+  canManageBankPermissions,
+  canManageTargetProfile,
+  canViewAllBranches,
+  normalizeRole,
+  requireBankAccountPermission,
+  requirePermission
+} from "@/lib/permissions";
 import type { ExpenseCategory, PaymentType, PurchaseCategory, UserRole } from "@/lib/types";
 
 function text(formData: FormData, key: string) {
@@ -14,6 +22,10 @@ function text(formData: FormData, key: string) {
 function number(formData: FormData, key: string) {
   const value = Number(formData.get(key) ?? 0);
   return Number.isFinite(value) ? value : 0;
+}
+
+function checked(formData: FormData, key: string) {
+  return formData.get(key) === "true";
 }
 
 async function getUserId() {
@@ -67,7 +79,8 @@ export async function createBranch(formData: FormData) {
 
 export async function createBankAccount(formData: FormData) {
   if (!hasSupabaseEnv()) return;
-  await requirePermission("view_bank_position");
+  const profile = await requirePermission("view_bank_position");
+  if (!canManageBankPermissions(profile)) throw new Error("Only Owner can create bank accounts.");
   const name = text(formData, "name");
   if (!name) throw new Error("Bank account name is required.");
 
@@ -116,6 +129,9 @@ export async function createCashBankIn(formData: FormData) {
   const profile = await requireEditableBranch(branchId);
   if (!canEditBranch(profile, branchId)) {
     throw new Error("You do not have permission to bank in cash for this branch.");
+  }
+  if (normalizeRole(profile.role) === "admin" || normalizeRole(profile.role) === "finance") {
+    await requireBankAccountPermission(bankAccountId, "create_transaction");
   }
 
   const supabase = await createClient();
@@ -301,4 +317,131 @@ export async function updateUserProfile(formData: FormData) {
 
   if (error) throw error;
   revalidatePath("/users");
+}
+
+export async function updateUserBankPermissions(formData: FormData) {
+  if (!hasSupabaseEnv()) return;
+
+  const actor = await requirePermission("manage_users");
+  if (!canManageBankPermissions(actor)) {
+    throw new Error("Only Owner can assign bank account permissions.");
+  }
+
+  const targetId = text(formData, "user_id");
+  const bankAccountIds = formData.getAll("bank_account_ids").filter((value): value is string => typeof value === "string" && Boolean(value));
+  if (!targetId) throw new Error("Missing user.");
+
+  const supabase = await createClient();
+  const { data: target, error: targetError } = await supabase
+    .from("profiles")
+    .select("id, full_name, role, branch_id, is_active")
+    .eq("id", targetId)
+    .single();
+
+  if (targetError || !target) throw new Error("User profile not found.");
+  const targetRole = normalizeRole(target.role);
+  if (targetRole !== "admin" && targetRole !== "finance" && targetRole !== "branch_pic") {
+    throw new Error("Bank account permissions can only be assigned to Admin, Finance, or Branch PIC users.");
+  }
+
+  const grants = bankAccountIds
+    .map((bankAccountId) => {
+      const canView = checked(formData, `bank_permission_${bankAccountId}_view`);
+      const canCreateTransaction = checked(formData, `bank_permission_${bankAccountId}_create`);
+      const canEditTransaction = checked(formData, `bank_permission_${bankAccountId}_edit`);
+      const canManageAccount = checked(formData, `bank_permission_${bankAccountId}_manage`);
+      if (!canView && !canCreateTransaction && !canEditTransaction && !canManageAccount) return null;
+      return {
+        user_id: targetId,
+        bank_account_id: bankAccountId,
+        can_view: canView,
+        can_create_transaction: canCreateTransaction,
+        can_edit_transaction: canEditTransaction,
+        can_manage_account: canManageAccount,
+        granted_by: actor.id
+      };
+    })
+    .filter((grant): grant is NonNullable<typeof grant> => Boolean(grant));
+
+  const { error: deleteError } = await supabase.from("bank_account_permissions").delete().eq("user_id", targetId);
+  if (deleteError) throw deleteError;
+
+  if (grants.length) {
+    const { error: insertError } = await supabase.from("bank_account_permissions").insert(grants);
+    if (insertError) throw insertError;
+  }
+
+  revalidatePath("/users");
+  revalidatePath("/bank");
+  revalidatePath("/cash-bank-ins");
+}
+
+export async function upsertBankAccountPermission(formData: FormData) {
+  if (!hasSupabaseEnv()) return;
+
+  const actor = await requirePermission("manage_users");
+  if (!canManageBankPermissions(actor)) {
+    throw new Error("Only Owner can assign bank account permissions.");
+  }
+
+  const userId = text(formData, "user_id");
+  const bankAccountId = text(formData, "bank_account_id");
+  if (!userId || !bankAccountId) throw new Error("User and bank account are required.");
+
+  const canView = checked(formData, "can_view");
+  const canCreateTransaction = checked(formData, "can_create_transaction");
+  const canEditTransaction = checked(formData, "can_edit_transaction");
+  const canManageAccount = checked(formData, "can_manage_account");
+
+  if (!canView && !canCreateTransaction && !canEditTransaction && !canManageAccount) {
+    throw new Error("Select at least one access level.");
+  }
+
+  const supabase = await createClient();
+  const { data: target, error: targetError } = await supabase
+    .from("profiles")
+    .select("id, role")
+    .eq("id", userId)
+    .single();
+
+  if (targetError || !target) throw new Error("User profile not found.");
+  const targetRole = normalizeRole(target.role);
+  if (targetRole === "owner" || targetRole === "staff") {
+    throw new Error("Bank account access can only be granted to Admin, Finance, or Branch PIC users.");
+  }
+
+  const { error } = await supabase.from("bank_account_permissions").upsert({
+    user_id: userId,
+    bank_account_id: bankAccountId,
+    can_view: canView,
+    can_create_transaction: canCreateTransaction,
+    can_edit_transaction: canEditTransaction,
+    can_manage_account: canManageAccount,
+    granted_by: actor.id
+  }, { onConflict: "user_id,bank_account_id" });
+
+  if (error) throw error;
+  revalidatePath("/bank");
+  revalidatePath("/users");
+  revalidatePath("/cash-bank-ins");
+}
+
+export async function revokeBankAccountPermission(formData: FormData) {
+  if (!hasSupabaseEnv()) return;
+
+  const actor = await requirePermission("manage_users");
+  if (!canManageBankPermissions(actor)) {
+    throw new Error("Only Owner can revoke bank account permissions.");
+  }
+
+  const permissionId = text(formData, "permission_id");
+  if (!permissionId) throw new Error("Missing bank account permission.");
+
+  const supabase = await createClient();
+  const { error } = await supabase.from("bank_account_permissions").delete().eq("id", permissionId);
+  if (error) throw error;
+
+  revalidatePath("/bank");
+  revalidatePath("/users");
+  revalidatePath("/cash-bank-ins");
 }

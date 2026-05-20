@@ -141,6 +141,21 @@ export type BankAccount = {
   updated_at?: string;
 };
 
+export type BankAccountPermission = {
+  id: string;
+  user_id: string;
+  bank_account_id: string;
+  can_view: boolean;
+  can_create_transaction: boolean;
+  can_edit_transaction: boolean;
+  can_manage_account: boolean;
+  granted_by?: string | null;
+  created_at?: string;
+  updated_at?: string;
+  bank_accounts?: Pick<BankAccount, "name" | "bank_name" | "account_no"> | null;
+  profiles?: Pick<Profile, "full_name" | "role"> | null;
+};
+
 export type BranchBankMapping = {
   id: string;
   branch_id: string;
@@ -178,6 +193,7 @@ export type BankingData = {
   branches: Branch[];
   sales: DailySale[];
   bankAccounts: BankAccount[];
+  bankAccountPermissions: BankAccountPermission[];
   branchBankMappings: BranchBankMapping[];
   cashBankIns: CashBankIn[];
 };

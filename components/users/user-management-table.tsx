@@ -1,14 +1,16 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
-import { updateUserProfile } from "@/app/actions";
+import { updateUserBankPermissions, updateUserProfile } from "@/app/actions";
 import { userRoles } from "@/lib/constants";
 import { canManageTargetProfile } from "@/lib/rbac";
-import type { Branch, Profile } from "@/lib/types";
+import type { BankAccount, BankAccountPermission, Branch, Profile } from "@/lib/types";
 import { Search } from "lucide-react";
 
 type UserManagementTableProps = {
   actor: Profile;
+  bankAccountPermissions: BankAccountPermission[];
+  bankAccounts: BankAccount[];
   branches: Branch[];
   users: Profile[];
 };
@@ -18,7 +20,7 @@ type Message = {
   text: string;
 };
 
-export function UserManagementTable({ actor, branches, users }: UserManagementTableProps) {
+export function UserManagementTable({ actor, bankAccountPermissions, bankAccounts, branches, users }: UserManagementTableProps) {
   const [query, setQuery] = useState("");
   const [roleFilter, setRoleFilter] = useState("all");
   const [branchFilter, setBranchFilter] = useState("all");
@@ -26,6 +28,16 @@ export function UserManagementTable({ actor, branches, users }: UserManagementTa
   const [isPending, startTransition] = useTransition();
 
   const roleOptions = actor.role === "owner" ? userRoles : userRoles.filter((role) => role.value !== "owner");
+  const canAssignBankPermissions = actor.role === "owner";
+
+  const bankPermissionsByUser = useMemo(() => {
+    const map = new Map<string, Map<string, BankAccountPermission>>();
+    bankAccountPermissions.forEach((permission) => {
+      if (!map.has(permission.user_id)) map.set(permission.user_id, new Map());
+      map.get(permission.user_id)?.set(permission.bank_account_id, permission);
+    });
+    return map;
+  }, [bankAccountPermissions]);
 
   const filteredUsers = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -52,6 +64,21 @@ export function UserManagementTable({ actor, branches, users }: UserManagementTa
         setMessage({
           tone: "error",
           text: error instanceof Error ? error.message : "Could not update user profile."
+        });
+      }
+    });
+  }
+
+  function submitBankPermissionUpdate(formData: FormData) {
+    setMessage(null);
+    startTransition(async () => {
+      try {
+        await updateUserBankPermissions(formData);
+        setMessage({ tone: "success", text: "Bank account permissions updated." });
+      } catch (error) {
+        setMessage({
+          tone: "error",
+          text: error instanceof Error ? error.message : "Could not update bank account permissions."
         });
       }
     });
@@ -116,6 +143,8 @@ export function UserManagementTable({ actor, branches, users }: UserManagementTa
             {filteredUsers.length ? (
               filteredUsers.map((user) => {
                 const canEdit = canManageTargetProfile(actor, user);
+                const canAssignUserBankPermissions = canAssignBankPermissions && (user.role === "admin" || user.role === "finance" || user.role === "branch_pic");
+                const userBankPermissions = bankPermissionsByUser.get(user.id) ?? new Map<string, BankAccountPermission>();
                 return (
                   <tr key={user.id}>
                     <td>
@@ -132,48 +161,104 @@ export function UserManagementTable({ actor, branches, users }: UserManagementTa
                     </td>
                     <td>{user.created_at ? new Date(user.created_at).toLocaleDateString("en-MY") : "-"}</td>
                     <td>
-                      {canEdit ? (
-                        <form action={submitUpdate} className="user-edit-form">
-                          <input name="user_id" type="hidden" value={user.id} />
-                          <label>
-                            Full name
-                            <input name="full_name" defaultValue={user.full_name} required />
-                          </label>
-                          <label>
-                            Role
-                            <select name="role" defaultValue={user.role} aria-label={`Role for ${user.full_name}`}>
-                              {roleOptions.map((role) => (
-                                <option key={role.value} value={role.value}>
-                                  {role.label}
-                                </option>
+                      <div className="user-management-actions">
+                        {canEdit ? (
+                          <form action={submitUpdate} className="user-edit-form">
+                            <input name="user_id" type="hidden" value={user.id} />
+                            <label>
+                              Full name
+                              <input name="full_name" defaultValue={user.full_name} required />
+                            </label>
+                            <label>
+                              Role
+                              <select name="role" defaultValue={user.role} aria-label={`Role for ${user.full_name}`}>
+                                {roleOptions.map((role) => (
+                                  <option key={role.value} value={role.value}>
+                                    {role.label}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+                            <label>
+                              Branch
+                              <select name="branch_id" defaultValue={user.branch_id ?? ""} aria-label={`Branch for ${user.full_name}`}>
+                                <option value="">All / unassigned</option>
+                                {branches.map((branch) => (
+                                  <option key={branch.id} value={branch.id}>
+                                    {branch.name}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+                            <label>
+                              Status
+                              <select name="is_active" defaultValue={String(user.is_active)} aria-label={`Status for ${user.full_name}`}>
+                                <option value="true">Active</option>
+                                <option value="false">Inactive</option>
+                              </select>
+                            </label>
+                            <button className="primary-button" disabled={isPending} type="submit">
+                              Save
+                            </button>
+                          </form>
+                        ) : (
+                          <span className="table-subtext">Protected account</span>
+                        )}
+
+                        {canAssignUserBankPermissions ? (
+                          <form action={submitBankPermissionUpdate} className="bank-permission-form">
+                            <input name="user_id" type="hidden" value={user.id} />
+                            <strong>Bank account access</strong>
+                            <div className="bank-permission-grid">
+                              {bankAccounts.map((account) => (
+                                <fieldset key={account.id}>
+                                  <legend>{account.account_no ? `${account.name} (${account.account_no})` : account.name}</legend>
+                                  <input name="bank_account_ids" type="hidden" value={account.id} />
+                                  <label>
+                                    <input
+                                      defaultChecked={userBankPermissions.get(account.id)?.can_view ?? false}
+                                      name={`bank_permission_${account.id}_view`}
+                                      type="checkbox"
+                                      value="true"
+                                    />
+                                    View
+                                  </label>
+                                  <label>
+                                    <input
+                                      defaultChecked={userBankPermissions.get(account.id)?.can_create_transaction ?? false}
+                                      name={`bank_permission_${account.id}_create`}
+                                      type="checkbox"
+                                      value="true"
+                                    />
+                                    Create transactions
+                                  </label>
+                                  <label>
+                                    <input
+                                      defaultChecked={userBankPermissions.get(account.id)?.can_edit_transaction ?? false}
+                                      name={`bank_permission_${account.id}_edit`}
+                                      type="checkbox"
+                                      value="true"
+                                    />
+                                    Edit transactions
+                                  </label>
+                                  <label>
+                                    <input
+                                      defaultChecked={userBankPermissions.get(account.id)?.can_manage_account ?? false}
+                                      name={`bank_permission_${account.id}_manage`}
+                                      type="checkbox"
+                                      value="true"
+                                    />
+                                    Manage account
+                                  </label>
+                                </fieldset>
                               ))}
-                            </select>
-                          </label>
-                          <label>
-                            Branch
-                            <select name="branch_id" defaultValue={user.branch_id ?? ""} aria-label={`Branch for ${user.full_name}`}>
-                              <option value="">All / unassigned</option>
-                              {branches.map((branch) => (
-                                <option key={branch.id} value={branch.id}>
-                                  {branch.name}
-                                </option>
-                              ))}
-                            </select>
-                          </label>
-                          <label>
-                            Status
-                            <select name="is_active" defaultValue={String(user.is_active)} aria-label={`Status for ${user.full_name}`}>
-                              <option value="true">Active</option>
-                              <option value="false">Inactive</option>
-                            </select>
-                          </label>
-                          <button className="primary-button" disabled={isPending} type="submit">
-                            Save
-                          </button>
-                        </form>
-                      ) : (
-                        <span className="table-subtext">Protected account</span>
-                      )}
+                            </div>
+                            <button className="primary-button" disabled={isPending || !bankAccounts.length} type="submit">
+                              Save bank access
+                            </button>
+                          </form>
+                        ) : null}
+                      </div>
                     </td>
                   </tr>
                 );

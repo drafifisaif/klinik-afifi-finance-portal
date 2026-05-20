@@ -149,6 +149,12 @@ textarea {
   width: 100%;
 }
 
+.compact-button {
+  min-height: 36px;
+  padding: 8px 10px;
+  width: auto;
+}
+
 .primary-button {
   background: var(--teal);
   color: #ffffff;
@@ -577,6 +583,68 @@ tr:last-child td {
 
 .user-edit-form .primary-button {
   align-self: end;
+}
+
+.user-management-actions {
+  display: grid;
+  gap: 14px;
+}
+
+.bank-permission-form {
+  background: #f7fbfb;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: grid;
+  gap: 12px;
+  min-width: 820px;
+  padding: 12px;
+}
+
+.bank-permission-form > strong {
+  font-size: 13px;
+}
+
+.bank-permission-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(2, minmax(210px, 1fr));
+}
+
+.bank-permission-grid fieldset,
+.permission-checklist {
+  background: #ffffff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 12px;
+}
+
+.bank-permission-grid legend,
+.permission-checklist legend {
+  color: #344f50;
+  font-size: 12px;
+  font-weight: 750;
+  margin-bottom: 4px;
+}
+
+.bank-permission-grid label,
+.permission-checklist label {
+  align-items: center;
+  display: flex;
+  font-size: 12px;
+  gap: 8px;
+}
+
+.bank-permission-grid input,
+.permission-checklist input {
+  min-height: auto;
+  padding: 0;
+}
+
+.bank-permission-form .primary-button {
+  justify-self: start;
 }
 
 .form-grid {

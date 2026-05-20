@@ -40,7 +40,9 @@ export const rolePermissions: Record<UserRole, PermissionKey[]> = {
     "view_supplier_records",
     "view_panel_records",
     "view_reports",
-    "import_data"
+    "import_data",
+    "view_bank_position",
+    "record_cash_bank_in"
   ],
   finance: [
     "view_dashboard",
@@ -49,9 +51,19 @@ export const rolePermissions: Record<UserRole, PermissionKey[]> = {
     "view_supplier_records",
     "view_panel_records",
     "view_reports",
-    "import_data"
+    "import_data",
+    "view_bank_position",
+    "record_cash_bank_in"
   ],
-  branch_pic: ["view_dashboard", "view_branches", "edit_finance", "view_supplier_records", "view_panel_records", "record_cash_bank_in"],
+  branch_pic: [
+    "view_dashboard",
+    "view_branches",
+    "edit_finance",
+    "view_supplier_records",
+    "view_panel_records",
+    "view_bank_position",
+    "record_cash_bank_in"
+  ],
   staff: ["view_dashboard"]
 };
 

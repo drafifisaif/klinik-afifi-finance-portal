@@ -1,4 +1,4 @@
-import { createBankAccount } from "@/app/actions";
+import { createBankAccount, revokeBankAccountPermission, upsertBankAccountPermission } from "@/app/actions";
 import { DataTable } from "@/components/data-table";
 import { MetricCard } from "@/components/metric-card";
 import { ModuleHeader } from "@/components/module-header";
@@ -15,9 +15,10 @@ import {
   panelSalesAmount,
   resolveDateRange
 } from "@/lib/bank-reporting";
-import { getBankingData, totalBy } from "@/lib/data";
+import { getBankingDataForScope, totalBy } from "@/lib/data";
 import { formatCurrency, formatDate } from "@/lib/format";
-import { requirePermission } from "@/lib/permissions";
+import { canManageBankPermissions, requireBankPositionAccess } from "@/lib/permissions";
+import { getUserManagementData } from "@/lib/users";
 import { Banknote, CreditCard, Landmark, ReceiptText, WalletCards } from "lucide-react";
 
 type BankPageSearchParams = {
@@ -44,13 +45,36 @@ function addToMap(map: Map<string, number>, key: string, amount: number) {
   map.set(key, (map.get(key) ?? 0) + amount);
 }
 
+function permissionSummary(permission: {
+  can_create_transaction: boolean;
+  can_edit_transaction: boolean;
+  can_manage_account: boolean;
+  can_view: boolean;
+}) {
+  const flags = [
+    permission.can_view ? "View" : null,
+    permission.can_create_transaction ? "Create transactions" : null,
+    permission.can_edit_transaction ? "Edit transactions" : null,
+    permission.can_manage_account ? "Manage account" : null
+  ].filter(Boolean);
+
+  return flags.length ? flags.join(", ") : "No access";
+}
+
 export default async function BankPage({ searchParams }: { searchParams: Promise<BankPageSearchParams> }) {
-  await requirePermission("view_bank_position");
+  const profile = await requireBankPositionAccess();
+  const canManageBankAccounts = canManageBankPermissions(profile);
   const params = await searchParams;
   const range = resolveDateRange(params);
   const todayRange = resolveDateRange({ period: "today" });
   const monthRange = resolveDateRange({ period: "this_month" });
-  const data = await getBankingData();
+  const data = await getBankingDataForScope({ bankAccessOnly: true });
+  const accessManagementData = canManageBankAccounts ? await getUserManagementData() : null;
+  const bankAccessUsers = accessManagementData?.users.filter((user) => user.is_active && ["admin", "finance", "branch_pic"].includes(user.role)) ?? [];
+  const bankAccessAccounts = accessManagementData?.bankAccounts ?? [];
+  const bankAccessPermissions = accessManagementData?.bankAccountPermissions ?? [];
+  const accessUserById = new Map(bankAccessUsers.map((user) => [user.id, user]));
+  const accessAccountById = new Map(bankAccessAccounts.map((account) => [account.id, account]));
   const mappingByBranch = getMappingByBranch(data);
   const bankAccountById = getBankAccountById(data);
   const branchById = getBranchById(data);
@@ -120,9 +144,9 @@ export default async function BankPage({ searchParams }: { searchParams: Promise
   return (
     <>
       <ModuleHeader
-        eyebrow="Owner banking"
+        eyebrow="Banking"
         title="Bank Position"
-        description="Owner-only view of direct bank inflow, cash bank-ins, and cash in hand by branch."
+        description="View direct bank inflow, cash bank-ins, and cash in hand for assigned bank accounts."
       />
 
       <form className="reporting-filter bank-filter" method="get">
@@ -238,25 +262,116 @@ export default async function BankPage({ searchParams }: { searchParams: Promise
           />
         </div>
 
-        <form action={createBankAccount} className="form-card">
-          <h2>Add bank account</h2>
-          <label>
-            Account name
-            <input name="name" placeholder="Example: CIMB Inanam" required />
-          </label>
-          <label>
-            Bank name
-            <input name="bank_name" placeholder="Example: CIMB" />
-          </label>
-          <label>
-            Account number
-            <input name="account_no" />
-          </label>
-          <button className="primary-button" type="submit">
-            Add account
-          </button>
-        </form>
+        {canManageBankAccounts ? (
+          <form action={createBankAccount} className="form-card">
+            <h2>Add bank account</h2>
+            <label>
+              Account name
+              <input name="name" placeholder="Example: CIMB Inanam" required />
+            </label>
+            <label>
+              Bank name
+              <input name="bank_name" placeholder="Example: CIMB" />
+            </label>
+            <label>
+              Account number
+              <input name="account_no" />
+            </label>
+            <button className="primary-button" type="submit">
+              Add account
+            </button>
+          </form>
+        ) : null}
       </section>
+
+      {canManageBankAccounts ? (
+        <section className="section-grid mt-section">
+          <form action={upsertBankAccountPermission} className="form-card">
+            <h2>Bank access management</h2>
+            <label>
+              User
+              <select name="user_id" required>
+                {bankAccessUsers.map((user) => (
+                  <option key={user.id} value={user.id}>
+                    {user.full_name} ({user.role})
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Bank account
+              <select name="bank_account_id" required>
+                {bankAccessAccounts.map((account) => (
+                  <option key={account.id} value={account.id}>
+                    {bankAccountLabel(account)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <fieldset className="permission-checklist">
+              <legend>Access level</legend>
+              <label>
+                <input name="can_view" type="checkbox" value="true" defaultChecked />
+                View
+              </label>
+              <label>
+                <input name="can_create_transaction" type="checkbox" value="true" />
+                Create transactions
+              </label>
+              <label>
+                <input name="can_edit_transaction" type="checkbox" value="true" />
+                Edit transactions
+              </label>
+              <label>
+                <input name="can_manage_account" type="checkbox" value="true" />
+                Manage account
+              </label>
+            </fieldset>
+            <button className="primary-button" disabled={!bankAccessUsers.length || !bankAccessAccounts.length} type="submit">
+              Grant or update access
+            </button>
+          </form>
+
+          <div className="table-section">
+            <h2>Current bank access</h2>
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>User</th>
+                    <th>Bank account</th>
+                    <th>Permissions</th>
+                    <th>Revoke</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {bankAccessPermissions.length ? (
+                    bankAccessPermissions.map((permission) => (
+                      <tr key={permission.id}>
+                        <td>{accessUserById.get(permission.user_id)?.full_name ?? permission.user_id}</td>
+                        <td>{bankAccountLabel(accessAccountById.get(permission.bank_account_id))}</td>
+                        <td>{permissionSummary(permission)}</td>
+                        <td>
+                          <form action={revokeBankAccountPermission}>
+                            <input name="permission_id" type="hidden" value={permission.id} />
+                            <button className="ghost-button compact-button" type="submit">
+                              Revoke
+                            </button>
+                          </form>
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan={4}>No bank account permissions have been granted yet.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+      ) : null}
     </>
   );
 }
