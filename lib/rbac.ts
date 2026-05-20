@@ -11,6 +11,8 @@ export type PermissionKey =
   | "view_panel_records"
   | "view_reports"
   | "import_data"
+  | "view_bank_position"
+  | "record_cash_bank_in"
   | "view_settings";
 
 export const rolePermissions: Record<UserRole, PermissionKey[]> = {
@@ -25,6 +27,8 @@ export const rolePermissions: Record<UserRole, PermissionKey[]> = {
     "view_panel_records",
     "view_reports",
     "import_data",
+    "view_bank_position",
+    "record_cash_bank_in",
     "view_settings"
   ],
   admin: [
@@ -47,7 +51,7 @@ export const rolePermissions: Record<UserRole, PermissionKey[]> = {
     "view_reports",
     "import_data"
   ],
-  branch_pic: ["view_dashboard", "view_branches", "edit_finance", "view_supplier_records", "view_panel_records"],
+  branch_pic: ["view_dashboard", "view_branches", "edit_finance", "view_supplier_records", "view_panel_records", "record_cash_bank_in"],
   staff: ["view_dashboard"]
 };
 

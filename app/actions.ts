@@ -65,6 +65,22 @@ export async function createBranch(formData: FormData) {
   revalidatePath("/branches");
 }
 
+export async function createBankAccount(formData: FormData) {
+  if (!hasSupabaseEnv()) return;
+  await requirePermission("view_bank_position");
+  const name = text(formData, "name");
+  if (!name) throw new Error("Bank account name is required.");
+
+  const supabase = await createClient();
+  await supabase.from("bank_accounts").insert({
+    name,
+    bank_name: text(formData, "bank_name"),
+    account_no: text(formData, "account_no")
+  });
+  revalidatePath("/bank");
+  revalidatePath("/cash-bank-ins");
+}
+
 export async function createDailySale(formData: FormData) {
   if (!hasSupabaseEnv()) return;
   const branchId = text(formData, "branch_id");
@@ -82,6 +98,38 @@ export async function createDailySale(formData: FormData) {
     entered_by: await getUserId()
   });
   revalidatePath("/sales");
+  revalidatePath("/dashboard");
+}
+
+export async function createCashBankIn(formData: FormData) {
+  if (!hasSupabaseEnv()) return;
+  await requirePermission("record_cash_bank_in");
+  const branchId = text(formData, "branch_id");
+  const bankAccountId = text(formData, "bank_account_id");
+  const bankInDate = text(formData, "bank_in_date");
+  const amount = number(formData, "amount");
+
+  if (!branchId || !bankAccountId || !bankInDate || amount <= 0) {
+    throw new Error("Date, branch, destination bank account, and amount are required.");
+  }
+
+  const profile = await requireEditableBranch(branchId);
+  if (!canEditBranch(profile, branchId)) {
+    throw new Error("You do not have permission to bank in cash for this branch.");
+  }
+
+  const supabase = await createClient();
+  await supabase.from("cash_bank_ins").insert({
+    branch_id: branchId,
+    bank_account_id: bankAccountId,
+    bank_in_date: bankInDate,
+    amount,
+    reference_no: text(formData, "reference_no"),
+    notes: text(formData, "notes"),
+    entered_by: await getUserId()
+  });
+  revalidatePath("/cash-bank-ins");
+  revalidatePath("/bank");
   revalidatePath("/dashboard");
 }
 

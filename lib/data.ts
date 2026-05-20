@@ -2,6 +2,10 @@ import { hasSupabaseEnv, createClient } from "@/lib/supabase-server";
 import { canViewAllBranches, filterBranchesForProfile, filterDashboardDataForProfile, getCurrentProfile } from "@/lib/permissions";
 import type {
   Branch,
+  BankAccount,
+  BankingData,
+  BranchBankMapping,
+  CashBankIn,
   DailySale,
   DashboardData,
   Expense,
@@ -205,6 +209,49 @@ const panels: PanelClaim[] = [
   }
 ];
 
+const bankAccounts: BankAccount[] = [
+  { id: "bank-cimb-ranau", name: "CIMB Ranau", bank_name: "CIMB", account_no: null, is_active: true },
+  { id: "bank-cimb-putatan", name: "CIMB Putatan", bank_name: "CIMB", account_no: null, is_active: true },
+  { id: "bank-agrobank", name: "Agrobank", bank_name: "Agrobank", account_no: null, is_active: true }
+];
+
+const branchBankMappings: BranchBankMapping[] = [
+  {
+    id: "mapping-ranau",
+    branch_id: "ranau",
+    bank_account_id: "bank-cimb-ranau",
+    is_active: true,
+    branches: { name: "Ranau", code: "RAN" },
+    bank_accounts: { name: "CIMB Ranau", bank_name: "CIMB", account_no: null }
+  },
+  {
+    id: "mapping-putatan",
+    branch_id: "putatan",
+    bank_account_id: "bank-cimb-putatan",
+    is_active: true,
+    branches: { name: "Putatan", code: "PUT" },
+    bank_accounts: { name: "CIMB Putatan", bank_name: "CIMB", account_no: null }
+  },
+  {
+    id: "mapping-papar",
+    branch_id: "papar",
+    bank_account_id: "bank-agrobank",
+    is_active: true,
+    branches: { name: "Papar", code: "PAP" },
+    bank_accounts: { name: "Agrobank", bank_name: "Agrobank", account_no: null }
+  },
+  {
+    id: "mapping-kinabatangan",
+    branch_id: "kinabatangan",
+    bank_account_id: "bank-agrobank",
+    is_active: true,
+    branches: { name: "Kinabatangan", code: "KIN" },
+    bank_accounts: { name: "Agrobank", bank_name: "Agrobank", account_no: null }
+  }
+];
+
+const cashBankIns: CashBankIn[] = [];
+
 export const demoData: DashboardData = {
   branches,
   sales,
@@ -212,6 +259,14 @@ export const demoData: DashboardData = {
   purchases,
   supplierPayments,
   panels
+};
+
+export const demoBankingData: BankingData = {
+  branches,
+  sales,
+  bankAccounts,
+  branchBankMappings,
+  cashBankIns
 };
 
 async function fetchOrDemo<T>(query: PromiseLike<{ data: T | null; error: unknown }>, fallback: T) {
@@ -278,6 +333,64 @@ export async function getDashboardData(): Promise<DashboardData> {
     supplierPayments: paymentRows as SupplierPayment[],
     panels: panelRows as PanelClaim[]
   }, profile);
+}
+
+function filterBankingDataForProfile(data: BankingData, profile: Awaited<ReturnType<typeof getCurrentProfile>>): BankingData {
+  const filteredBranches = filterBranchesForProfile(data.branches, profile);
+  const branchIds = new Set(filteredBranches.map((branch) => branch.id));
+
+  return {
+    branches: filteredBranches,
+    sales: data.sales.filter((sale) => branchIds.has(sale.branch_id)),
+    bankAccounts: data.bankAccounts.filter((account) => account.is_active),
+    branchBankMappings: data.branchBankMappings.filter((mapping) => branchIds.has(mapping.branch_id) && mapping.is_active),
+    cashBankIns: data.cashBankIns.filter((bankIn) => branchIds.has(bankIn.branch_id))
+  };
+}
+
+export async function getBankingData(): Promise<BankingData> {
+  const profile = await getCurrentProfile();
+  if (!hasSupabaseEnv()) return filterBankingDataForProfile(demoBankingData, profile);
+
+  const supabase = await createClient();
+  const [branchRows, salesRows, bankRows, mappingRows, cashBankInRows] = await Promise.all([
+    fetchOrDemo(supabase.from("branches").select("*").eq("is_active", true).order("name"), demoBankingData.branches),
+    fetchOrDemo(
+      supabase
+        .from("daily_sales")
+        .select("*, branches(name, code)")
+        .order("sale_date", { ascending: false })
+        .limit(1000),
+      demoBankingData.sales
+    ),
+    fetchOrDemo(supabase.from("bank_accounts").select("*").eq("is_active", true).order("name"), demoBankingData.bankAccounts),
+    fetchOrDemo(
+      supabase
+        .from("branch_bank_mappings")
+        .select("*, branches(name, code), bank_accounts(name, bank_name, account_no)")
+        .eq("is_active", true),
+      demoBankingData.branchBankMappings
+    ),
+    fetchOrDemo(
+      supabase
+        .from("cash_bank_ins")
+        .select("*, branches(name, code), bank_accounts(name, bank_name, account_no)")
+        .order("bank_in_date", { ascending: false })
+        .limit(1000),
+      demoBankingData.cashBankIns
+    )
+  ]);
+
+  return filterBankingDataForProfile(
+    {
+      branches: branchRows as Branch[],
+      sales: salesRows as DailySale[],
+      bankAccounts: bankRows as BankAccount[],
+      branchBankMappings: mappingRows as BranchBankMapping[],
+      cashBankIns: cashBankInRows as CashBankIn[]
+    },
+    profile
+  );
 }
 
 export async function getSuppliers() {

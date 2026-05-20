@@ -131,6 +131,40 @@ export type PanelClaim = {
   branches?: Pick<Branch, "name" | "code"> | null;
 };
 
+export type BankAccount = {
+  id: string;
+  name: string;
+  bank_name?: string | null;
+  account_no?: string | null;
+  is_active: boolean;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type BranchBankMapping = {
+  id: string;
+  branch_id: string;
+  bank_account_id: string;
+  is_active: boolean;
+  branches?: Pick<Branch, "name" | "code"> | null;
+  bank_accounts?: Pick<BankAccount, "name" | "bank_name" | "account_no"> | null;
+};
+
+export type CashBankIn = {
+  id: string;
+  branch_id: string;
+  bank_account_id: string;
+  bank_in_date: string;
+  amount: number;
+  reference_no?: string | null;
+  notes?: string | null;
+  entered_by?: string | null;
+  created_at?: string;
+  updated_at?: string;
+  branches?: Pick<Branch, "name" | "code"> | null;
+  bank_accounts?: Pick<BankAccount, "name" | "bank_name" | "account_no"> | null;
+};
+
 export type DashboardData = {
   branches: Branch[];
   sales: DailySale[];
@@ -138,4 +172,12 @@ export type DashboardData = {
   purchases: SupplierPurchase[];
   supplierPayments: SupplierPayment[];
   panels: PanelClaim[];
+};
+
+export type BankingData = {
+  branches: Branch[];
+  sales: DailySale[];
+  bankAccounts: BankAccount[];
+  branchBankMappings: BranchBankMapping[];
+  cashBankIns: CashBankIn[];
 };
