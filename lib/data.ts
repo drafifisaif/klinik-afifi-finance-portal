@@ -1,5 +1,5 @@
 import { hasSupabaseEnv, createClient } from "@/lib/supabase-server";
-import { filterBranchesForProfile, filterDashboardDataForProfile, getCurrentProfile } from "@/lib/permissions";
+import { canViewAllBranches, filterBranchesForProfile, filterDashboardDataForProfile, getCurrentProfile } from "@/lib/permissions";
 import type {
   Branch,
   DailySale,
@@ -290,6 +290,15 @@ export async function getBranches() {
   const profile = await getCurrentProfile();
   if (!hasSupabaseEnv()) return filterBranchesForProfile(branches, profile);
   const supabase = await createClient();
+
+  if (profile?.is_active && !canViewAllBranches(profile) && profile.branch_id) {
+    const assignedBranch = await fetchOrDemo(
+      supabase.from("branches").select("*").eq("id", profile.branch_id).maybeSingle(),
+      null
+    );
+    return assignedBranch ? [assignedBranch as Branch] : [];
+  }
+
   const rows = await fetchOrDemo(supabase.from("branches").select("*").eq("is_active", true).order("name"), branches);
   return filterBranchesForProfile(rows as Branch[], profile);
 }
