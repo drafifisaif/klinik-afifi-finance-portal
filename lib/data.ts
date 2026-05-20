@@ -1,4 +1,5 @@
 import { hasSupabaseEnv, createClient } from "@/lib/supabase-server";
+import { filterBranchesForProfile, filterDashboardDataForProfile, getCurrentProfile } from "@/lib/permissions";
 import type {
   Branch,
   DailySale,
@@ -220,7 +221,8 @@ async function fetchOrDemo<T>(query: PromiseLike<{ data: T | null; error: unknow
 }
 
 export async function getDashboardData(): Promise<DashboardData> {
-  if (!hasSupabaseEnv()) return demoData;
+  const profile = await getCurrentProfile();
+  if (!hasSupabaseEnv()) return filterDashboardDataForProfile(demoData, profile);
 
   const supabase = await createClient();
 
@@ -268,14 +270,14 @@ export async function getDashboardData(): Promise<DashboardData> {
     )
   ]);
 
-  return {
+  return filterDashboardDataForProfile({
     branches: branchRows as Branch[],
     sales: salesRows as DailySale[],
     expenses: expenseRows as Expense[],
     purchases: purchaseRows as SupplierPurchase[],
     supplierPayments: paymentRows as SupplierPayment[],
     panels: panelRows as PanelClaim[]
-  };
+  }, profile);
 }
 
 export async function getSuppliers() {
@@ -285,15 +287,51 @@ export async function getSuppliers() {
 }
 
 export async function getBranches() {
-  if (!hasSupabaseEnv()) return branches;
+  const profile = await getCurrentProfile();
+  if (!hasSupabaseEnv()) return filterBranchesForProfile(branches, profile);
   const supabase = await createClient();
-  return fetchOrDemo(supabase.from("branches").select("*").eq("is_active", true).order("name"), branches);
+  const rows = await fetchOrDemo(supabase.from("branches").select("*").eq("is_active", true).order("name"), branches);
+  return filterBranchesForProfile(rows as Branch[], profile);
 }
 
 export async function getPanelCompanies() {
   if (!hasSupabaseEnv()) return panelCompanies;
   const supabase = await createClient();
   return fetchOrDemo(supabase.from("panel_companies").select("*").order("name"), panelCompanies);
+}
+
+export async function getImportReferenceData() {
+  const profile = await getCurrentProfile();
+  if (!hasSupabaseEnv()) {
+    return {
+      branches: filterBranchesForProfile(branches, profile),
+      suppliers,
+      panelCompanies,
+      purchases
+    };
+  }
+
+  const supabase = await createClient();
+  const [branchRows, supplierRows, panelRows, purchaseRows] = await Promise.all([
+    fetchOrDemo(supabase.from("branches").select("*").eq("is_active", true).order("name"), branches),
+    fetchOrDemo(supabase.from("suppliers").select("*").eq("is_active", true).order("name"), suppliers),
+    fetchOrDemo(supabase.from("panel_companies").select("*").eq("is_active", true).order("name"), panelCompanies),
+    fetchOrDemo(
+      supabase
+        .from("supplier_purchases")
+        .select("*")
+        .order("purchase_date", { ascending: false })
+        .limit(1000),
+      purchases
+    )
+  ]);
+
+  return {
+    branches: filterBranchesForProfile(branchRows as Branch[], profile),
+    suppliers: supplierRows as Supplier[],
+    panelCompanies: panelRows as PanelCompany[],
+    purchases: purchaseRows as SupplierPurchase[]
+  };
 }
 
 export function totalBy<T>(items: T[], getAmount: (item: T) => number) {

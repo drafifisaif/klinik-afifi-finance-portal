@@ -5,11 +5,14 @@ import { ModuleHeader } from "@/components/module-header";
 import { paymentTypes } from "@/lib/constants";
 import { getDashboardData, getSuppliers, totalBy } from "@/lib/data";
 import { formatCurrency, formatDate, labelize } from "@/lib/format";
+import { canViewAllBranches, requirePermission } from "@/lib/permissions";
 import { BadgeCheck, Banknote, CircleDollarSign, Truck } from "lucide-react";
 
 export default async function SupplierPaymentsPage() {
+  const profile = await requirePermission("view_supplier_records");
   const data = await getDashboardData();
   const suppliers = await getSuppliers();
+  const canUseGeneralPayment = canViewAllBranches(profile);
   const purchased = totalBy(data.purchases, (purchase) => purchase.total_amount);
   const paid = totalBy(data.supplierPayments, (payment) => payment.amount);
   const outstanding = purchased - paid;
@@ -68,7 +71,7 @@ export default async function SupplierPaymentsPage() {
           <label>
             Branch
             <select name="branch_id">
-              <option value="">No branch allocation</option>
+              {canUseGeneralPayment ? <option value="">No branch allocation</option> : null}
               {data.branches.map((branch) => (
                 <option key={branch.id} value={branch.id}>
                   {branch.name}

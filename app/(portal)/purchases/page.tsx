@@ -5,11 +5,14 @@ import { ModuleHeader } from "@/components/module-header";
 import { purchaseCategories } from "@/lib/constants";
 import { getDashboardData, getSuppliers, totalBy } from "@/lib/data";
 import { formatCurrency, formatDate, labelize } from "@/lib/format";
+import { hasPermission, requirePermission } from "@/lib/permissions";
 import { ClipboardList, PackagePlus, Pill, TestTube2 } from "lucide-react";
 
 export default async function PurchasesPage() {
+  const profile = await requirePermission("view_supplier_records");
   const data = await getDashboardData();
   const suppliers = await getSuppliers();
+  const canManageMasterData = hasPermission(profile, "view_reports");
   const totalPurchases = totalBy(data.purchases, (purchase) => purchase.total_amount);
   const medicine = totalBy(data.purchases, (purchase) => purchase.medicine_cost);
   const consumables = totalBy(data.purchases, (purchase) => purchase.consumables_cost);
@@ -113,6 +116,7 @@ export default async function PurchasesPage() {
             </button>
           </form>
 
+          {canManageMasterData ? (
           <form action={createSupplier} className="form-card">
             <h2>New supplier</h2>
             <label>
@@ -139,6 +143,7 @@ export default async function PurchasesPage() {
               Add supplier
             </button>
           </form>
+          ) : null}
         </div>
       </section>
     </>

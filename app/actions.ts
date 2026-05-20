@@ -3,7 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient, hasSupabaseEnv } from "@/lib/supabase-server";
-import type { ExpenseCategory, PaymentType, PurchaseCategory } from "@/lib/types";
+import { canEditBranch, canManageTargetProfile, canViewAllBranches, requirePermission } from "@/lib/permissions";
+import type { ExpenseCategory, PaymentType, PurchaseCategory, UserRole } from "@/lib/types";
 
 function text(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -19,6 +20,14 @@ async function getUserId() {
   const supabase = await createClient();
   const { data } = await supabase.auth.getUser();
   return data.user?.id ?? null;
+}
+
+async function requireEditableBranch(branchId: string | null) {
+  const profile = await requirePermission("edit_finance");
+  if (!canEditBranch(profile, branchId)) {
+    throw new Error("You do not have permission to edit records for this branch.");
+  }
+  return profile;
 }
 
 export async function signIn(formData: FormData) {
@@ -45,6 +54,7 @@ export async function signOut() {
 
 export async function createBranch(formData: FormData) {
   if (!hasSupabaseEnv()) return;
+  await requirePermission("manage_branches");
   const supabase = await createClient();
   await supabase.from("branches").insert({
     name: text(formData, "name"),
@@ -57,9 +67,11 @@ export async function createBranch(formData: FormData) {
 
 export async function createDailySale(formData: FormData) {
   if (!hasSupabaseEnv()) return;
+  const branchId = text(formData, "branch_id");
+  await requireEditableBranch(branchId);
   const supabase = await createClient();
   await supabase.from("daily_sales").upsert({
-    branch_id: text(formData, "branch_id"),
+    branch_id: branchId,
     sale_date: text(formData, "sale_date"),
     cash_amount: number(formData, "cash_amount"),
     bank_transfer_amount: number(formData, "bank_transfer_amount"),
@@ -75,9 +87,11 @@ export async function createDailySale(formData: FormData) {
 
 export async function createExpense(formData: FormData) {
   if (!hasSupabaseEnv()) return;
+  const branchId = text(formData, "branch_id");
+  await requireEditableBranch(branchId);
   const supabase = await createClient();
   await supabase.from("expenses").insert({
-    branch_id: text(formData, "branch_id"),
+    branch_id: branchId,
     expense_date: text(formData, "expense_date"),
     category: text(formData, "category") as ExpenseCategory,
     vendor_name: text(formData, "vendor_name"),
@@ -92,6 +106,7 @@ export async function createExpense(formData: FormData) {
 
 export async function createSupplier(formData: FormData) {
   if (!hasSupabaseEnv()) return;
+  await requirePermission("view_reports");
   const supabase = await createClient();
   await supabase.from("suppliers").insert({
     name: text(formData, "name"),
@@ -106,10 +121,12 @@ export async function createSupplier(formData: FormData) {
 
 export async function createSupplierPurchase(formData: FormData) {
   if (!hasSupabaseEnv()) return;
+  const branchId = text(formData, "branch_id");
+  await requireEditableBranch(branchId);
   const supabase = await createClient();
   await supabase.from("supplier_purchases").insert({
     supplier_id: text(formData, "supplier_id"),
-    branch_id: text(formData, "branch_id"),
+    branch_id: branchId,
     invoice_no: text(formData, "invoice_no"),
     purchase_date: text(formData, "purchase_date"),
     due_date: text(formData, "due_date"),
@@ -127,10 +144,31 @@ export async function createSupplierPurchase(formData: FormData) {
 export async function createSupplierPayment(formData: FormData) {
   if (!hasSupabaseEnv()) return;
   const supabase = await createClient();
+  const purchaseId = text(formData, "purchase_id");
+  const submittedBranchId = text(formData, "branch_id");
+  let resolvedBranchId = submittedBranchId;
+
+  if (purchaseId) {
+    const { data: purchase, error } = await supabase
+      .from("supplier_purchases")
+      .select("branch_id")
+      .eq("id", purchaseId)
+      .single();
+
+    if (error || !purchase) throw new Error("Selected supplier purchase was not found.");
+    resolvedBranchId = submittedBranchId ?? purchase.branch_id;
+  }
+
+  const profile = await requirePermission("view_supplier_records");
+  const canRecordPayment = resolvedBranchId ? canEditBranch(profile, resolvedBranchId) : canViewAllBranches(profile);
+  if (!canRecordPayment) {
+    throw new Error("You do not have permission to record supplier payments for this branch.");
+  }
+
   await supabase.from("supplier_payments").insert({
     supplier_id: text(formData, "supplier_id"),
-    purchase_id: text(formData, "purchase_id"),
-    branch_id: text(formData, "branch_id"),
+    purchase_id: purchaseId,
+    branch_id: resolvedBranchId,
     payment_date: text(formData, "payment_date"),
     payment_type: text(formData, "payment_type") as PaymentType,
     amount: number(formData, "amount"),
@@ -144,6 +182,7 @@ export async function createSupplierPayment(formData: FormData) {
 
 export async function createPanelCompany(formData: FormData) {
   if (!hasSupabaseEnv()) return;
+  await requirePermission("view_reports");
   const supabase = await createClient();
   await supabase.from("panel_companies").insert({
     name: text(formData, "name"),
@@ -157,10 +196,12 @@ export async function createPanelCompany(formData: FormData) {
 
 export async function createPanelClaim(formData: FormData) {
   if (!hasSupabaseEnv()) return;
+  const branchId = text(formData, "branch_id");
+  await requireEditableBranch(branchId);
   const supabase = await createClient();
   await supabase.from("panel_claims").insert({
     panel_company_id: text(formData, "panel_company_id"),
-    branch_id: text(formData, "branch_id"),
+    branch_id: branchId,
     claim_no: text(formData, "claim_no"),
     claim_month: text(formData, "claim_month"),
     submitted_date: text(formData, "submitted_date"),
@@ -172,4 +213,42 @@ export async function createPanelClaim(formData: FormData) {
   });
   revalidatePath("/panels");
   revalidatePath("/dashboard");
+}
+
+export async function updateUserProfile(formData: FormData) {
+  if (!hasSupabaseEnv()) return;
+
+  const actor = await requirePermission("manage_users");
+  const targetId = text(formData, "user_id");
+  const nextRole = text(formData, "role") as UserRole | null;
+  const branchId = text(formData, "branch_id");
+  const isActive = formData.get("is_active") === "true";
+
+  if (!targetId || !nextRole) {
+    throw new Error("Missing user or role.");
+  }
+
+  const supabase = await createClient();
+  const { data: target, error: targetError } = await supabase
+    .from("profiles")
+    .select("id, full_name, role, branch_id, is_active")
+    .eq("id", targetId)
+    .single();
+
+  if (targetError || !target) throw new Error("User profile not found.");
+  if (!canManageTargetProfile(actor, target, nextRole)) {
+    throw new Error("You do not have permission to update this user.");
+  }
+
+  const { error } = await supabase
+    .from("profiles")
+    .update({
+      role: nextRole,
+      branch_id: branchId,
+      is_active: isActive
+    })
+    .eq("id", targetId);
+
+  if (error) throw error;
+  revalidatePath("/users");
 }

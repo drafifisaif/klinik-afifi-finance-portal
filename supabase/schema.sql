@@ -494,8 +494,14 @@ drop policy if exists "Admins can manage profiles" on public.profiles;
 create policy "Admins can manage profiles"
 on public.profiles for all
 to authenticated
-using (public.current_user_role() in ('owner', 'admin'))
-with check (public.current_user_role() in ('owner', 'admin'));
+using (
+  public.current_user_role() = 'owner'
+  or (public.current_user_role() = 'admin' and role <> 'owner')
+)
+with check (
+  public.current_user_role() = 'owner'
+  or (public.current_user_role() = 'admin' and role <> 'owner')
+);
 
 drop policy if exists "Branch scoped sales read" on public.daily_sales;
 create policy "Branch scoped sales read"
@@ -586,13 +592,26 @@ drop policy if exists "Branch scoped supplier payments read" on public.supplier_
 create policy "Branch scoped supplier payments read"
 on public.supplier_payments for select
 to authenticated
-using (branch_id is null or public.can_access_branch(branch_id));
+using (
+  public.is_management()
+  or (branch_id is not null and public.can_access_branch(branch_id))
+);
 
 drop policy if exists "Finance can write supplier payments" on public.supplier_payments;
 create policy "Finance can write supplier payments"
 on public.supplier_payments for insert
 to authenticated
-with check ((branch_id is null or public.can_access_branch(branch_id)) and public.current_user_role() in ('owner', 'admin', 'finance'));
+with check (
+  (
+    public.current_user_role() in ('owner', 'admin', 'finance')
+    and (branch_id is null or public.can_access_branch(branch_id))
+  )
+  or (
+    public.current_user_role() = 'branch_pic'
+    and branch_id is not null
+    and branch_id = public.current_user_branch_id()
+  )
+);
 
 drop policy if exists "Authenticated users can read panel companies" on public.panel_companies;
 create policy "Authenticated users can read panel companies"

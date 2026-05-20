@@ -5,9 +5,11 @@ import { ModuleHeader } from "@/components/module-header";
 import { expenseCategories, paymentTypes } from "@/lib/constants";
 import { getDashboardData, totalBy } from "@/lib/data";
 import { formatCurrency, formatDate, labelize } from "@/lib/format";
+import { requirePermission } from "@/lib/permissions";
 import { BadgeDollarSign, Building2, ReceiptText, Wrench } from "lucide-react";
 
 export default async function ExpensesPage() {
+  await requirePermission("edit_finance");
   const data = await getDashboardData();
   const operatingTotal = totalBy(data.expenses, (expense) => expense.amount);
   const salaryTotal = totalBy(

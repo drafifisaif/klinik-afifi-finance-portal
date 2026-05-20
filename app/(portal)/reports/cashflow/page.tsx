@@ -3,9 +3,11 @@ import { MetricCard } from "@/components/metric-card";
 import { ModuleHeader } from "@/components/module-header";
 import { getDashboardData, totalBy } from "@/lib/data";
 import { formatCurrency, monthKey } from "@/lib/format";
+import { requirePermission } from "@/lib/permissions";
 import { Banknote, CircleDollarSign, Receipt, WalletCards } from "lucide-react";
 
 export default async function CashflowPage() {
+  await requirePermission("view_reports");
   const data = await getDashboardData();
   const cashIn = totalBy(data.sales, (sale) => sale.cash_amount + sale.bank_transfer_amount + sale.card_amount + sale.qr_amount);
   const panelExpected = totalBy(

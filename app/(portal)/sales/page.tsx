@@ -4,9 +4,11 @@ import { MetricCard } from "@/components/metric-card";
 import { ModuleHeader } from "@/components/module-header";
 import { getDashboardData, totalBy } from "@/lib/data";
 import { formatCurrency, formatDate } from "@/lib/format";
+import { requirePermission } from "@/lib/permissions";
 import { Banknote, CreditCard, QrCode, ShieldCheck } from "lucide-react";
 
 export default async function SalesPage() {
+  await requirePermission("edit_finance");
   const data = await getDashboardData();
   const cash = totalBy(data.sales, (sale) => sale.cash_amount);
   const transfer = totalBy(data.sales, (sale) => sale.bank_transfer_amount);

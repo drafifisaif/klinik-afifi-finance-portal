@@ -3,9 +3,11 @@ import { MetricCard } from "@/components/metric-card";
 import { ModuleHeader } from "@/components/module-header";
 import { getDashboardData, totalBy } from "@/lib/data";
 import { formatCurrency, monthKey } from "@/lib/format";
+import { requirePermission } from "@/lib/permissions";
 import { BadgeDollarSign, ChartNoAxesCombined, ReceiptText, TrendingUp } from "lucide-react";
 
 export default async function ProfitLossPage() {
+  await requirePermission("view_reports");
   const data = await getDashboardData();
   const revenue = totalBy(data.sales, (sale) => sale.total_amount);
   const expenses = totalBy(data.expenses, (expense) => expense.amount);

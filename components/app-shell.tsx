@@ -2,34 +2,42 @@ import Link from "next/link";
 import { signOut } from "@/app/actions";
 import { APP_NAME } from "@/lib/constants";
 import { getBranches } from "@/lib/data";
+import { getCurrentProfile, hasPermission, type PermissionKey } from "@/lib/permissions";
 import {
   Banknote,
   BarChart3,
   Building2,
   ClipboardList,
   CreditCard,
+  FileUp,
   LayoutDashboard,
   LogOut,
   ReceiptText,
   ShieldCheck,
   Stethoscope,
-  Truck
+  Truck,
+  Users,
+  type LucideIcon
 } from "lucide-react";
 
-const navigation = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/branches", label: "Branches", icon: Building2 },
-  { href: "/sales", label: "Daily Sales", icon: CreditCard },
-  { href: "/expenses", label: "Expenses", icon: ReceiptText },
-  { href: "/purchases", label: "Purchases", icon: ClipboardList },
-  { href: "/suppliers/payments", label: "Supplier Payments", icon: Truck },
-  { href: "/panels", label: "Panel Outstanding", icon: ShieldCheck },
-  { href: "/reports/profit-loss", label: "Profit & Loss", icon: BarChart3 },
-  { href: "/reports/cashflow", label: "Cashflow", icon: Banknote }
+const navigation: { href: string; label: string; icon: LucideIcon; permission: PermissionKey }[] = [
+  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, permission: "view_dashboard" },
+  { href: "/branches", label: "Branches", icon: Building2, permission: "view_branches" },
+  { href: "/sales", label: "Daily Sales", icon: CreditCard, permission: "edit_finance" },
+  { href: "/expenses", label: "Expenses", icon: ReceiptText, permission: "edit_finance" },
+  { href: "/purchases", label: "Purchases", icon: ClipboardList, permission: "view_supplier_records" },
+  { href: "/suppliers/payments", label: "Supplier Payments", icon: Truck, permission: "view_supplier_records" },
+  { href: "/panels", label: "Panel Outstanding", icon: ShieldCheck, permission: "view_panel_records" },
+  { href: "/import", label: "Import Data", icon: FileUp, permission: "import_data" },
+  { href: "/users", label: "Users", icon: Users, permission: "manage_users" },
+  { href: "/reports/profit-loss", label: "Profit & Loss", icon: BarChart3, permission: "view_reports" },
+  { href: "/reports/cashflow", label: "Cashflow", icon: Banknote, permission: "view_reports" }
 ];
 
 export async function AppShell({ children }: { children: React.ReactNode }) {
+  const profile = await getCurrentProfile();
   const branches = await getBranches();
+  const allowedNavigation = navigation.filter((item) => hasPermission(profile, item.permission));
 
   return (
     <div className="shell">
@@ -45,7 +53,7 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
         </Link>
 
         <nav className="nav-list" aria-label="Main navigation">
-          {navigation.map((item) => {
+          {allowedNavigation.map((item) => {
             const Icon = item.icon;
             return (
               <Link className="nav-item" href={item.href} key={item.href}>

@@ -4,11 +4,14 @@ import { MetricCard } from "@/components/metric-card";
 import { ModuleHeader } from "@/components/module-header";
 import { getDashboardData, totalBy } from "@/lib/data";
 import { formatCurrency, formatDate } from "@/lib/format";
+import { requirePermission } from "@/lib/permissions";
 import { ChartNoAxesCombined, CreditCard, ReceiptText, ShieldAlert } from "lucide-react";
 
 export default async function DashboardPage({ searchParams }: { searchParams: Promise<{ branch?: string }> }) {
+  const profile = await requirePermission("view_dashboard");
   const params = await searchParams;
   const data = await getDashboardData();
+  const isLimitedDashboard = profile.role === "staff";
   const selectedBranch = data.branches.find((branch) => branch.id === params.branch);
   const sales = selectedBranch ? data.sales.filter((sale) => sale.branch_id === selectedBranch.id) : data.sales;
   const expenses = selectedBranch ? data.expenses.filter((expense) => expense.branch_id === selectedBranch.id) : data.expenses;
@@ -29,9 +32,17 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     <>
       <ModuleHeader
         eyebrow="Finance overview"
-        title={selectedBranch ? `${selectedBranch.name} finance command center` : "Multi-branch finance command center"}
+        title={
+          isLimitedDashboard
+            ? "Branch dashboard"
+            : selectedBranch
+              ? `${selectedBranch.name} finance command center`
+              : "Multi-branch finance command center"
+        }
         description={
-          selectedBranch
+          isLimitedDashboard
+            ? "A limited branch view for quick sales visibility."
+            : selectedBranch
             ? "Track revenue, operating cost, supplier commitments, and panel receivables for this branch."
             : "Track clinic revenue, operating cost, supplier commitments, and panel receivables across Putatan, Papar, Ranau, and Kinabatangan."
         }
@@ -40,11 +51,16 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       <section className="dashboard-grid" aria-label="Finance metrics">
         <MetricCard icon={CreditCard} label="Daily sales" value={formatCurrency(todaySales)} detail="Latest entered day" />
         <MetricCard icon={ChartNoAxesCombined} label="Monthly sales" value={formatCurrency(totalSales)} detail="All branches" tone="blue" />
-        <MetricCard icon={ReceiptText} label="Expenses" value={formatCurrency(totalExpenses + purchaseCost)} detail="Operating and purchases" tone="amber" />
-        <MetricCard icon={ShieldAlert} label="Panel outstanding" value={formatCurrency(panelOutstanding)} detail="Unpaid and partial claims" tone="rose" />
+        {!isLimitedDashboard ? (
+          <>
+            <MetricCard icon={ReceiptText} label="Expenses" value={formatCurrency(totalExpenses + purchaseCost)} detail="Operating and purchases" tone="amber" />
+            <MetricCard icon={ShieldAlert} label="Panel outstanding" value={formatCurrency(panelOutstanding)} detail="Unpaid and partial claims" tone="rose" />
+          </>
+        ) : null}
       </section>
 
-      <section className="section-grid">
+      {!isLimitedDashboard ? (
+        <section className="section-grid">
         <div className="cards-grid">
           {data.branches.map((branch) => {
             const branchSales = totalBy(
@@ -99,6 +115,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           </dl>
         </aside>
       </section>
+      ) : null}
 
       <section className="mt-section">
         <DataTable

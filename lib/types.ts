@@ -28,6 +28,17 @@ export type Branch = {
   is_active: boolean;
 };
 
+export type Profile = {
+  id: string;
+  full_name: string;
+  role: UserRole;
+  branch_id?: string | null;
+  is_active: boolean;
+  created_at?: string;
+  updated_at?: string;
+  branches?: Pick<Branch, "name" | "code"> | null;
+};
+
 export type DailySale = {
   id: string;
   branch_id: string;

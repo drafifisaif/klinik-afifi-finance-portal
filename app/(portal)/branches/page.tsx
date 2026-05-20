@@ -2,9 +2,12 @@ import { createBranch } from "@/app/actions";
 import { DataTable } from "@/components/data-table";
 import { ModuleHeader } from "@/components/module-header";
 import { getDashboardData } from "@/lib/data";
+import { hasPermission, requirePermission } from "@/lib/permissions";
 
 export default async function BranchesPage() {
+  const profile = await requirePermission("view_branches");
   const data = await getDashboardData();
+  const canManageBranches = hasPermission(profile, "manage_branches");
 
   return (
     <>
@@ -25,6 +28,7 @@ export default async function BranchesPage() {
           ])}
         />
 
+        {canManageBranches ? (
         <form action={createBranch} className="form-card">
           <h2>New branch</h2>
           <label>
@@ -47,6 +51,12 @@ export default async function BranchesPage() {
             Add branch
           </button>
         </form>
+        ) : (
+          <aside className="report-panel">
+            <h2>Branch access</h2>
+            <p className="muted-copy">Your role can view branch information but cannot create or edit branch records.</p>
+          </aside>
+        )}
       </section>
     </>
   );

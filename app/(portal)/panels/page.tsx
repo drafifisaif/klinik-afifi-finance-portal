@@ -4,6 +4,7 @@ import { MetricCard } from "@/components/metric-card";
 import { ModuleHeader } from "@/components/module-header";
 import { getDashboardData, getPanelCompanies, totalBy } from "@/lib/data";
 import { formatCurrency, formatDate, labelize } from "@/lib/format";
+import { hasPermission, requirePermission } from "@/lib/permissions";
 import { Building, CalendarClock, FileClock, ShieldCheck } from "lucide-react";
 
 function StatusPill({ status }: { status: string }) {
@@ -11,8 +12,10 @@ function StatusPill({ status }: { status: string }) {
 }
 
 export default async function PanelsPage() {
+  const profile = await requirePermission("view_panel_records");
   const data = await getDashboardData();
   const panelCompanies = await getPanelCompanies();
+  const canManageMasterData = hasPermission(profile, "view_reports");
   const totalClaims = totalBy(data.panels, (claim) => claim.amount);
   const outstanding = totalBy(
     data.panels.filter((claim) => claim.status !== "paid"),
@@ -110,6 +113,7 @@ export default async function PanelsPage() {
             </button>
           </form>
 
+          {canManageMasterData ? (
           <form action={createPanelCompany} className="form-card">
             <h2>New panel company</h2>
             <label>
@@ -136,6 +140,7 @@ export default async function PanelsPage() {
               Add panel company
             </button>
           </form>
+          ) : null}
         </div>
       </section>
     </>

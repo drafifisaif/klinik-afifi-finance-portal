@@ -11,6 +11,7 @@ app/
     layout.tsx
     dashboard/page.tsx
     branches/page.tsx
+    import/page.tsx
     sales/page.tsx
     expenses/page.tsx
     purchases/page.tsx

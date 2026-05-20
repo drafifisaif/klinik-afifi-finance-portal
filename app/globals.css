@@ -366,6 +366,14 @@ td {
   font-size: 14px;
 }
 
+.table-subtext {
+  color: var(--muted);
+  display: block;
+  font-size: 12px;
+  margin-top: 5px;
+  overflow-wrap: anywhere;
+}
+
 tr:last-child td {
   border-bottom: 0;
 }
@@ -374,6 +382,18 @@ tr:last-child td {
   display: grid;
   gap: 14px;
   padding: 18px;
+}
+
+.inline-form {
+  align-items: center;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(130px, 0.8fr) minmax(150px, 1fr) minmax(110px, 0.7fr) auto;
+  min-width: 620px;
+}
+
+.inline-form .primary-button {
+  min-height: 42px;
 }
 
 .form-grid {
@@ -463,6 +483,69 @@ textarea {
   color: var(--rose);
 }
 
+.import-workspace {
+  display: grid;
+  gap: 18px;
+}
+
+.import-control-panel {
+  display: grid;
+  gap: 18px;
+}
+
+.import-control-panel p {
+  color: var(--muted);
+  line-height: 1.6;
+  margin: 6px 0 0;
+}
+
+.import-template-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.import-template-grid .ghost-button {
+  justify-content: center;
+}
+
+.import-stats {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin: 0;
+}
+
+.import-stats div {
+  background: #f7fbfb;
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.import-stats dd {
+  overflow-wrap: anywhere;
+}
+
+.import-message {
+  background: #eef7f6;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: #2f5555;
+  margin: 0;
+  padding: 12px;
+}
+
+.muted-copy {
+  color: var(--muted);
+  line-height: 1.6;
+  margin: 0;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
 .login-page {
   align-items: center;
   background:
@@ -493,6 +576,33 @@ textarea {
   padding: 10px 12px;
 }
 
+.empty-state {
+  align-items: flex-start;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  display: grid;
+  gap: 18px;
+  max-width: 760px;
+  padding: 28px;
+}
+
+.empty-state .module-header {
+  margin-bottom: 0;
+}
+
+.empty-state-icon {
+  align-items: center;
+  background: #ffe8ed;
+  border-radius: 8px;
+  color: var(--rose);
+  display: inline-flex;
+  height: 52px;
+  justify-content: center;
+  width: 52px;
+}
+
 @media (max-width: 1080px) {
   .shell {
     grid-template-columns: 1fr;
@@ -509,6 +619,8 @@ textarea {
 
   .dashboard-grid,
   .cards-grid,
+  .import-template-grid,
+  .import-stats,
   .section-grid {
     grid-template-columns: 1fr;
   }
