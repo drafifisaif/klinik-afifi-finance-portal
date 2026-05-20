@@ -396,6 +396,54 @@ tr:last-child td {
   min-height: 42px;
 }
 
+.user-management {
+  display: grid;
+  gap: 18px;
+}
+
+.user-filter-panel {
+  align-items: end;
+  display: grid;
+  gap: 14px;
+  grid-template-columns: minmax(260px, 1fr) minmax(180px, 0.35fr) minmax(200px, 0.45fr);
+}
+
+.search-field span {
+  align-items: center;
+  border: 1px solid #cfdedd;
+  border-radius: 8px;
+  display: flex;
+  gap: 8px;
+  min-height: 42px;
+  padding: 0 10px;
+}
+
+.search-field input {
+  border: 0;
+  min-height: 38px;
+  padding: 0;
+  width: 100%;
+}
+
+.search-field input:focus {
+  outline: none;
+}
+
+.user-edit-form {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(170px, 1fr) minmax(130px, 0.6fr) minmax(150px, 0.8fr) minmax(110px, 0.55fr) auto;
+  min-width: 820px;
+}
+
+.user-edit-form label {
+  font-size: 12px;
+}
+
+.user-edit-form .primary-button {
+  align-self: end;
+}
+
 .form-grid {
   display: grid;
   gap: 14px;
@@ -535,6 +583,16 @@ textarea {
   padding: 12px;
 }
 
+.message-success {
+  background: #e0f4f1;
+  color: var(--teal-deep);
+}
+
+.message-error {
+  background: #ffe8ed;
+  color: var(--rose);
+}
+
 .muted-copy {
   color: var(--muted);
   line-height: 1.6;
@@ -621,7 +679,8 @@ button:disabled {
   .cards-grid,
   .import-template-grid,
   .import-stats,
-  .section-grid {
+  .section-grid,
+  .user-filter-panel {
     grid-template-columns: 1fr;
   }
 }

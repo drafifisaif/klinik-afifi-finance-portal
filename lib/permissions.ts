@@ -1,57 +1,16 @@
 import { redirect } from "next/navigation";
 import { createClient, hasSupabaseEnv } from "@/lib/supabase-server";
-import type { Branch, DashboardData, Profile, UserRole } from "@/lib/types";
+import {
+  canManageTargetProfile,
+  canViewAllBranches,
+  hasPermission,
+  isManagementRole,
+  normalizeRole,
+  type PermissionKey
+} from "@/lib/rbac";
+import type { Branch, DashboardData, Profile } from "@/lib/types";
 
-export type PermissionKey =
-  | "view_dashboard"
-  | "view_branches"
-  | "manage_branches"
-  | "manage_users"
-  | "edit_finance"
-  | "delete_records"
-  | "view_supplier_records"
-  | "view_panel_records"
-  | "view_reports"
-  | "import_data"
-  | "view_settings";
-
-export const rolePermissions: Record<UserRole, PermissionKey[]> = {
-  owner: [
-    "view_dashboard",
-    "view_branches",
-    "manage_branches",
-    "manage_users",
-    "edit_finance",
-    "delete_records",
-    "view_supplier_records",
-    "view_panel_records",
-    "view_reports",
-    "import_data",
-    "view_settings"
-  ],
-  admin: [
-    "view_dashboard",
-    "view_branches",
-    "manage_branches",
-    "manage_users",
-    "edit_finance",
-    "view_supplier_records",
-    "view_panel_records",
-    "view_reports",
-    "import_data"
-  ],
-  finance: [
-    "view_dashboard",
-    "view_branches",
-    "edit_finance",
-    "view_supplier_records",
-    "view_panel_records",
-    "view_reports",
-    "import_data"
-  ],
-  branch_pic: ["view_dashboard", "view_branches", "edit_finance", "view_supplier_records", "view_panel_records"],
-  staff: ["view_dashboard"]
-};
+export { canManageTargetProfile, canViewAllBranches, hasPermission, isManagementRole, normalizeRole, type PermissionKey };
 
 export const demoProfile: Profile = {
   id: "demo-owner",
@@ -61,51 +20,17 @@ export const demoProfile: Profile = {
   is_active: true
 };
 
-export function normalizeRole(value: unknown): UserRole {
-  const normalized = String(value ?? "staff")
-    .trim()
-    .toLowerCase()
-    .replace(/[\s-]+/g, "_");
-
-  if (normalized === "owner") return "owner";
-  if (normalized === "admin") return "admin";
-  if (normalized === "finance") return "finance";
-  if (normalized === "branch_pic") return "branch_pic";
-  return "staff";
-}
-
-export function hasPermission(profile: Pick<Profile, "role" | "is_active"> | null, permission: PermissionKey) {
-  if (!profile?.is_active) return false;
-  return rolePermissions[normalizeRole(profile.role)]?.includes(permission) ?? false;
-}
-
-export function isManagementRole(role: UserRole) {
-  const normalized = normalizeRole(role);
-  return normalized === "owner" || normalized === "admin" || normalized === "finance";
-}
-
-export function canViewAllBranches(profile: Pick<Profile, "role" | "is_active"> | null) {
-  return Boolean(profile?.is_active && isManagementRole(profile.role));
-}
-
 export function canEditBranch(profile: Pick<Profile, "role" | "branch_id" | "is_active"> | null, branchId: string | null | undefined) {
   if (!profile?.is_active || !branchId) return false;
   if (hasPermission(profile, "edit_finance") && canViewAllBranches(profile)) return true;
   return normalizeRole(profile.role) === "branch_pic" && profile.branch_id === branchId;
 }
 
-export function canManageTargetProfile(actor: Profile, target: Profile, nextRole?: UserRole) {
-  if (!hasPermission(actor, "manage_users")) return false;
-  if (actor.role === "owner") return true;
-  if (target.role === "owner") return false;
-  if (nextRole === "owner") return false;
-  return actor.role === "admin";
-}
-
 export function normalizeProfileRow(row: unknown): Profile {
   const profile = row as Profile & { branches?: Pick<Branch, "name" | "code"> | Pick<Branch, "name" | "code">[] | null };
   return {
     ...profile,
+    email: profile.email ?? null,
     role: normalizeRole(profile.role),
     branches: Array.isArray(profile.branches) ? profile.branches[0] ?? null : profile.branches ?? null
   };

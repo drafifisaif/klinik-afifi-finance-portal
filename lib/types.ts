@@ -31,6 +31,7 @@ export type Branch = {
 export type Profile = {
   id: string;
   full_name: string;
+  email?: string | null;
   role: UserRole;
   branch_id?: string | null;
   is_active: boolean;

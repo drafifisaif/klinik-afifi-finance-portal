@@ -6,6 +6,7 @@ const demoUsers: Profile[] = [
   {
     id: "demo-owner",
     full_name: "Demo Owner",
+    email: "owner@klinikafifi.local",
     role: "owner",
     branch_id: null,
     is_active: true,
@@ -14,6 +15,7 @@ const demoUsers: Profile[] = [
   {
     id: "demo-branch-pic",
     full_name: "Putatan PIC",
+    email: "putatan.pic@klinikafifi.local",
     role: "branch_pic",
     branch_id: "putatan",
     is_active: true,
@@ -45,11 +47,19 @@ export async function getUserManagementData(): Promise<UserManagementData> {
   }
 
   const supabase = await createClient();
-  const [userRows, branchRows] = await Promise.all([
-    supabase
-      .from("profiles")
-      .select("id, full_name, role, branch_id, is_active, created_at, updated_at, branches(name, code)")
-      .order("full_name"),
+  const usersWithEmail = await supabase
+    .from("profiles")
+    .select("id, full_name, email, role, branch_id, is_active, created_at, updated_at, branches(name, code)")
+    .order("full_name");
+
+  const userRows = usersWithEmail.error?.code === "42703"
+    ? await supabase
+        .from("profiles")
+        .select("id, full_name, role, branch_id, is_active, created_at, updated_at, branches(name, code)")
+        .order("full_name")
+    : usersWithEmail;
+
+  const [branchRows] = await Promise.all([
     supabase.from("branches").select("*").eq("is_active", true).order("name")
   ]);
 

@@ -220,12 +220,13 @@ export async function updateUserProfile(formData: FormData) {
 
   const actor = await requirePermission("manage_users");
   const targetId = text(formData, "user_id");
+  const fullName = text(formData, "full_name");
   const nextRole = text(formData, "role") as UserRole | null;
   const branchId = text(formData, "branch_id");
   const isActive = formData.get("is_active") === "true";
 
-  if (!targetId || !nextRole) {
-    throw new Error("Missing user or role.");
+  if (!targetId || !fullName || !nextRole) {
+    throw new Error("Missing user, name, or role.");
   }
 
   const supabase = await createClient();
@@ -243,6 +244,7 @@ export async function updateUserProfile(formData: FormData) {
   const { error } = await supabase
     .from("profiles")
     .update({
+      full_name: fullName,
       role: nextRole,
       branch_id: branchId,
       is_active: isActive
