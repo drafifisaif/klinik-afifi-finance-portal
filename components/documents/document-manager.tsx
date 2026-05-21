@@ -4,6 +4,7 @@ import { useRef, useState, useTransition } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { deleteTransactionDocument, uploadTransactionDocument } from "@/app/document-actions";
+import { byteSize, userDisplayLabel } from "@/lib/display";
 import type { TransactionDocument, TransactionDocumentEntityName } from "@/lib/types";
 
 const imageTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
@@ -27,13 +28,6 @@ type DocumentManagerProps = {
 
 function extensionlessName(name: string) {
   return name.replace(/\.[^.]+$/, "");
-}
-
-function bytes(value: number | null | undefined) {
-  if (!value && value !== 0) return "-";
-  if (value < 1024) return `${value} B`;
-  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
-  return `${(value / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function dateTime(value: string) {
@@ -175,9 +169,9 @@ export function DocumentManager({ canDelete = false, documents, entityId, entity
                   <div className="document-meta">
                     <strong>{document.file_name}</strong>
                     <span>{document.document_type?.replaceAll("_", " ") ?? "supporting document"}</span>
-                    <span>Uploaded by {document.profiles?.full_name ?? document.uploaded_by ?? "-"}</span>
+                    <span>Uploaded by {userDisplayLabel(document.profiles, document.uploaded_by)}</span>
                     <span>{dateTime(document.created_at)}</span>
-                    <span>Original {bytes(document.file_size_bytes)} / stored {bytes(document.compressed_size_bytes)}</span>
+                    <span>Original {byteSize(document.file_size_bytes)} / stored {byteSize(document.compressed_size_bytes)}</span>
                   </div>
                   <div className="document-links">
                     <a className="ghost-button compact-button" href={`/documents/${document.id}/download`} target="_blank" rel="noreferrer">

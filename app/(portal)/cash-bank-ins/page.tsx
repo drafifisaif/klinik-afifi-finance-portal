@@ -2,6 +2,7 @@ import { createCashBankIn, updateCashBankIn, voidCashBankIn } from "@/app/action
 import { DataTable } from "@/components/data-table";
 import { DocumentManager } from "@/components/documents/document-manager";
 import { ExportCsvLink } from "@/components/export-csv-link";
+import { FinanceRecordDetails } from "@/components/finance-record-details";
 import { MetricCard } from "@/components/metric-card";
 import { ModuleHeader } from "@/components/module-header";
 import {
@@ -15,9 +16,11 @@ import {
   resolveDateRange
 } from "@/lib/bank-reporting";
 import { getBankingData, totalBy } from "@/lib/data";
-import { formatCurrency, formatDate, formatDateTime } from "@/lib/format";
+import { userDisplayLabel } from "@/lib/display";
+import { formatCurrency, formatDate } from "@/lib/format";
 import { hasBankAccountPermission, normalizeRole, requirePermission } from "@/lib/permissions";
 import { getTransactionDocuments } from "@/lib/transaction-documents";
+import { getVisibleProfilesById } from "@/lib/users";
 import { Banknote, Landmark, WalletCards } from "lucide-react";
 
 type CashBankInsSearchParams = {
@@ -47,6 +50,8 @@ export default async function CashBankInsPage({ searchParams }: { searchParams: 
   const bankAccountById = getBankAccountById(data);
   const branchById = getBranchById(data);
   const selectedBankIns = data.cashBankIns.filter((bankIn) => isWithinDateRange(bankIn.bank_in_date, range));
+  const visibleUsers = await getVisibleProfilesById(selectedBankIns.flatMap((bankIn) => [bankIn.entered_by, bankIn.voided_by]));
+  const userById = new Map(visibleUsers.map((user) => [user.id, user]));
   const bankInDocuments = await getTransactionDocuments("cash_bank_ins", selectedBankIns.map((bankIn) => bankIn.id));
   const cashInHandRows = buildCashInHandRows(data, range);
   const totalCashSales = totalBy(cashInHandRows, (row) => row.cashSales);
@@ -179,27 +184,16 @@ export default async function CashBankInsPage({ searchParams }: { searchParams: 
               <span className={`status-pill ${bankIn.is_void ? "status-voided" : "status-paid"}`} key={`${bankIn.id}-status`}>
                 {bankIn.is_void ? "VOIDED" : "Active"}
               </span>,
-              <details className="manual-bank-editor" key={`${bankIn.id}-details`}>
-                <summary>View details</summary>
-                <div className="record-detail-grid">
-                  <div>
-                    <strong>Record ID</strong>
-                    <span>{bankIn.id}</span>
-                  </div>
-                  <div>
-                    <strong>Entered by</strong>
-                    <span>{bankIn.entered_by ?? "-"}</span>
-                  </div>
-                  <div>
-                    <strong>Voided at</strong>
-                    <span>{formatDateTime(bankIn.voided_at)}</span>
-                  </div>
-                  <div>
-                    <strong>Void reason</strong>
-                    <span>{bankIn.void_reason ?? "-"}</span>
-                  </div>
-                </div>
-              </details>,
+              <FinanceRecordDetails
+                enteredBy={userDisplayLabel(userById.get(bankIn.entered_by ?? ""), bankIn.entered_by)}
+                key={`${bankIn.id}-details`}
+                originalSummary={`Cash Bank-In • ${branchLabel(bankIn.branches ?? branchById.get(bankIn.branch_id))} • ${bankAccountLabel(bankIn.bank_accounts ?? bankAccountById.get(bankIn.bank_account_id))} • ${formatDate(bankIn.bank_in_date)} • ${formatCurrency(bankInAmount(bankIn))}`}
+                recordId={bankIn.id}
+                status={bankIn.is_void ? "Voided" : "Active"}
+                voidReason={bankIn.void_reason}
+                voidedAt={bankIn.voided_at}
+                voidedBy={userDisplayLabel(userById.get(bankIn.voided_by ?? ""), bankIn.voided_by)}
+              />,
               canCorrectBankIn ? (
                 <details className="manual-bank-editor" key={`${bankIn.id}-edit`}>
                   <summary>Edit</summary>

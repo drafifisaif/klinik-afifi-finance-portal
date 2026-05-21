@@ -1,17 +1,22 @@
 import { createDailySale, updateDailySale, voidDailySale } from "@/app/actions";
 import { DataTable } from "@/components/data-table";
 import { ExportCsvLink } from "@/components/export-csv-link";
+import { FinanceRecordDetails } from "@/components/finance-record-details";
 import { MetricCard } from "@/components/metric-card";
 import { ModuleHeader } from "@/components/module-header";
 import { isActiveFinancialRecord } from "@/lib/bank-reporting";
 import { getDashboardData, totalBy } from "@/lib/data";
-import { formatCurrency, formatDate, formatDateTime } from "@/lib/format";
+import { userDisplayLabel } from "@/lib/display";
+import { formatCurrency, formatDate } from "@/lib/format";
 import { requirePermission } from "@/lib/permissions";
+import { getVisibleProfilesById } from "@/lib/users";
 import { Banknote, CreditCard, QrCode, ShieldCheck } from "lucide-react";
 
 export default async function SalesPage() {
   await requirePermission("edit_finance");
   const data = await getDashboardData();
+  const visibleUsers = await getVisibleProfilesById(data.sales.flatMap((sale) => [sale.entered_by, sale.voided_by]));
+  const userById = new Map(visibleUsers.map((user) => [user.id, user]));
   const sales = data.sales.filter(isActiveFinancialRecord);
   const cash = totalBy(sales, (sale) => sale.cash_amount);
   const transfer = totalBy(sales, (sale) => sale.bank_transfer_amount);
@@ -53,27 +58,16 @@ export default async function SalesPage() {
               <span className={`status-pill ${sale.is_void ? "status-voided" : "status-paid"}`} key={`${sale.id}-status`}>
                 {sale.is_void ? "VOIDED" : "Active"}
               </span>,
-              <details className="manual-bank-editor" key={`${sale.id}-details`}>
-                <summary>View details</summary>
-                <div className="record-detail-grid">
-                  <div>
-                    <strong>Record ID</strong>
-                    <span>{sale.id}</span>
-                  </div>
-                  <div>
-                    <strong>Entered by</strong>
-                    <span>{sale.entered_by ?? "-"}</span>
-                  </div>
-                  <div>
-                    <strong>Voided at</strong>
-                    <span>{formatDateTime(sale.voided_at)}</span>
-                  </div>
-                  <div>
-                    <strong>Void reason</strong>
-                    <span>{sale.void_reason ?? "-"}</span>
-                  </div>
-                </div>
-              </details>,
+              <FinanceRecordDetails
+                enteredBy={userDisplayLabel(userById.get(sale.entered_by ?? ""), sale.entered_by)}
+                key={`${sale.id}-details`}
+                originalSummary={`Daily Sales • ${sale.branches?.name ?? "-"} • ${formatDate(sale.sale_date)} • ${formatCurrency(sale.total_amount)}`}
+                recordId={sale.id}
+                status={sale.is_void ? "Voided" : "Active"}
+                voidReason={sale.void_reason}
+                voidedAt={sale.voided_at}
+                voidedBy={userDisplayLabel(userById.get(sale.voided_by ?? ""), sale.voided_by)}
+              />,
               !sale.is_void ? (
                 <details className="manual-bank-editor" key={`${sale.id}-edit`}>
                   <summary>Edit</summary>

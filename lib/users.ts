@@ -93,6 +93,27 @@ export async function getUserManagementData(): Promise<UserManagementData> {
   };
 }
 
+export async function getVisibleProfilesById(profileIds: Array<string | null | undefined>) {
+  const ids = [...new Set(profileIds.filter((profileId): profileId is string => Boolean(profileId)))];
+  if (!ids.length) return [];
+  if (!hasSupabaseEnv()) return demoUsers.filter((user) => ids.includes(user.id));
+
+  const supabase = await createClient();
+  const profilesWithEmail = await supabase
+    .from("profiles")
+    .select("id, full_name, email, role, branch_id, is_active")
+    .in("id", ids);
+  const profileRows = profilesWithEmail.error?.code === "42703"
+    ? await supabase
+        .from("profiles")
+        .select("id, full_name, role, branch_id, is_active")
+        .in("id", ids)
+    : profilesWithEmail;
+
+  if (profileRows.error) return [];
+  return (profileRows.data ?? []).map(normalizeProfileRow);
+}
+
 export function editableUserRows(actor: Profile, users: Profile[]) {
   return users.map((user) => ({
     user,

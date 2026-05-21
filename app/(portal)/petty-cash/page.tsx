@@ -2,14 +2,17 @@ import { createPettyCashTransaction, updatePettyCashTransaction, voidPettyCashTr
 import { DataTable } from "@/components/data-table";
 import { DocumentManager } from "@/components/documents/document-manager";
 import { ExportCsvLink } from "@/components/export-csv-link";
+import { FinanceRecordDetails } from "@/components/finance-record-details";
 import { MetricCard } from "@/components/metric-card";
 import { ModuleHeader } from "@/components/module-header";
 import { bankAccountLabel, branchLabel, buildPettyCashBalanceRows, pettyCashAmount } from "@/lib/bank-reporting";
 import { pettyCashCategories, pettyCashTransactionTypes } from "@/lib/constants";
 import { getBankingData, totalBy } from "@/lib/data";
-import { formatCurrency, formatDate, formatDateTime } from "@/lib/format";
+import { userDisplayLabel } from "@/lib/display";
+import { formatCurrency, formatDate } from "@/lib/format";
 import { hasPermission, normalizeRole, requirePermission } from "@/lib/permissions";
 import { getTransactionDocuments } from "@/lib/transaction-documents";
+import { getVisibleProfilesById } from "@/lib/users";
 import type { PettyCashTransaction, PettyCashTransactionType } from "@/lib/types";
 import { Banknote, ReceiptText, WalletCards } from "lucide-react";
 
@@ -35,6 +38,8 @@ export default async function PettyCashPage() {
   const profile = await requirePermission("record_petty_cash");
   const data = await getBankingData();
   const role = normalizeRole(profile.role);
+  const visibleUsers = await getVisibleProfilesById(data.pettyCashTransactions.flatMap((transaction) => [transaction.entered_by, transaction.voided_by]));
+  const userById = new Map(visibleUsers.map((user) => [user.id, user]));
   const pettyCashDocuments = await getTransactionDocuments("petty_cash_transactions", data.pettyCashTransactions.map((transaction) => transaction.id));
   const balanceRows = buildPettyCashBalanceRows(data);
   const typeOptions = role === "owner"
@@ -161,7 +166,7 @@ export default async function PettyCashPage() {
               pettyCashTypeLabel(transaction.transaction_type),
               pettyCashCategoryLabel(transaction.category),
               entryAmount(transaction),
-              transaction.profiles?.full_name ?? transaction.entered_by ?? "-",
+              userDisplayLabel(userById.get(transaction.entered_by ?? "") ?? transaction.profiles, transaction.entered_by),
               transaction.reference_no ?? "-",
               transaction.description ?? "-",
               <DocumentManager
@@ -174,27 +179,16 @@ export default async function PettyCashPage() {
               <span className={`status-pill ${transaction.is_void ? "status-voided" : "status-paid"}`} key={`${transaction.id}-status`}>
                 {transaction.is_void ? "VOIDED" : "Active"}
               </span>,
-              <details className="manual-bank-editor" key={`${transaction.id}-details`}>
-                <summary>View details</summary>
-                <div className="record-detail-grid">
-                  <div>
-                    <strong>Record ID</strong>
-                    <span>{transaction.id}</span>
-                  </div>
-                  <div>
-                    <strong>Bank account</strong>
-                    <span>{bankAccountLabel(transaction.bank_accounts)}</span>
-                  </div>
-                  <div>
-                    <strong>Voided at</strong>
-                    <span>{formatDateTime(transaction.voided_at)}</span>
-                  </div>
-                  <div>
-                    <strong>Void reason</strong>
-                    <span>{transaction.void_reason ?? "-"}</span>
-                  </div>
-                </div>
-              </details>,
+              <FinanceRecordDetails
+                enteredBy={userDisplayLabel(userById.get(transaction.entered_by ?? "") ?? transaction.profiles, transaction.entered_by)}
+                key={`${transaction.id}-details`}
+                originalSummary={`Petty Cash • ${branchLabel(transaction.branches)} • ${bankAccountLabel(transaction.bank_accounts)} • ${formatDate(transaction.transaction_date)} • ${entryAmount(transaction)}`}
+                recordId={transaction.id}
+                status={transaction.is_void ? "Voided" : "Active"}
+                voidReason={transaction.void_reason}
+                voidedAt={transaction.voided_at}
+                voidedBy={userDisplayLabel(userById.get(transaction.voided_by ?? ""), transaction.voided_by)}
+              />,
               canCorrectTransaction ? (
                 <details className="manual-bank-editor" key={`${transaction.id}-edit`}>
                   <summary>Edit</summary>

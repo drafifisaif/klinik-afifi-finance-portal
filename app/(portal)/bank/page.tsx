@@ -9,6 +9,7 @@ import {
 import { DataTable } from "@/components/data-table";
 import { DocumentManager } from "@/components/documents/document-manager";
 import { ExportCsvLink } from "@/components/export-csv-link";
+import { FinanceRecordDetails } from "@/components/finance-record-details";
 import { MetricCard } from "@/components/metric-card";
 import { ModuleHeader } from "@/components/module-header";
 import { bankMoneyOutCategories, bankTransactionTypes } from "@/lib/constants";
@@ -31,10 +32,11 @@ import {
   signedBankTransactionAmount
 } from "@/lib/bank-reporting";
 import { getBankingDataForScope, totalBy } from "@/lib/data";
-import { formatCurrency, formatDate, formatDateTime } from "@/lib/format";
+import { userDisplayLabel } from "@/lib/display";
+import { formatCurrency, formatDate } from "@/lib/format";
 import { canManageBankPermissions, hasBankAccountPermission, normalizeRole, requireBankPositionAccess } from "@/lib/permissions";
 import { getTransactionDocuments } from "@/lib/transaction-documents";
-import { getUserManagementData } from "@/lib/users";
+import { getUserManagementData, getVisibleProfilesById } from "@/lib/users";
 import type { BankTransaction, BankTransactionType, PettyCashTransaction } from "@/lib/types";
 import { Banknote, CreditCard, Landmark, ReceiptText, WalletCards } from "lucide-react";
 
@@ -161,6 +163,8 @@ export default async function BankPage({ searchParams }: { searchParams: Promise
   const bankTransactionHistory = data.bankTransactions.filter((transaction) => {
     return isWithinDateRange(transaction.transaction_date, range) && transactionMatchesScope(transaction);
   });
+  const visibleUsers = await getVisibleProfilesById(bankTransactionHistory.flatMap((transaction) => [transaction.entered_by, transaction.voided_by]));
+  const userById = new Map(visibleUsers.map((user) => [user.id, user]));
   const bankTransactionDocuments = await getTransactionDocuments("bank_transactions", bankTransactionHistory.map((transaction) => transaction.id));
   const selectedBankTransactions = bankTransactionHistory.filter(isActiveFinancialRecord);
   const pettyCashMatchesScope = (transaction: PettyCashTransaction) => {
@@ -694,27 +698,16 @@ export default async function BankPage({ searchParams }: { searchParams: Promise
               <span className={`status-pill ${transaction.is_void ? "status-voided" : "status-paid"}`} key={`${transaction.id}-status`}>
                 {transaction.is_void ? "VOIDED" : "Active"}
               </span>,
-              <details className="manual-bank-editor" key={`${transaction.id}-details`}>
-                <summary>View details</summary>
-                <div className="record-detail-grid">
-                  <div>
-                    <strong>Record ID</strong>
-                    <span>{transaction.id}</span>
-                  </div>
-                  <div>
-                    <strong>Entered by</strong>
-                    <span>{transaction.entered_by ?? "-"}</span>
-                  </div>
-                  <div>
-                    <strong>Voided at</strong>
-                    <span>{formatDateTime(transaction.voided_at)}</span>
-                  </div>
-                  <div>
-                    <strong>Void reason</strong>
-                    <span>{transaction.void_reason ?? "-"}</span>
-                  </div>
-                </div>
-              </details>,
+              <FinanceRecordDetails
+                enteredBy={userDisplayLabel(userById.get(transaction.entered_by ?? ""), transaction.entered_by)}
+                key={`${transaction.id}-details`}
+                originalSummary={`Bank Transaction • ${bankAccountLabel(transaction.bank_accounts ?? bankAccountById.get(transaction.bank_account_id))} • ${branchLabel(transaction.branches ?? (transaction.branch_id ? branchById.get(transaction.branch_id) : null))} • ${formatDate(transaction.transaction_date)} • ${formatCurrency(bankTransactionAmount(transaction))}`}
+                recordId={transaction.id}
+                status={transaction.is_void ? "Voided" : "Active"}
+                voidReason={transaction.void_reason}
+                voidedAt={transaction.voided_at}
+                voidedBy={userDisplayLabel(userById.get(transaction.voided_by ?? ""), transaction.voided_by)}
+              />,
               canCorrectTransaction ? (
                 <details className="manual-bank-editor" key={`${transaction.id}-edit`}>
                   <summary>Edit</summary>
