@@ -119,88 +119,95 @@ export function DocumentManager({ canDelete = false, documents, entityId, entity
   }
 
   return (
-    <details className="document-manager">
-      <summary>
-        <span className={`status-pill ${documents.length ? "status-paid" : "status-unpaid"}`}>{status}</span>
-        <span>View documents</span>
-      </summary>
-      <div className="document-panel">
-        <form action={uploadSelectedDocuments} className="document-upload-form">
-          <strong>Upload document</strong>
-          <label>
-            Document type
-            <select defaultValue="supporting_document" name="document_type">
-              {documentTypes.map((type) => (
-                <option key={type.value} value={type.value}>
-                  {type.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Files
-            <input accept="application/pdf,image/jpeg,image/png,image/webp" multiple name="files" ref={fileInput} type="file" />
-          </label>
-          <label>
-            Notes
-            <textarea name="notes" placeholder="Optional document note" />
-          </label>
-          <button className="primary-button compact-button" disabled={isPending} type="submit">
-            Upload document
-          </button>
-          {message ? <p className="document-message">{message}</p> : null}
-        </form>
+    <div className="document-manager">
+      <span className={`status-pill ${documents.length ? "status-paid" : "status-unpaid"}`}>{status}</span>
+      <div className="document-actions">
+        <details className="document-action">
+          <summary className="ghost-button compact-button">Upload Document</summary>
+          <div className="document-panel">
+            <form action={uploadSelectedDocuments} className="document-upload-form">
+              <strong>Upload document</strong>
+              <label>
+                Document type
+                <select defaultValue="supporting_document" name="document_type">
+                  {documentTypes.map((type) => (
+                    <option key={type.value} value={type.value}>
+                      {type.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Files
+                <input accept="application/pdf,image/jpeg,image/png,image/webp" multiple name="files" ref={fileInput} type="file" />
+              </label>
+              <label>
+                Notes
+                <textarea name="notes" placeholder="Optional document note" />
+              </label>
+              <button className="primary-button compact-button" disabled={isPending} type="submit">
+                Upload document
+              </button>
+              {message ? <p className="document-message">{message}</p> : null}
+            </form>
+          </div>
+        </details>
 
-        <div className="document-list">
-          {documents.length ? documents.map((document) => (
-            <article className="document-item" key={document.id}>
-              {isImage(document) ? (
-                <a href={`/documents/${document.id}/download`} target="_blank" rel="noreferrer">
-                  {/* Signed download route keeps storage private. */}
-                  <Image
-                    alt={document.file_name}
-                    className="document-preview"
-                    height={160}
-                    src={`/documents/${document.id}/download`}
-                    unoptimized
-                    width={220}
-                  />
-                </a>
-              ) : null}
-              <div className="document-meta">
-                <strong>{document.file_name}</strong>
-                <span>{document.document_type?.replaceAll("_", " ") ?? "supporting document"}</span>
-                <span>Uploaded by {document.profiles?.full_name ?? document.uploaded_by ?? "-"}</span>
-                <span>{dateTime(document.created_at)}</span>
-                <span>Original {bytes(document.file_size_bytes)} / stored {bytes(document.compressed_size_bytes)}</span>
-              </div>
-              <div className="document-links">
-                <a className="ghost-button compact-button" href={`/documents/${document.id}/download`} target="_blank" rel="noreferrer">
-                  {document.mime_type === "application/pdf" ? "Open PDF" : "View document"}
-                </a>
-                <a className="ghost-button compact-button" href={`/documents/${document.id}/download?download=1`}>
-                  Download document
-                </a>
-              </div>
-              {canDelete ? (
-                <details className="document-delete">
-                  <summary>Delete document</summary>
-                  <form action={deleteTransactionDocument}>
-                    <input name="document_id" type="hidden" value={document.id} />
-                    <label>
-                      Delete reason
-                      <textarea name="delete_reason" required />
-                    </label>
-                    <button className="primary-button compact-button" type="submit">
-                      Remove document
-                    </button>
-                  </form>
-                </details>
-              ) : null}
-            </article>
-          )) : <p className="muted-copy">No document uploaded.</p>}
-        </div>
+        <details className="document-action">
+          <summary className="ghost-button compact-button">View Documents</summary>
+          <div className="document-panel">
+            <div className="document-list">
+              {documents.length ? documents.map((document) => (
+                <article className="document-item" key={document.id}>
+                  {isImage(document) ? (
+                    <a href={`/documents/${document.id}/download`} target="_blank" rel="noreferrer">
+                      {/* Signed download route keeps storage private. */}
+                      <Image
+                        alt={document.file_name}
+                        className="document-preview"
+                        height={160}
+                        src={`/documents/${document.id}/download`}
+                        unoptimized
+                        width={220}
+                      />
+                    </a>
+                  ) : null}
+                  <div className="document-meta">
+                    <strong>{document.file_name}</strong>
+                    <span>{document.document_type?.replaceAll("_", " ") ?? "supporting document"}</span>
+                    <span>Uploaded by {document.profiles?.full_name ?? document.uploaded_by ?? "-"}</span>
+                    <span>{dateTime(document.created_at)}</span>
+                    <span>Original {bytes(document.file_size_bytes)} / stored {bytes(document.compressed_size_bytes)}</span>
+                  </div>
+                  <div className="document-links">
+                    <a className="ghost-button compact-button" href={`/documents/${document.id}/download`} target="_blank" rel="noreferrer">
+                      {document.mime_type === "application/pdf" ? "Open PDF" : "View document"}
+                    </a>
+                    <a className="ghost-button compact-button" href={`/documents/${document.id}/download?download=1`}>
+                      Download document
+                    </a>
+                  </div>
+                  {canDelete ? (
+                    <details className="document-delete">
+                      <summary>Delete document</summary>
+                      <form action={deleteTransactionDocument}>
+                        <input name="document_id" type="hidden" value={document.id} />
+                        <label>
+                          Delete reason
+                          <textarea name="delete_reason" required />
+                        </label>
+                        <button className="primary-button compact-button" type="submit">
+                          Remove document
+                        </button>
+                      </form>
+                    </details>
+                  ) : null}
+                </article>
+              )) : <p className="muted-copy">No document uploaded.</p>}
+            </div>
+          </div>
+        </details>
       </div>
-    </details>
+    </div>
   );
 }

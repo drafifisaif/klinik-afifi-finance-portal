@@ -758,17 +758,25 @@ tr:last-child td {
 }
 
 .document-manager {
+  display: grid;
+  gap: 8px;
   min-width: 300px;
 }
 
-.document-manager summary {
+.document-actions {
   align-items: center;
-  color: var(--teal-deep);
-  cursor: pointer;
-  display: inline-flex;
-  font-size: 13px;
-  font-weight: 750;
+  display: flex;
+  flex-wrap: wrap;
   gap: 8px;
+}
+
+.document-action summary {
+  list-style: none;
+  width: fit-content;
+}
+
+.document-action summary::-webkit-details-marker {
+  display: none;
 }
 
 .document-panel {
