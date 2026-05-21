@@ -1,18 +1,22 @@
 import { createSupplier, createSupplierPurchase } from "@/app/actions";
 import { DataTable } from "@/components/data-table";
+import { DocumentManager } from "@/components/documents/document-manager";
 import { MetricCard } from "@/components/metric-card";
 import { ModuleHeader } from "@/components/module-header";
 import { purchaseCategories } from "@/lib/constants";
 import { getDashboardData, getSuppliers, totalBy } from "@/lib/data";
 import { formatCurrency, formatDate, labelize } from "@/lib/format";
-import { hasPermission, requirePermission } from "@/lib/permissions";
+import { hasPermission, normalizeRole, requirePermission } from "@/lib/permissions";
+import { getTransactionDocuments } from "@/lib/transaction-documents";
 import { ClipboardList, PackagePlus, Pill, TestTube2 } from "lucide-react";
 
 export default async function PurchasesPage() {
   const profile = await requirePermission("view_supplier_records");
   const data = await getDashboardData();
   const suppliers = await getSuppliers();
+  const purchaseDocuments = await getTransactionDocuments("supplier_purchases", data.purchases.map((purchase) => purchase.id));
   const canManageMasterData = hasPermission(profile, "view_reports");
+  const canDeleteDocuments = normalizeRole(profile.role) !== "branch_pic";
   const totalPurchases = totalBy(data.purchases, (purchase) => purchase.total_amount);
   const medicine = totalBy(data.purchases, (purchase) => purchase.medicine_cost);
   const consumables = totalBy(data.purchases, (purchase) => purchase.consumables_cost);
@@ -34,7 +38,7 @@ export default async function PurchasesPage() {
 
       <section className="section-grid">
         <DataTable
-          columns={["Date", "Branch", "Supplier", "Invoice", "Category", "Medicine", "Consumables", "Other", "Total"]}
+          columns={["Date", "Branch", "Supplier", "Invoice", "Category", "Medicine", "Consumables", "Other", "Total", "Documents"]}
           rows={data.purchases.map((purchase) => [
             formatDate(purchase.purchase_date),
             purchase.branches?.name ?? "-",
@@ -44,7 +48,14 @@ export default async function PurchasesPage() {
             formatCurrency(purchase.medicine_cost),
             formatCurrency(purchase.consumables_cost),
             formatCurrency(purchase.other_cost),
-            formatCurrency(purchase.total_amount)
+            formatCurrency(purchase.total_amount),
+            <DocumentManager
+              canDelete={canDeleteDocuments}
+              documents={purchaseDocuments.get(purchase.id) ?? []}
+              entityId={purchase.id}
+              entityName="supplier_purchases"
+              key={`${purchase.id}-documents`}
+            />
           ])}
         />
 

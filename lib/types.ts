@@ -1,6 +1,14 @@
 export type UserRole = "owner" | "admin" | "finance" | "branch_pic" | "staff";
 
-export type AuditAction = "create" | "update" | "void" | "delete" | "role_change" | "permission_change";
+export type AuditAction =
+  | "create"
+  | "update"
+  | "void"
+  | "delete"
+  | "document_upload"
+  | "document_delete"
+  | "role_change"
+  | "permission_change";
 
 export type AuditSnapshot = Record<string, unknown>;
 
@@ -271,6 +279,37 @@ export type AuditEvent = {
   created_at: string;
   branches?: Pick<Branch, "name" | "code"> | null;
   bank_accounts?: Pick<BankAccount, "name" | "bank_name" | "account_no"> | null;
+  profiles?: Pick<Profile, "full_name"> | null;
+};
+
+export type TransactionDocumentEntityName =
+  | "expenses"
+  | "supplier_purchases"
+  | "supplier_payments"
+  | "cash_bank_ins"
+  | "panel_claims"
+  | "panel_payments"
+  | "bank_transactions"
+  | "petty_cash_transactions";
+
+export type TransactionDocument = {
+  id: string;
+  entity_name: TransactionDocumentEntityName;
+  entity_id: string;
+  branch_id?: string | null;
+  bank_account_id?: string | null;
+  document_type?: string | null;
+  file_name: string;
+  file_path: string;
+  file_size_bytes?: number | null;
+  compressed_size_bytes?: number | null;
+  mime_type?: string | null;
+  notes?: string | null;
+  uploaded_by?: string | null;
+  created_at: string;
+  deleted_at?: string | null;
+  deleted_by?: string | null;
+  delete_reason?: string | null;
   profiles?: Pick<Profile, "full_name"> | null;
 };
 

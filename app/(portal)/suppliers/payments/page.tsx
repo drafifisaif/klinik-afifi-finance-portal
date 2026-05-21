@@ -1,18 +1,22 @@
 import { createSupplierPayment } from "@/app/actions";
 import { DataTable } from "@/components/data-table";
+import { DocumentManager } from "@/components/documents/document-manager";
 import { MetricCard } from "@/components/metric-card";
 import { ModuleHeader } from "@/components/module-header";
 import { paymentTypes } from "@/lib/constants";
 import { getDashboardData, getSuppliers, totalBy } from "@/lib/data";
 import { formatCurrency, formatDate, labelize } from "@/lib/format";
-import { canViewAllBranches, requirePermission } from "@/lib/permissions";
+import { canViewAllBranches, normalizeRole, requirePermission } from "@/lib/permissions";
+import { getTransactionDocuments } from "@/lib/transaction-documents";
 import { BadgeCheck, Banknote, CircleDollarSign, Truck } from "lucide-react";
 
 export default async function SupplierPaymentsPage() {
   const profile = await requirePermission("view_supplier_records");
   const data = await getDashboardData();
   const suppliers = await getSuppliers();
+  const paymentDocuments = await getTransactionDocuments("supplier_payments", data.supplierPayments.map((payment) => payment.id));
   const canUseGeneralPayment = canViewAllBranches(profile);
+  const canDeleteDocuments = normalizeRole(profile.role) !== "branch_pic";
   const purchased = totalBy(data.purchases, (purchase) => purchase.total_amount);
   const paid = totalBy(data.supplierPayments, (payment) => payment.amount);
   const outstanding = purchased - paid;
@@ -34,14 +38,21 @@ export default async function SupplierPaymentsPage() {
 
       <section className="section-grid">
         <DataTable
-          columns={["Date", "Supplier", "Branch", "Method", "Reference", "Amount"]}
+          columns={["Date", "Supplier", "Branch", "Method", "Reference", "Amount", "Documents"]}
           rows={data.supplierPayments.map((payment) => [
             formatDate(payment.payment_date),
             payment.suppliers?.name ?? "-",
             payment.branches?.name ?? "-",
             labelize(payment.payment_type),
             payment.reference_no ?? "-",
-            formatCurrency(payment.amount)
+            formatCurrency(payment.amount),
+            <DocumentManager
+              canDelete={canDeleteDocuments}
+              documents={paymentDocuments.get(payment.id) ?? []}
+              entityId={payment.id}
+              entityName="supplier_payments"
+              key={`${payment.id}-documents`}
+            />
           ])}
         />
 

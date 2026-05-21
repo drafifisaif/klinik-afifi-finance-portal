@@ -7,6 +7,7 @@ import {
   upsertBankAccountPermission
 } from "@/app/actions";
 import { DataTable } from "@/components/data-table";
+import { DocumentManager } from "@/components/documents/document-manager";
 import { ExportCsvLink } from "@/components/export-csv-link";
 import { MetricCard } from "@/components/metric-card";
 import { ModuleHeader } from "@/components/module-header";
@@ -32,6 +33,7 @@ import {
 import { getBankingDataForScope, totalBy } from "@/lib/data";
 import { formatCurrency, formatDate, formatDateTime } from "@/lib/format";
 import { canManageBankPermissions, hasBankAccountPermission, normalizeRole, requireBankPositionAccess } from "@/lib/permissions";
+import { getTransactionDocuments } from "@/lib/transaction-documents";
 import { getUserManagementData } from "@/lib/users";
 import type { BankTransaction, BankTransactionType, PettyCashTransaction } from "@/lib/types";
 import { Banknote, CreditCard, Landmark, ReceiptText, WalletCards } from "lucide-react";
@@ -159,6 +161,7 @@ export default async function BankPage({ searchParams }: { searchParams: Promise
   const bankTransactionHistory = data.bankTransactions.filter((transaction) => {
     return isWithinDateRange(transaction.transaction_date, range) && transactionMatchesScope(transaction);
   });
+  const bankTransactionDocuments = await getTransactionDocuments("bank_transactions", bankTransactionHistory.map((transaction) => transaction.id));
   const selectedBankTransactions = bankTransactionHistory.filter(isActiveFinancialRecord);
   const pettyCashMatchesScope = (transaction: PettyCashTransaction) => {
     return (selectedBankAccountId === "all" || transaction.bank_account_id === selectedBankAccountId)
@@ -663,7 +666,7 @@ export default async function BankPage({ searchParams }: { searchParams: Promise
       <section className="table-section mt-section">
         <h2>Manual bank transactions</h2>
         <DataTable
-          columns={["Date", "Bank account", "Type", "Direction", "Related bank", "Category", "Branch", "Amount", "Description", "Reference", "Status", "View details", "Edit", "Void"]}
+          columns={["Date", "Bank account", "Type", "Direction", "Related bank", "Category", "Branch", "Amount", "Description", "Reference", "Documents", "Status", "View details", "Edit", "Void"]}
           rows={bankTransactionHistory.map((transaction) => {
             const branchPicOwnBranch = normalizeRole(profile.role) !== "branch_pic" || transaction.branch_id === profile.branch_id;
             const canCorrectTransaction = branchPicOwnBranch
@@ -681,6 +684,13 @@ export default async function BankPage({ searchParams }: { searchParams: Promise
               formatCurrency(bankTransactionAmount(transaction)),
               transaction.description ?? "-",
               transaction.reference_no ?? "-",
+              <DocumentManager
+                canDelete={normalizeRole(profile.role) !== "branch_pic"}
+                documents={bankTransactionDocuments.get(transaction.id) ?? []}
+                entityId={transaction.id}
+                entityName="bank_transactions"
+                key={`${transaction.id}-documents`}
+              />,
               <span className={`status-pill ${transaction.is_void ? "status-voided" : "status-paid"}`} key={`${transaction.id}-status`}>
                 {transaction.is_void ? "VOIDED" : "Active"}
               </span>,

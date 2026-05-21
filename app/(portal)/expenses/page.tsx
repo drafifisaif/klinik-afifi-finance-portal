@@ -1,17 +1,21 @@
 import { createExpense } from "@/app/actions";
 import { DataTable } from "@/components/data-table";
+import { DocumentManager } from "@/components/documents/document-manager";
 import { ExportCsvLink } from "@/components/export-csv-link";
 import { MetricCard } from "@/components/metric-card";
 import { ModuleHeader } from "@/components/module-header";
 import { expenseCategories, paymentTypes } from "@/lib/constants";
 import { getDashboardData, totalBy } from "@/lib/data";
 import { formatCurrency, formatDate, labelize } from "@/lib/format";
-import { requirePermission } from "@/lib/permissions";
+import { normalizeRole, requirePermission } from "@/lib/permissions";
+import { getTransactionDocuments } from "@/lib/transaction-documents";
 import { BadgeDollarSign, Building2, ReceiptText, Wrench } from "lucide-react";
 
 export default async function ExpensesPage() {
-  await requirePermission("edit_finance");
+  const profile = await requirePermission("edit_finance");
   const data = await getDashboardData();
+  const expenseDocuments = await getTransactionDocuments("expenses", data.expenses.map((expense) => expense.id));
+  const canDeleteDocuments = normalizeRole(profile.role) !== "branch_pic";
   const operatingTotal = totalBy(data.expenses, (expense) => expense.amount);
   const salaryTotal = totalBy(
     data.expenses.filter((expense) => expense.category === "salary"),
@@ -44,7 +48,7 @@ export default async function ExpensesPage() {
             <ExportCsvLink label="Export expenses CSV" report="expenses" />
           </div>
           <DataTable
-            columns={["Date", "Branch", "Category", "Vendor", "Description", "Payment", "Amount"]}
+            columns={["Date", "Branch", "Category", "Vendor", "Description", "Payment", "Amount", "Documents"]}
             rows={data.expenses.map((expense) => [
               formatDate(expense.expense_date),
               expense.branches?.name ?? "-",
@@ -52,7 +56,14 @@ export default async function ExpensesPage() {
               expense.vendor_name ?? "-",
               expense.description,
               labelize(expense.payment_type),
-              formatCurrency(expense.amount)
+              formatCurrency(expense.amount),
+              <DocumentManager
+                canDelete={canDeleteDocuments}
+                documents={expenseDocuments.get(expense.id) ?? []}
+                entityId={expense.id}
+                entityName="expenses"
+                key={`${expense.id}-documents`}
+              />
             ])}
           />
         </div>

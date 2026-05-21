@@ -1,5 +1,6 @@
 import { createPettyCashTransaction, updatePettyCashTransaction, voidPettyCashTransaction } from "@/app/actions";
 import { DataTable } from "@/components/data-table";
+import { DocumentManager } from "@/components/documents/document-manager";
 import { ExportCsvLink } from "@/components/export-csv-link";
 import { MetricCard } from "@/components/metric-card";
 import { ModuleHeader } from "@/components/module-header";
@@ -8,6 +9,7 @@ import { pettyCashCategories, pettyCashTransactionTypes } from "@/lib/constants"
 import { getBankingData, totalBy } from "@/lib/data";
 import { formatCurrency, formatDate, formatDateTime } from "@/lib/format";
 import { hasPermission, normalizeRole, requirePermission } from "@/lib/permissions";
+import { getTransactionDocuments } from "@/lib/transaction-documents";
 import type { PettyCashTransaction, PettyCashTransactionType } from "@/lib/types";
 import { Banknote, ReceiptText, WalletCards } from "lucide-react";
 
@@ -33,6 +35,7 @@ export default async function PettyCashPage() {
   const profile = await requirePermission("record_petty_cash");
   const data = await getBankingData();
   const role = normalizeRole(profile.role);
+  const pettyCashDocuments = await getTransactionDocuments("petty_cash_transactions", data.pettyCashTransactions.map((transaction) => transaction.id));
   const balanceRows = buildPettyCashBalanceRows(data);
   const typeOptions = role === "owner"
     ? pettyCashTransactionTypes
@@ -148,7 +151,7 @@ export default async function PettyCashPage() {
           <ExportCsvLink label="Export ledger CSV" report="petty-cash" />
         </div>
         <DataTable
-          columns={["Date", "Branch", "Transaction type", "Category", "Amount", "Entered by", "Reference", "Notes", "Status", "View details", "Edit", "Void"]}
+          columns={["Date", "Branch", "Transaction type", "Category", "Amount", "Entered by", "Reference", "Notes", "Documents", "Status", "View details", "Edit", "Void"]}
           rows={data.pettyCashTransactions.map((transaction) => {
             const canCorrectTransaction = canEditPettyCash && !transaction.is_void;
 
@@ -161,6 +164,13 @@ export default async function PettyCashPage() {
               transaction.profiles?.full_name ?? transaction.entered_by ?? "-",
               transaction.reference_no ?? "-",
               transaction.description ?? "-",
+              <DocumentManager
+                canDelete={role !== "branch_pic"}
+                documents={pettyCashDocuments.get(transaction.id) ?? []}
+                entityId={transaction.id}
+                entityName="petty_cash_transactions"
+                key={`${transaction.id}-documents`}
+              />,
               <span className={`status-pill ${transaction.is_void ? "status-voided" : "status-paid"}`} key={`${transaction.id}-status`}>
                 {transaction.is_void ? "VOIDED" : "Active"}
               </span>,

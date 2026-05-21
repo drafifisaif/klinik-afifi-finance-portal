@@ -1,5 +1,6 @@
 import { createCashBankIn, updateCashBankIn, voidCashBankIn } from "@/app/actions";
 import { DataTable } from "@/components/data-table";
+import { DocumentManager } from "@/components/documents/document-manager";
 import { ExportCsvLink } from "@/components/export-csv-link";
 import { MetricCard } from "@/components/metric-card";
 import { ModuleHeader } from "@/components/module-header";
@@ -16,6 +17,7 @@ import {
 import { getBankingData, totalBy } from "@/lib/data";
 import { formatCurrency, formatDate, formatDateTime } from "@/lib/format";
 import { hasBankAccountPermission, normalizeRole, requirePermission } from "@/lib/permissions";
+import { getTransactionDocuments } from "@/lib/transaction-documents";
 import { Banknote, Landmark, WalletCards } from "lucide-react";
 
 type CashBankInsSearchParams = {
@@ -45,6 +47,7 @@ export default async function CashBankInsPage({ searchParams }: { searchParams: 
   const bankAccountById = getBankAccountById(data);
   const branchById = getBranchById(data);
   const selectedBankIns = data.cashBankIns.filter((bankIn) => isWithinDateRange(bankIn.bank_in_date, range));
+  const bankInDocuments = await getTransactionDocuments("cash_bank_ins", selectedBankIns.map((bankIn) => bankIn.id));
   const cashInHandRows = buildCashInHandRows(data, range);
   const totalCashSales = totalBy(cashInHandRows, (row) => row.cashSales);
   const totalBankedIn = totalBy(cashInHandRows, (row) => row.bankedIn);
@@ -153,7 +156,7 @@ export default async function CashBankInsPage({ searchParams }: { searchParams: 
       <section className="table-section mt-section">
         <h2>Cash bank-in entries</h2>
         <DataTable
-          columns={["Date", "Branch", "Destination bank account", "Amount", "Reference", "Notes", "Status", "View details", "Edit", "Void"]}
+          columns={["Date", "Branch", "Destination bank account", "Amount", "Reference", "Notes", "Documents", "Status", "View details", "Edit", "Void"]}
           rows={selectedBankIns.map((bankIn) => {
             const canCorrectBankIn = !bankIn.is_void
               && (role === "owner" || role === "admin" || role === "finance")
@@ -166,6 +169,13 @@ export default async function CashBankInsPage({ searchParams }: { searchParams: 
               formatCurrency(bankInAmount(bankIn)),
               bankIn.reference_no ?? "-",
               bankIn.notes ?? "-",
+              <DocumentManager
+                canDelete={role !== "branch_pic"}
+                documents={bankInDocuments.get(bankIn.id) ?? []}
+                entityId={bankIn.id}
+                entityName="cash_bank_ins"
+                key={`${bankIn.id}-documents`}
+              />,
               <span className={`status-pill ${bankIn.is_void ? "status-voided" : "status-paid"}`} key={`${bankIn.id}-status`}>
                 {bankIn.is_void ? "VOIDED" : "Active"}
               </span>,

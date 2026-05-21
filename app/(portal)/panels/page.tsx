@@ -1,10 +1,12 @@
 import { createPanelClaim, createPanelCompany } from "@/app/actions";
 import { DataTable } from "@/components/data-table";
+import { DocumentManager } from "@/components/documents/document-manager";
 import { MetricCard } from "@/components/metric-card";
 import { ModuleHeader } from "@/components/module-header";
 import { getDashboardData, getPanelCompanies, totalBy } from "@/lib/data";
 import { formatCurrency, formatDate, labelize } from "@/lib/format";
-import { hasPermission, requirePermission } from "@/lib/permissions";
+import { hasPermission, normalizeRole, requirePermission } from "@/lib/permissions";
+import { getTransactionDocuments } from "@/lib/transaction-documents";
 import { Building, CalendarClock, FileClock, ShieldCheck } from "lucide-react";
 
 function StatusPill({ status }: { status: string }) {
@@ -15,7 +17,9 @@ export default async function PanelsPage() {
   const profile = await requirePermission("view_panel_records");
   const data = await getDashboardData();
   const panelCompanies = await getPanelCompanies();
+  const claimDocuments = await getTransactionDocuments("panel_claims", data.panels.map((claim) => claim.id));
   const canManageMasterData = hasPermission(profile, "view_reports");
+  const canDeleteDocuments = normalizeRole(profile.role) !== "branch_pic";
   const totalClaims = totalBy(data.panels, (claim) => claim.amount);
   const outstanding = totalBy(
     data.panels.filter((claim) => claim.status !== "paid"),
@@ -40,7 +44,7 @@ export default async function PanelsPage() {
 
       <section className="section-grid">
         <DataTable
-          columns={["Claim month", "Panel", "Branch", "Claim no.", "Due", "Status", "Amount"]}
+          columns={["Claim month", "Panel", "Branch", "Claim no.", "Due", "Status", "Amount", "Documents"]}
           rows={data.panels.map((claim) => [
             formatDate(claim.claim_month),
             claim.panel_companies?.name ?? "-",
@@ -48,7 +52,14 @@ export default async function PanelsPage() {
             claim.claim_no ?? "-",
             formatDate(claim.due_date),
             <StatusPill key={claim.id} status={claim.status} />,
-            formatCurrency(claim.amount)
+            formatCurrency(claim.amount),
+            <DocumentManager
+              canDelete={canDeleteDocuments}
+              documents={claimDocuments.get(claim.id) ?? []}
+              entityId={claim.id}
+              entityName="panel_claims"
+              key={`${claim.id}-documents`}
+            />
           ])}
         />
 
