@@ -10,6 +10,7 @@ import {
   buildPettyCashBalanceRows,
   directBankInflow,
   getMappingByBranch,
+  isActiveFinancialRecord,
   isWithinDateRange,
   pettyCashAmount,
   resolveDateRange
@@ -181,7 +182,9 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const selectedBranchIdSet = new Set(selectedBranchIds);
   const selectedBranches = data.branches.filter((branch) => selectedBranchIdSet.has(branch.id));
   const isAllSelectedBranches = selectedBranches.length === data.branches.length;
-  const sales = data.sales.filter((sale) => selectedBranchIdSet.has(sale.branch_id) && isWithinDateRange(sale.sale_date, range));
+  const sales = data.sales.filter((sale) => {
+    return isActiveFinancialRecord(sale) && selectedBranchIdSet.has(sale.branch_id) && isWithinDateRange(sale.sale_date, range);
+  });
   const expenses = data.expenses.filter((expense) => selectedBranchIdSet.has(expense.branch_id) && isWithinDateRange(expense.expense_date, range));
   const purchases = data.purchases.filter((purchase) => selectedBranchIdSet.has(purchase.branch_id) && isWithinDateRange(purchase.purchase_date, range));
   const supplierPayments = data.supplierPayments.filter((payment) => {
@@ -207,14 +210,20 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
 
   const selectedBankBranches = bankingData?.branches.filter((branch) => selectedBranchIdSet.has(branch.id)) ?? [];
   const selectedBankBranchIds = new Set(selectedBankBranches.map((branch) => branch.id));
-  const selectedBankSales = bankingData?.sales.filter((sale) => selectedBankBranchIds.has(sale.branch_id) && isWithinDateRange(sale.sale_date, range)) ?? [];
-  const selectedCashBankIns = bankingData?.cashBankIns.filter((bankIn) => selectedBankBranchIds.has(bankIn.branch_id) && isWithinDateRange(bankIn.bank_in_date, range)) ?? [];
+  const selectedBankSales = bankingData?.sales.filter((sale) => {
+    return isActiveFinancialRecord(sale) && selectedBankBranchIds.has(sale.branch_id) && isWithinDateRange(sale.sale_date, range);
+  }) ?? [];
+  const selectedCashBankIns = bankingData?.cashBankIns.filter((bankIn) => {
+    return isActiveFinancialRecord(bankIn) && selectedBankBranchIds.has(bankIn.branch_id) && isWithinDateRange(bankIn.bank_in_date, range);
+  }) ?? [];
   const selectedBankTransactions = bankingData?.bankTransactions.filter((transaction) => {
     const matchesBranch = transaction.branch_id ? selectedBranchIdSet.has(transaction.branch_id) : isAllSelectedBranches;
-    return matchesBranch && isWithinDateRange(transaction.transaction_date, range);
+    return isActiveFinancialRecord(transaction) && matchesBranch && isWithinDateRange(transaction.transaction_date, range);
   }) ?? [];
   const selectedPettyCashTransactions = bankingData?.pettyCashTransactions.filter((transaction) => {
-    return selectedBankBranchIds.has(transaction.branch_id) && isWithinDateRange(transaction.transaction_date, range);
+    return isActiveFinancialRecord(transaction)
+      && selectedBankBranchIds.has(transaction.branch_id)
+      && isWithinDateRange(transaction.transaction_date, range);
   }) ?? [];
   const selectedBankLinkedPettyCash = selectedPettyCashTransactions.filter((transaction) => {
     return transaction.bank_account_id

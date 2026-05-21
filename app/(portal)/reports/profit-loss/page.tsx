@@ -1,6 +1,7 @@
 import { DataTable } from "@/components/data-table";
 import { MetricCard } from "@/components/metric-card";
 import { ModuleHeader } from "@/components/module-header";
+import { isActiveFinancialRecord } from "@/lib/bank-reporting";
 import { getDashboardData, totalBy } from "@/lib/data";
 import { formatCurrency, monthKey } from "@/lib/format";
 import { requirePermission } from "@/lib/permissions";
@@ -9,14 +10,15 @@ import { BadgeDollarSign, ChartNoAxesCombined, ReceiptText, TrendingUp } from "l
 export default async function ProfitLossPage() {
   await requirePermission("view_reports");
   const data = await getDashboardData();
-  const revenue = totalBy(data.sales, (sale) => sale.total_amount);
+  const sales = data.sales.filter(isActiveFinancialRecord);
+  const revenue = totalBy(sales, (sale) => sale.total_amount);
   const expenses = totalBy(data.expenses, (expense) => expense.amount);
   const purchases = totalBy(data.purchases, (purchase) => purchase.total_amount);
   const profit = revenue - expenses - purchases;
 
   const months = Array.from(
     new Set([
-      ...data.sales.map((sale) => monthKey(sale.sale_date)),
+      ...sales.map((sale) => monthKey(sale.sale_date)),
       ...data.expenses.map((expense) => monthKey(expense.expense_date)),
       ...data.purchases.map((purchase) => monthKey(purchase.purchase_date))
     ])
@@ -42,7 +44,7 @@ export default async function ProfitLossPage() {
           columns={["Month", "Revenue", "Operating expenses", "Supplier purchases", "Net profit"]}
           rows={months.map((month) => {
             const monthRevenue = totalBy(
-              data.sales.filter((sale) => monthKey(sale.sale_date) === month),
+              sales.filter((sale) => monthKey(sale.sale_date) === month),
               (sale) => sale.total_amount
             );
             const monthExpenses = totalBy(

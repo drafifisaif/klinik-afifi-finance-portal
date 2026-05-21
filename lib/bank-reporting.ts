@@ -76,6 +76,10 @@ export function isWithinDateRange(date: string, range: Pick<DateRange, "endDate"
   return date >= range.startDate && date <= range.endDate;
 }
 
+export function isActiveFinancialRecord(record: { is_void?: boolean | null }) {
+  return record.is_void !== true;
+}
+
 export function directBankInflow(sale: DailySale) {
   return Number(sale.card_amount ?? 0) + Number(sale.qr_amount ?? 0) + Number(sale.bank_transfer_amount ?? 0);
 }
@@ -136,10 +140,10 @@ export function getBranchById(data: Pick<BankingData, "branches">) {
 export function buildCashInHandRows(data: Pick<BankingData, "branches" | "cashBankIns" | "sales">, range: DateRange): CashInHandRow[] {
   return data.branches.map((branch) => {
     const cashSales = data.sales
-      .filter((sale) => sale.branch_id === branch.id && isWithinDateRange(sale.sale_date, range))
+      .filter((sale) => isActiveFinancialRecord(sale) && sale.branch_id === branch.id && isWithinDateRange(sale.sale_date, range))
       .reduce((sum, sale) => sum + cashSalesAmount(sale), 0);
     const bankedIn = data.cashBankIns
-      .filter((bankIn) => bankIn.branch_id === branch.id && isWithinDateRange(bankIn.bank_in_date, range))
+      .filter((bankIn) => isActiveFinancialRecord(bankIn) && bankIn.branch_id === branch.id && isWithinDateRange(bankIn.bank_in_date, range))
       .reduce((sum, bankIn) => sum + bankInAmount(bankIn), 0);
 
     return {
@@ -157,7 +161,9 @@ export function buildPettyCashBalanceRows(
 ): PettyCashBalanceRow[] {
   return data.branches.map((branch) => {
     const transactions = data.pettyCashTransactions.filter((transaction) => {
-      return transaction.branch_id === branch.id && (!range || isWithinDateRange(transaction.transaction_date, range));
+      return isActiveFinancialRecord(transaction)
+        && transaction.branch_id === branch.id
+        && (!range || isWithinDateRange(transaction.transaction_date, range));
     });
     const issued = transactions.reduce((sum, transaction) => {
       return transaction.transaction_type === "petty_cash_issued" ? sum + pettyCashAmount(transaction) : sum;

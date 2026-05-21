@@ -1,4 +1,4 @@
-import { createCashBankIn } from "@/app/actions";
+import { createCashBankIn, updateCashBankIn, voidCashBankIn } from "@/app/actions";
 import { DataTable } from "@/components/data-table";
 import { ExportCsvLink } from "@/components/export-csv-link";
 import { MetricCard } from "@/components/metric-card";
@@ -14,8 +14,8 @@ import {
   resolveDateRange
 } from "@/lib/bank-reporting";
 import { getBankingData, totalBy } from "@/lib/data";
-import { formatCurrency, formatDate } from "@/lib/format";
-import { normalizeRole, requirePermission } from "@/lib/permissions";
+import { formatCurrency, formatDate, formatDateTime } from "@/lib/format";
+import { hasBankAccountPermission, normalizeRole, requirePermission } from "@/lib/permissions";
 import { Banknote, Landmark, WalletCards } from "lucide-react";
 
 type CashBankInsSearchParams = {
@@ -153,15 +153,92 @@ export default async function CashBankInsPage({ searchParams }: { searchParams: 
       <section className="table-section mt-section">
         <h2>Cash bank-in entries</h2>
         <DataTable
-          columns={["Date", "Branch", "Destination bank account", "Amount", "Reference", "Notes"]}
-          rows={selectedBankIns.map((bankIn) => [
-            formatDate(bankIn.bank_in_date),
-            branchLabel(bankIn.branches ?? branchById.get(bankIn.branch_id)),
-            bankAccountLabel(bankIn.bank_accounts ?? bankAccountById.get(bankIn.bank_account_id)),
-            formatCurrency(bankInAmount(bankIn)),
-            bankIn.reference_no ?? "-",
-            bankIn.notes ?? "-"
-          ])}
+          columns={["Date", "Branch", "Destination bank account", "Amount", "Reference", "Notes", "Status", "View details", "Edit", "Void"]}
+          rows={selectedBankIns.map((bankIn) => {
+            const canCorrectBankIn = !bankIn.is_void
+              && (role === "owner" || role === "admin" || role === "finance")
+              && hasBankAccountPermission(profile, data.bankAccountPermissions, bankIn.bank_account_id, "edit_transaction");
+
+            return [
+              formatDate(bankIn.bank_in_date),
+              branchLabel(bankIn.branches ?? branchById.get(bankIn.branch_id)),
+              bankAccountLabel(bankIn.bank_accounts ?? bankAccountById.get(bankIn.bank_account_id)),
+              formatCurrency(bankInAmount(bankIn)),
+              bankIn.reference_no ?? "-",
+              bankIn.notes ?? "-",
+              <span className={`status-pill ${bankIn.is_void ? "status-voided" : "status-paid"}`}>
+                {bankIn.is_void ? "VOIDED" : "Active"}
+              </span>,
+              <details className="manual-bank-editor">
+                <summary>View details</summary>
+                <div className="record-detail-grid">
+                  <div>
+                    <strong>Record ID</strong>
+                    <span>{bankIn.id}</span>
+                  </div>
+                  <div>
+                    <strong>Entered by</strong>
+                    <span>{bankIn.entered_by ?? "-"}</span>
+                  </div>
+                  <div>
+                    <strong>Voided at</strong>
+                    <span>{formatDateTime(bankIn.voided_at)}</span>
+                  </div>
+                  <div>
+                    <strong>Void reason</strong>
+                    <span>{bankIn.void_reason ?? "-"}</span>
+                  </div>
+                </div>
+              </details>,
+              canCorrectBankIn ? (
+                <details className="manual-bank-editor">
+                  <summary>Edit</summary>
+                  <form action={updateCashBankIn} className="manual-bank-edit-form">
+                    <input name="bank_in_id" type="hidden" value={bankIn.id} />
+                    <label>
+                      Date
+                      <input name="bank_in_date" type="date" defaultValue={bankIn.bank_in_date} required />
+                    </label>
+                    <label>
+                      Amount
+                      <input name="amount" min="0.01" step="0.01" type="number" defaultValue={bankIn.amount} required />
+                    </label>
+                    <label>
+                      Reference
+                      <input name="reference_no" defaultValue={bankIn.reference_no ?? ""} />
+                    </label>
+                    <label>
+                      Notes
+                      <textarea name="notes" defaultValue={bankIn.notes ?? ""} />
+                    </label>
+                    <button className="primary-button compact-button" type="submit">
+                      Save
+                    </button>
+                  </form>
+                </details>
+              ) : (
+                "-"
+              ),
+              canCorrectBankIn ? (
+                <details className="manual-bank-editor">
+                  <summary>Void</summary>
+                  <form action={voidCashBankIn} className="manual-bank-edit-form void-record-form">
+                    <input name="bank_in_id" type="hidden" value={bankIn.id} />
+                    <p className="void-warning">Voided records stay in history and are excluded from reports.</p>
+                    <label>
+                      Void reason
+                      <textarea name="void_reason" required />
+                    </label>
+                    <button className="primary-button compact-button" type="submit">
+                      Confirm void
+                    </button>
+                  </form>
+                </details>
+              ) : (
+                "-"
+              )
+            ];
+          })}
         />
       </section>
     </>

@@ -1,6 +1,6 @@
 export type UserRole = "owner" | "admin" | "finance" | "branch_pic" | "staff";
 
-export type AuditAction = "create" | "update" | "delete" | "role_change" | "permission_change";
+export type AuditAction = "create" | "update" | "void" | "delete" | "role_change" | "permission_change";
 
 export type AuditSnapshot = Record<string, unknown>;
 
@@ -55,6 +55,13 @@ export type DailySale = {
   qr_amount: number;
   total_amount: number;
   notes?: string | null;
+  entered_by?: string | null;
+  created_at?: string;
+  updated_at?: string;
+  is_void?: boolean;
+  voided_at?: string | null;
+  voided_by?: string | null;
+  void_reason?: string | null;
   branches?: Pick<Branch, "name" | "code"> | null;
 };
 
@@ -180,6 +187,10 @@ export type BankTransaction = {
   entered_by?: string | null;
   created_at?: string;
   updated_at?: string;
+  is_void?: boolean;
+  voided_at?: string | null;
+  voided_by?: string | null;
+  void_reason?: string | null;
   bank_accounts?: Pick<BankAccount, "name" | "bank_name" | "account_no"> | null;
   branches?: Pick<Branch, "name" | "code"> | null;
 };
@@ -207,6 +218,10 @@ export type PettyCashTransaction = {
   entered_by?: string | null;
   created_at?: string;
   updated_at?: string;
+  is_void?: boolean;
+  voided_at?: string | null;
+  voided_by?: string | null;
+  void_reason?: string | null;
   branches?: Pick<Branch, "name" | "code"> | null;
   bank_accounts?: Pick<BankAccount, "name" | "bank_name" | "account_no"> | null;
   profiles?: Pick<Profile, "full_name"> | null;
@@ -232,6 +247,10 @@ export type CashBankIn = {
   entered_by?: string | null;
   created_at?: string;
   updated_at?: string;
+  is_void?: boolean;
+  voided_at?: string | null;
+  voided_by?: string | null;
+  void_reason?: string | null;
   branches?: Pick<Branch, "name" | "code"> | null;
   bank_accounts?: Pick<BankAccount, "name" | "bank_name" | "account_no"> | null;
 };

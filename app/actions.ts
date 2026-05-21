@@ -92,6 +92,10 @@ type BankTransactionAuditRow = {
   transaction_date: string;
   transaction_type: string;
   transfer_group_id: string | null;
+  is_void?: boolean;
+  void_reason?: string | null;
+  voided_at?: string | null;
+  voided_by?: string | null;
 };
 
 type CashBankInAuditRow = {
@@ -101,6 +105,10 @@ type CashBankInAuditRow = {
   branch_id: string;
   notes: string | null;
   reference_no: string | null;
+  is_void?: boolean;
+  void_reason?: string | null;
+  voided_at?: string | null;
+  voided_by?: string | null;
 };
 
 type PettyCashAuditRow = {
@@ -113,6 +121,10 @@ type PettyCashAuditRow = {
   reference_no: string | null;
   transaction_date: string;
   transaction_type: string;
+  is_void?: boolean;
+  void_reason?: string | null;
+  voided_at?: string | null;
+  voided_by?: string | null;
 };
 
 type BranchAuditRow = {
@@ -139,6 +151,10 @@ type DailySaleAuditRow = {
   panel_amount: number;
   qr_amount: number;
   sale_date: string;
+  is_void?: boolean;
+  void_reason?: string | null;
+  voided_at?: string | null;
+  voided_by?: string | null;
 };
 
 type ExpenseAuditRow = {
@@ -241,7 +257,11 @@ function bankTransactionAuditData(transaction: BankTransactionAuditRow) {
     related_bank_account_id: transaction.related_bank_account_id,
     transaction_date: transaction.transaction_date,
     transaction_type: transaction.transaction_type,
-    transfer_group_id: transaction.transfer_group_id
+    transfer_group_id: transaction.transfer_group_id,
+    is_void: transaction.is_void ?? false,
+    void_reason: transaction.void_reason ?? null,
+    voided_at: transaction.voided_at ?? null,
+    voided_by: transaction.voided_by ?? null
   };
 }
 
@@ -252,7 +272,11 @@ function cashBankInAuditData(bankIn: CashBankInAuditRow) {
     bank_in_date: bankIn.bank_in_date,
     branch_id: bankIn.branch_id,
     notes: bankIn.notes,
-    reference_no: bankIn.reference_no
+    reference_no: bankIn.reference_no,
+    is_void: bankIn.is_void ?? false,
+    void_reason: bankIn.void_reason ?? null,
+    voided_at: bankIn.voided_at ?? null,
+    voided_by: bankIn.voided_by ?? null
   };
 }
 
@@ -266,7 +290,11 @@ function pettyCashAuditData(transaction: PettyCashAuditRow) {
     direction: transaction.direction,
     reference_no: transaction.reference_no,
     transaction_date: transaction.transaction_date,
-    transaction_type: transaction.transaction_type
+    transaction_type: transaction.transaction_type,
+    is_void: transaction.is_void ?? false,
+    void_reason: transaction.void_reason ?? null,
+    voided_at: transaction.voided_at ?? null,
+    voided_by: transaction.voided_by ?? null
   };
 }
 
@@ -298,7 +326,11 @@ function dailySaleAuditData(sale: DailySaleAuditRow) {
     notes: sale.notes,
     panel_amount: sale.panel_amount,
     qr_amount: sale.qr_amount,
-    sale_date: sale.sale_date
+    sale_date: sale.sale_date,
+    is_void: sale.is_void ?? false,
+    void_reason: sale.void_reason ?? null,
+    voided_at: sale.voided_at ?? null,
+    voided_by: sale.voided_by ?? null
   };
 }
 
@@ -416,6 +448,21 @@ async function requireEditableBranch(branchId: string | null) {
   return profile;
 }
 
+function requiredVoidReason(formData: FormData) {
+  const reason = text(formData, "void_reason");
+  if (!reason) throw new Error("Void reason is required.");
+  return reason;
+}
+
+function voidFields(reason: string, userId: string | null) {
+  return {
+    is_void: true,
+    void_reason: reason,
+    voided_at: new Date().toISOString(),
+    voided_by: userId
+  };
+}
+
 export async function signIn(formData: FormData) {
   if (!hasSupabaseEnv()) redirect("/dashboard");
 
@@ -497,12 +544,13 @@ export async function createDailySale(formData: FormData) {
   const supabase = await createClient();
   const { data: existingSale, error: existingSaleError } = await supabase
     .from("daily_sales")
-    .select("id, branch_id, sale_date, cash_amount, bank_transfer_amount, card_amount, panel_amount, qr_amount, notes")
+    .select("id, branch_id, sale_date, cash_amount, bank_transfer_amount, card_amount, panel_amount, qr_amount, notes, is_void, void_reason, voided_at, voided_by")
     .eq("branch_id", branchId)
     .eq("sale_date", saleDate)
     .maybeSingle();
 
   if (existingSaleError) throw existingSaleError;
+  if (existingSale?.is_void) throw new Error("Voided daily sales cannot be edited. Record a correction with Owner support.");
 
   const { data: sale, error } = await supabase.from("daily_sales").upsert({
     branch_id: branchId,
@@ -514,7 +562,7 @@ export async function createDailySale(formData: FormData) {
     qr_amount: number(formData, "qr_amount"),
     notes: text(formData, "notes"),
     entered_by: await getUserId()
-  }).select("id, branch_id, sale_date, cash_amount, bank_transfer_amount, card_amount, panel_amount, qr_amount, notes").single();
+  }).select("id, branch_id, sale_date, cash_amount, bank_transfer_amount, card_amount, panel_amount, qr_amount, notes, is_void, void_reason, voided_at, voided_by").single();
 
   if (error || !sale) throw error ?? new Error("Daily sale could not be loaded after save.");
 
@@ -531,6 +579,98 @@ export async function createDailySale(formData: FormData) {
       entityName: "daily_sales"
     });
   }
+  revalidatePath("/sales");
+  revalidatePath("/dashboard");
+}
+
+export async function updateDailySale(formData: FormData) {
+  if (!hasSupabaseEnv()) return;
+
+  const saleId = text(formData, "sale_id");
+  if (!saleId) throw new Error("Daily sales record is required.");
+
+  const supabase = await createClient();
+  const { data: sale, error: saleError } = await supabase
+    .from("daily_sales")
+    .select("id, branch_id, sale_date, cash_amount, bank_transfer_amount, card_amount, panel_amount, qr_amount, notes, is_void, void_reason, voided_at, voided_by")
+    .eq("id", saleId)
+    .maybeSingle();
+
+  if (saleError || !sale) throw new Error("Daily sales record not found.");
+  await requireEditableBranch(sale.branch_id);
+  if (sale.is_void) throw new Error("Voided daily sales cannot be edited.");
+
+  const { data: updatedSale, error } = await supabase
+    .from("daily_sales")
+    .update({
+      bank_transfer_amount: number(formData, "bank_transfer_amount"),
+      card_amount: number(formData, "card_amount"),
+      cash_amount: number(formData, "cash_amount"),
+      notes: text(formData, "notes"),
+      panel_amount: number(formData, "panel_amount"),
+      qr_amount: number(formData, "qr_amount")
+    })
+    .eq("id", sale.id)
+    .select("id, branch_id, sale_date, cash_amount, bank_transfer_amount, card_amount, panel_amount, qr_amount, notes, is_void, void_reason, voided_at, voided_by")
+    .single();
+
+  if (error || !updatedSale) throw error ?? new Error("Updated daily sales record could not be loaded.");
+
+  const beforeData = dailySaleAuditData(sale);
+  const afterData = dailySaleAuditData(updatedSale);
+  if (hasAuditChanges(beforeData, afterData)) {
+    await logAuditEvent({
+      action: "update",
+      afterData,
+      beforeData,
+      branchId: updatedSale.branch_id,
+      description: "Edited daily sales summary.",
+      entityId: updatedSale.id,
+      entityName: "daily_sales"
+    });
+  }
+
+  revalidatePath("/sales");
+  revalidatePath("/dashboard");
+}
+
+export async function voidDailySale(formData: FormData) {
+  if (!hasSupabaseEnv()) return;
+
+  const saleId = text(formData, "sale_id");
+  const reason = requiredVoidReason(formData);
+  if (!saleId) throw new Error("Daily sales record is required.");
+
+  const supabase = await createClient();
+  const { data: sale, error: saleError } = await supabase
+    .from("daily_sales")
+    .select("id, branch_id, sale_date, cash_amount, bank_transfer_amount, card_amount, panel_amount, qr_amount, notes, is_void, void_reason, voided_at, voided_by")
+    .eq("id", saleId)
+    .maybeSingle();
+
+  if (saleError || !sale) throw new Error("Daily sales record not found.");
+  await requireEditableBranch(sale.branch_id);
+  if (sale.is_void) throw new Error("Daily sales record is already voided.");
+
+  const { data: voidedSale, error } = await supabase
+    .from("daily_sales")
+    .update(voidFields(reason, await getUserId()))
+    .eq("id", sale.id)
+    .eq("is_void", false)
+    .select("id, branch_id, sale_date, cash_amount, bank_transfer_amount, card_amount, panel_amount, qr_amount, notes, is_void, void_reason, voided_at, voided_by")
+    .single();
+
+  if (error || !voidedSale) throw error ?? new Error("Voided daily sales record could not be loaded.");
+
+  await logAuditEvent({
+    action: "void",
+    afterData: dailySaleAuditData(voidedSale),
+    beforeData: dailySaleAuditData(sale),
+    branchId: voidedSale.branch_id,
+    description: `Voided daily sales summary: ${reason}`,
+    entityId: voidedSale.id,
+    entityName: "daily_sales"
+  });
   revalidatePath("/sales");
   revalidatePath("/dashboard");
 }
@@ -564,7 +704,7 @@ export async function createCashBankIn(formData: FormData) {
     reference_no: text(formData, "reference_no"),
     notes: text(formData, "notes"),
     entered_by: await getUserId()
-  }).select("id, branch_id, bank_account_id, bank_in_date, amount, reference_no, notes").single();
+  }).select("id, branch_id, bank_account_id, bank_in_date, amount, reference_no, notes, is_void, void_reason, voided_at, voided_by").single();
 
   if (error || !bankIn) throw error ?? new Error("Cash bank-in could not be loaded after creation.");
 
@@ -576,6 +716,115 @@ export async function createCashBankIn(formData: FormData) {
     branchId: bankIn.branch_id,
     description: "Created cash bank-in.",
     entityId: bankIn.id,
+    entityName: "cash_bank_ins"
+  });
+  revalidatePath("/cash-bank-ins");
+  revalidatePath("/bank");
+  revalidatePath("/dashboard");
+}
+
+async function requireCashBankInEditor(branchId: string, bankAccountId: string) {
+  const profile = await requirePermission("record_cash_bank_in");
+  const role = normalizeRole(profile.role);
+  if (role === "branch_pic" || role === "staff" || !canEditBranch(profile, branchId)) {
+    throw new Error("You do not have permission to edit cash bank-ins.");
+  }
+  if (role === "admin" || role === "finance") {
+    await requireBankAccountPermission(bankAccountId, "edit_transaction");
+  }
+  return profile;
+}
+
+export async function updateCashBankIn(formData: FormData) {
+  if (!hasSupabaseEnv()) return;
+
+  const bankInId = text(formData, "bank_in_id");
+  const bankInDate = text(formData, "bank_in_date");
+  const amount = number(formData, "amount");
+  if (!bankInId || !bankInDate || amount <= 0) {
+    throw new Error("Cash bank-in, date, and a positive amount are required.");
+  }
+
+  const supabase = await createClient();
+  const { data: bankIn, error: bankInError } = await supabase
+    .from("cash_bank_ins")
+    .select("id, branch_id, bank_account_id, bank_in_date, amount, reference_no, notes, is_void, void_reason, voided_at, voided_by")
+    .eq("id", bankInId)
+    .maybeSingle();
+
+  if (bankInError || !bankIn) throw new Error("Cash bank-in not found.");
+  await requireCashBankInEditor(bankIn.branch_id, bankIn.bank_account_id);
+  if (bankIn.is_void) throw new Error("Voided cash bank-ins cannot be edited.");
+
+  const { data: updatedBankIn, error } = await supabase
+    .from("cash_bank_ins")
+    .update({
+      amount,
+      bank_in_date: bankInDate,
+      notes: text(formData, "notes"),
+      reference_no: text(formData, "reference_no")
+    })
+    .eq("id", bankIn.id)
+    .select("id, branch_id, bank_account_id, bank_in_date, amount, reference_no, notes, is_void, void_reason, voided_at, voided_by")
+    .single();
+
+  if (error || !updatedBankIn) throw error ?? new Error("Updated cash bank-in could not be loaded.");
+
+  const beforeData = cashBankInAuditData(bankIn);
+  const afterData = cashBankInAuditData(updatedBankIn);
+  if (hasAuditChanges(beforeData, afterData)) {
+    await logAuditEvent({
+      action: "update",
+      afterData,
+      bankAccountId: updatedBankIn.bank_account_id,
+      beforeData,
+      branchId: updatedBankIn.branch_id,
+      description: "Edited cash bank-in.",
+      entityId: updatedBankIn.id,
+      entityName: "cash_bank_ins"
+    });
+  }
+  revalidatePath("/cash-bank-ins");
+  revalidatePath("/bank");
+  revalidatePath("/dashboard");
+}
+
+export async function voidCashBankIn(formData: FormData) {
+  if (!hasSupabaseEnv()) return;
+
+  const bankInId = text(formData, "bank_in_id");
+  const reason = requiredVoidReason(formData);
+  if (!bankInId) throw new Error("Cash bank-in record is required.");
+
+  const supabase = await createClient();
+  const { data: bankIn, error: bankInError } = await supabase
+    .from("cash_bank_ins")
+    .select("id, branch_id, bank_account_id, bank_in_date, amount, reference_no, notes, is_void, void_reason, voided_at, voided_by")
+    .eq("id", bankInId)
+    .maybeSingle();
+
+  if (bankInError || !bankIn) throw new Error("Cash bank-in not found.");
+  await requireCashBankInEditor(bankIn.branch_id, bankIn.bank_account_id);
+  if (bankIn.is_void) throw new Error("Cash bank-in is already voided.");
+
+  const { data: voidedBankIn, error } = await supabase
+    .from("cash_bank_ins")
+    .update(voidFields(reason, await getUserId()))
+    .eq("id", bankIn.id)
+    .eq("is_void", false)
+    .select("id, branch_id, bank_account_id, bank_in_date, amount, reference_no, notes, is_void, void_reason, voided_at, voided_by")
+    .single();
+
+  if (error || !voidedBankIn) throw error ?? new Error("Voided cash bank-in could not be loaded.");
+
+  await logAuditEvent({
+    action: "void",
+    afterData: cashBankInAuditData(voidedBankIn),
+    bankAccountId: voidedBankIn.bank_account_id,
+    beforeData: cashBankInAuditData(bankIn),
+    branchId: voidedBankIn.branch_id,
+    description: `Voided cash bank-in: ${reason}`,
+    entityId: voidedBankIn.id,
     entityName: "cash_bank_ins"
   });
   revalidatePath("/cash-bank-ins");
@@ -694,19 +943,28 @@ export async function updateBankTransaction(formData: FormData) {
   const supabase = await createClient();
   const { data: transaction, error: transactionError } = await supabase
     .from("bank_transactions")
-    .select("id, bank_account_id, related_bank_account_id, transfer_group_id, transaction_date, transaction_type, direction, category, amount, description, reference_no, branch_id")
+    .select("id, bank_account_id, related_bank_account_id, transfer_group_id, transaction_date, transaction_type, direction, category, amount, description, reference_no, branch_id, is_void, void_reason, voided_at, voided_by")
     .eq("id", transactionId)
     .maybeSingle();
 
   if (transactionError || !transaction) throw new Error("Manual bank transaction not found.");
-  await requireBankAccountPermission(transaction.bank_account_id, "edit_transaction");
+  const profile = await requireBankAccountPermission(transaction.bank_account_id, "edit_transaction");
+  if (normalizeRole(profile.role) === "branch_pic" && transaction.branch_id !== profile.branch_id) {
+    throw new Error("Branch PIC can only edit own-branch bank transactions.");
+  }
+  if (transaction.is_void) throw new Error("Voided manual bank transactions cannot be edited.");
+
+  const nextBranchId = text(formData, "branch_id");
+  if (normalizeRole(profile.role) === "branch_pic" && nextBranchId !== transaction.branch_id) {
+    throw new Error("Branch PIC cannot retag bank transactions to another branch.");
+  }
 
   const updates = {
     transaction_date: transactionDate,
     amount,
     description: text(formData, "description"),
     reference_no: text(formData, "reference_no"),
-    branch_id: text(formData, "branch_id")
+    branch_id: nextBranchId
   };
 
   if (transaction.transaction_type === "interbank_transfer") {
@@ -714,7 +972,7 @@ export async function updateBankTransaction(formData: FormData) {
 
     const { data: transferRows, error: transferError } = await supabase
       .from("bank_transactions")
-      .select("id, bank_account_id, related_bank_account_id, transfer_group_id, transaction_date, transaction_type, direction, category, amount, description, reference_no, branch_id")
+      .select("id, bank_account_id, related_bank_account_id, transfer_group_id, transaction_date, transaction_type, direction, category, amount, description, reference_no, branch_id, is_void, void_reason, voided_at, voided_by")
       .eq("transfer_group_id", transaction.transfer_group_id)
       .eq("transaction_type", "interbank_transfer");
 
@@ -722,13 +980,19 @@ export async function updateBankTransaction(formData: FormData) {
       throw new Error("Interbank transfer pair could not be loaded.");
     }
 
-    await Promise.all(transferRows.map((row) => requireBankAccountPermission(row.bank_account_id, "edit_transaction")));
+    await Promise.all(transferRows.map(async (row) => {
+      const rowProfile = await requireBankAccountPermission(row.bank_account_id, "edit_transaction");
+      if (normalizeRole(rowProfile.role) === "branch_pic" && row.branch_id !== rowProfile.branch_id) {
+        throw new Error("Branch PIC can only edit own-branch bank transactions.");
+      }
+      if (row.is_void) throw new Error("Voided interbank transfer entries cannot be edited.");
+    }));
     const { data: updatedTransferRows, error } = await supabase
       .from("bank_transactions")
       .update(updates)
       .eq("transfer_group_id", transaction.transfer_group_id)
       .eq("transaction_type", "interbank_transfer")
-      .select("id, bank_account_id, related_bank_account_id, transfer_group_id, transaction_date, transaction_type, direction, category, amount, description, reference_no, branch_id");
+      .select("id, bank_account_id, related_bank_account_id, transfer_group_id, transaction_date, transaction_type, direction, category, amount, description, reference_no, branch_id, is_void, void_reason, voided_at, voided_by");
 
     if (error || !updatedTransferRows) throw error ?? new Error("Updated interbank transfer could not be loaded.");
 
@@ -760,7 +1024,7 @@ export async function updateBankTransaction(formData: FormData) {
         category: transaction.transaction_type === "money_out" ? text(formData, "category") : null
       })
       .eq("id", transaction.id)
-      .select("id, bank_account_id, related_bank_account_id, transfer_group_id, transaction_date, transaction_type, direction, category, amount, description, reference_no, branch_id")
+      .select("id, bank_account_id, related_bank_account_id, transfer_group_id, transaction_date, transaction_type, direction, category, amount, description, reference_no, branch_id, is_void, void_reason, voided_at, voided_by")
       .single();
 
     if (error || !updatedTransaction) throw error ?? new Error("Updated manual bank transaction could not be loaded.");
@@ -782,6 +1046,81 @@ export async function updateBankTransaction(formData: FormData) {
   }
 
   revalidatePath("/bank");
+}
+
+export async function voidBankTransaction(formData: FormData) {
+  if (!hasSupabaseEnv()) return;
+
+  const transactionId = text(formData, "transaction_id");
+  const reason = requiredVoidReason(formData);
+  if (!transactionId) throw new Error("Manual bank transaction is required.");
+
+  const supabase = await createClient();
+  const { data: transaction, error: transactionError } = await supabase
+    .from("bank_transactions")
+    .select("id, bank_account_id, related_bank_account_id, transfer_group_id, transaction_date, transaction_type, direction, category, amount, description, reference_no, branch_id, is_void, void_reason, voided_at, voided_by")
+    .eq("id", transactionId)
+    .maybeSingle();
+
+  if (transactionError || !transaction) throw new Error("Manual bank transaction not found.");
+  const profile = await requireBankAccountPermission(transaction.bank_account_id, "edit_transaction");
+  if (normalizeRole(profile.role) === "branch_pic" && transaction.branch_id !== profile.branch_id) {
+    throw new Error("Branch PIC can only void own-branch bank transactions.");
+  }
+  if (transaction.is_void) throw new Error("Manual bank transaction is already voided.");
+
+  const transferRows = transaction.transaction_type === "interbank_transfer"
+    ? await supabase
+        .from("bank_transactions")
+        .select("id, bank_account_id, related_bank_account_id, transfer_group_id, transaction_date, transaction_type, direction, category, amount, description, reference_no, branch_id, is_void, void_reason, voided_at, voided_by")
+        .eq("transfer_group_id", transaction.transfer_group_id)
+        .eq("transaction_type", "interbank_transfer")
+    : null;
+
+  if (transferRows?.error) throw transferRows.error;
+  const rowsToVoid = transferRows?.data?.length ? transferRows.data : [transaction];
+  if (transaction.transaction_type === "interbank_transfer" && (!transaction.transfer_group_id || rowsToVoid.length < 2)) {
+    throw new Error("Interbank transfer pair could not be loaded.");
+  }
+
+  await Promise.all(rowsToVoid.map(async (row) => {
+    const rowProfile = await requireBankAccountPermission(row.bank_account_id, "edit_transaction");
+    if (normalizeRole(rowProfile.role) === "branch_pic" && row.branch_id !== rowProfile.branch_id) {
+      throw new Error("Branch PIC can only void own-branch bank transactions.");
+    }
+    if (row.is_void) throw new Error("Bank transaction is already voided.");
+  }));
+
+  const rowIds = rowsToVoid.map((row) => row.id);
+  const { data: voidedRows, error } = await supabase
+    .from("bank_transactions")
+    .update(voidFields(reason, await getUserId()))
+    .in("id", rowIds)
+    .eq("is_void", false)
+    .select("id, bank_account_id, related_bank_account_id, transfer_group_id, transaction_date, transaction_type, direction, category, amount, description, reference_no, branch_id, is_void, void_reason, voided_at, voided_by");
+
+  if (error || !voidedRows || voidedRows.length !== rowIds.length) {
+    throw error ?? new Error("Voided bank transaction entries could not be loaded.");
+  }
+
+  const beforeById = new Map(rowsToVoid.map((row) => [row.id, row]));
+  await Promise.all(voidedRows.map((voidedTransaction) => {
+    const beforeTransaction = beforeById.get(voidedTransaction.id);
+    if (!beforeTransaction) return Promise.resolve();
+
+    return logAuditEvent({
+      action: "void",
+      afterData: bankTransactionAuditData(voidedTransaction),
+      bankAccountId: voidedTransaction.bank_account_id,
+      beforeData: bankTransactionAuditData(beforeTransaction),
+      branchId: voidedTransaction.branch_id,
+      description: `Voided ${voidedTransaction.transaction_type} manual bank transaction: ${reason}`,
+      entityId: voidedTransaction.id,
+      entityName: "bank_transactions"
+    });
+  }));
+  revalidatePath("/bank");
+  revalidatePath("/dashboard");
 }
 
 export async function createPettyCashTransaction(formData: FormData) {
@@ -843,7 +1182,7 @@ export async function createPettyCashTransaction(formData: FormData) {
     description: text(formData, "description"),
     reference_no: text(formData, "reference_no"),
     entered_by: await getUserId()
-  }).select("id, branch_id, bank_account_id, transaction_date, transaction_type, direction, category, amount, description, reference_no").single();
+  }).select("id, branch_id, bank_account_id, transaction_date, transaction_type, direction, category, amount, description, reference_no, is_void, void_reason, voided_at, voided_by").single();
 
   if (error || !transaction) throw error ?? new Error("Petty cash transaction could not be loaded after creation.");
 
@@ -880,11 +1219,12 @@ export async function updatePettyCashTransaction(formData: FormData) {
   const supabase = await createClient();
   const { data: transaction, error: transactionError } = await supabase
     .from("petty_cash_transactions")
-    .select("id, branch_id, bank_account_id, transaction_date, transaction_type, direction, category, amount, description, reference_no")
+    .select("id, branch_id, bank_account_id, transaction_date, transaction_type, direction, category, amount, description, reference_no, is_void, void_reason, voided_at, voided_by")
     .eq("id", transactionId)
     .maybeSingle();
 
   if (transactionError || !transaction) throw new Error("Petty cash transaction not found.");
+  if (transaction.is_void) throw new Error("Voided petty cash transactions cannot be edited.");
   if (!canEditBranch(profile, transaction.branch_id)) {
     throw new Error("You do not have permission to edit petty cash for this branch.");
   }
@@ -911,7 +1251,7 @@ export async function updatePettyCashTransaction(formData: FormData) {
       reference_no: text(formData, "reference_no")
     })
     .eq("id", transaction.id)
-    .select("id, branch_id, bank_account_id, transaction_date, transaction_type, direction, category, amount, description, reference_no")
+    .select("id, branch_id, bank_account_id, transaction_date, transaction_type, direction, category, amount, description, reference_no, is_void, void_reason, voided_at, voided_by")
     .single();
 
   if (error || !updatedTransaction) throw error ?? new Error("Updated petty cash transaction could not be loaded.");
@@ -932,6 +1272,63 @@ export async function updatePettyCashTransaction(formData: FormData) {
   }
   revalidatePath("/petty-cash");
   revalidatePath("/bank");
+}
+
+export async function voidPettyCashTransaction(formData: FormData) {
+  if (!hasSupabaseEnv()) return;
+
+  const profile = await requirePermission("record_petty_cash");
+  const role = normalizeRole(profile.role);
+  if (!hasPermission(profile, "edit_finance") || role === "branch_pic") {
+    throw new Error("You do not have permission to void petty cash transactions.");
+  }
+
+  const transactionId = text(formData, "transaction_id");
+  const reason = requiredVoidReason(formData);
+  if (!transactionId) throw new Error("Petty cash transaction is required.");
+
+  const supabase = await createClient();
+  const { data: transaction, error: transactionError } = await supabase
+    .from("petty_cash_transactions")
+    .select("id, branch_id, bank_account_id, transaction_date, transaction_type, direction, category, amount, description, reference_no, is_void, void_reason, voided_at, voided_by")
+    .eq("id", transactionId)
+    .maybeSingle();
+
+  if (transactionError || !transaction) throw new Error("Petty cash transaction not found.");
+  if (!canEditBranch(profile, transaction.branch_id)) {
+    throw new Error("You do not have permission to void petty cash for this branch.");
+  }
+  if (transaction.transaction_type === "petty_cash_adjustment" && role !== "owner") {
+    throw new Error("Only Owner can void petty cash adjustments.");
+  }
+  if (transaction.bank_account_id && role !== "owner") {
+    await requireBankAccountPermission(transaction.bank_account_id, "edit_transaction");
+  }
+  if (transaction.is_void) throw new Error("Petty cash transaction is already voided.");
+
+  const { data: voidedTransaction, error } = await supabase
+    .from("petty_cash_transactions")
+    .update(voidFields(reason, await getUserId()))
+    .eq("id", transaction.id)
+    .eq("is_void", false)
+    .select("id, branch_id, bank_account_id, transaction_date, transaction_type, direction, category, amount, description, reference_no, is_void, void_reason, voided_at, voided_by")
+    .single();
+
+  if (error || !voidedTransaction) throw error ?? new Error("Voided petty cash transaction could not be loaded.");
+
+  await logAuditEvent({
+    action: "void",
+    afterData: pettyCashAuditData(voidedTransaction),
+    bankAccountId: voidedTransaction.bank_account_id,
+    beforeData: pettyCashAuditData(transaction),
+    branchId: voidedTransaction.branch_id,
+    description: `Voided ${voidedTransaction.transaction_type} petty cash transaction: ${reason}`,
+    entityId: voidedTransaction.id,
+    entityName: "petty_cash_transactions"
+  });
+  revalidatePath("/petty-cash");
+  revalidatePath("/bank");
+  revalidatePath("/dashboard");
 }
 
 export async function createExpense(formData: FormData) {

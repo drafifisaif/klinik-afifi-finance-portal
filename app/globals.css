@@ -723,6 +723,40 @@ tr:last-child td {
   min-height: 64px;
 }
 
+.record-detail-grid {
+  background: #f7fbfb;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+  min-width: 250px;
+  padding: 12px;
+}
+
+.record-detail-grid div {
+  display: grid;
+  gap: 3px;
+}
+
+.record-detail-grid strong {
+  font-size: 12px;
+}
+
+.void-record-form {
+  border-color: #f3c4cf;
+}
+
+.void-warning {
+  background: #ffe8ed;
+  border-radius: 8px;
+  color: var(--rose);
+  font-size: 12px;
+  line-height: 1.45;
+  margin: 0;
+  padding: 9px;
+}
+
 .audit-details {
   min-width: 240px;
 }
@@ -847,6 +881,11 @@ textarea {
 }
 
 .status-overdue {
+  background: #ffe8ed;
+  color: var(--rose);
+}
+
+.status-voided {
   background: #ffe8ed;
   color: var(--rose);
 }

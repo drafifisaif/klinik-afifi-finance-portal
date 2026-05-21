@@ -1,4 +1,4 @@
-import { createPettyCashTransaction, updatePettyCashTransaction } from "@/app/actions";
+import { createPettyCashTransaction, updatePettyCashTransaction, voidPettyCashTransaction } from "@/app/actions";
 import { DataTable } from "@/components/data-table";
 import { ExportCsvLink } from "@/components/export-csv-link";
 import { MetricCard } from "@/components/metric-card";
@@ -6,7 +6,7 @@ import { ModuleHeader } from "@/components/module-header";
 import { bankAccountLabel, branchLabel, buildPettyCashBalanceRows, pettyCashAmount } from "@/lib/bank-reporting";
 import { pettyCashCategories, pettyCashTransactionTypes } from "@/lib/constants";
 import { getBankingData, totalBy } from "@/lib/data";
-import { formatCurrency, formatDate } from "@/lib/format";
+import { formatCurrency, formatDate, formatDateTime } from "@/lib/format";
 import { hasPermission, normalizeRole, requirePermission } from "@/lib/permissions";
 import type { PettyCashTransaction, PettyCashTransactionType } from "@/lib/types";
 import { Banknote, ReceiptText, WalletCards } from "lucide-react";
@@ -148,59 +148,105 @@ export default async function PettyCashPage() {
           <ExportCsvLink label="Export ledger CSV" report="petty-cash" />
         </div>
         <DataTable
-          columns={["Date", "Branch", "Transaction type", "Category", "Amount", "Entered by", "Reference", "Notes", "Edit"]}
-          rows={data.pettyCashTransactions.map((transaction) => [
-            formatDate(transaction.transaction_date),
-            branchLabel(transaction.branches),
-            pettyCashTypeLabel(transaction.transaction_type),
-            pettyCashCategoryLabel(transaction.category),
-            entryAmount(transaction),
-            transaction.profiles?.full_name ?? transaction.entered_by ?? "-",
-            transaction.reference_no ?? "-",
-            transaction.description ?? "-",
-            canEditPettyCash ? (
+          columns={["Date", "Branch", "Transaction type", "Category", "Amount", "Entered by", "Reference", "Notes", "Status", "View details", "Edit", "Void"]}
+          rows={data.pettyCashTransactions.map((transaction) => {
+            const canCorrectTransaction = canEditPettyCash && !transaction.is_void;
+
+            return [
+              formatDate(transaction.transaction_date),
+              branchLabel(transaction.branches),
+              pettyCashTypeLabel(transaction.transaction_type),
+              pettyCashCategoryLabel(transaction.category),
+              entryAmount(transaction),
+              transaction.profiles?.full_name ?? transaction.entered_by ?? "-",
+              transaction.reference_no ?? "-",
+              transaction.description ?? "-",
+              <span className={`status-pill ${transaction.is_void ? "status-voided" : "status-paid"}`}>
+                {transaction.is_void ? "VOIDED" : "Active"}
+              </span>,
               <details className="manual-bank-editor">
-                <summary>Edit</summary>
-                <form action={updatePettyCashTransaction} className="manual-bank-edit-form">
-                  <input name="transaction_id" type="hidden" value={transaction.id} />
-                  <label>
-                    Date
-                    <input name="transaction_date" type="date" defaultValue={transaction.transaction_date} required />
-                  </label>
-                  <label>
-                    Amount
-                    <input name="amount" step="0.01" type="number" defaultValue={transaction.amount} required />
-                  </label>
-                  {transaction.transaction_type === "petty_cash_spent" ? (
+                <summary>View details</summary>
+                <div className="record-detail-grid">
+                  <div>
+                    <strong>Record ID</strong>
+                    <span>{transaction.id}</span>
+                  </div>
+                  <div>
+                    <strong>Bank account</strong>
+                    <span>{bankAccountLabel(transaction.bank_accounts)}</span>
+                  </div>
+                  <div>
+                    <strong>Voided at</strong>
+                    <span>{formatDateTime(transaction.voided_at)}</span>
+                  </div>
+                  <div>
+                    <strong>Void reason</strong>
+                    <span>{transaction.void_reason ?? "-"}</span>
+                  </div>
+                </div>
+              </details>,
+              canCorrectTransaction ? (
+                <details className="manual-bank-editor">
+                  <summary>Edit</summary>
+                  <form action={updatePettyCashTransaction} className="manual-bank-edit-form">
+                    <input name="transaction_id" type="hidden" value={transaction.id} />
                     <label>
-                      Category
-                      <select name="category" defaultValue={transaction.category ?? ""}>
-                        <option value="">No category</option>
-                        {pettyCashCategories.map((category) => (
-                          <option key={category.value} value={category.value}>
-                            {category.label}
-                          </option>
-                        ))}
-                      </select>
+                      Date
+                      <input name="transaction_date" type="date" defaultValue={transaction.transaction_date} required />
                     </label>
-                  ) : null}
-                  <label>
-                    Reference
-                    <input name="reference_no" defaultValue={transaction.reference_no ?? ""} />
-                  </label>
-                  <label>
-                    Notes
-                    <textarea name="description" defaultValue={transaction.description ?? ""} />
-                  </label>
-                  <button className="primary-button compact-button" type="submit">
-                    Save
-                  </button>
-                </form>
-              </details>
-            ) : (
-              "-"
-            )
-          ])}
+                    <label>
+                      Amount
+                      <input name="amount" step="0.01" type="number" defaultValue={transaction.amount} required />
+                    </label>
+                    {transaction.transaction_type === "petty_cash_spent" ? (
+                      <label>
+                        Category
+                        <select name="category" defaultValue={transaction.category ?? ""}>
+                          <option value="">No category</option>
+                          {pettyCashCategories.map((category) => (
+                            <option key={category.value} value={category.value}>
+                              {category.label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    ) : null}
+                    <label>
+                      Reference
+                      <input name="reference_no" defaultValue={transaction.reference_no ?? ""} />
+                    </label>
+                    <label>
+                      Notes
+                      <textarea name="description" defaultValue={transaction.description ?? ""} />
+                    </label>
+                    <button className="primary-button compact-button" type="submit">
+                      Save
+                    </button>
+                  </form>
+                </details>
+              ) : (
+                "-"
+              ),
+              canCorrectTransaction ? (
+                <details className="manual-bank-editor">
+                  <summary>Void</summary>
+                  <form action={voidPettyCashTransaction} className="manual-bank-edit-form void-record-form">
+                    <input name="transaction_id" type="hidden" value={transaction.id} />
+                    <p className="void-warning">Voided records stay in history and are excluded from reports.</p>
+                    <label>
+                      Void reason
+                      <textarea name="void_reason" required />
+                    </label>
+                    <button className="primary-button compact-button" type="submit">
+                      Confirm void
+                    </button>
+                  </form>
+                </details>
+              ) : (
+                "-"
+              )
+            ];
+          })}
         />
       </section>
     </>

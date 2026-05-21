@@ -3,6 +3,7 @@ import {
   createBankTransaction,
   revokeBankAccountPermission,
   updateBankTransaction,
+  voidBankTransaction,
   upsertBankAccountPermission
 } from "@/app/actions";
 import { DataTable } from "@/components/data-table";
@@ -21,6 +22,7 @@ import {
   getBankAccountById,
   getBranchById,
   getMappingByBranch,
+  isActiveFinancialRecord,
   isWithinDateRange,
   panelSalesAmount,
   pettyCashAmount,
@@ -28,7 +30,7 @@ import {
   signedBankTransactionAmount
 } from "@/lib/bank-reporting";
 import { getBankingDataForScope, totalBy } from "@/lib/data";
-import { formatCurrency, formatDate } from "@/lib/format";
+import { formatCurrency, formatDate, formatDateTime } from "@/lib/format";
 import { canManageBankPermissions, hasBankAccountPermission, normalizeRole, requireBankPositionAccess } from "@/lib/permissions";
 import { getUserManagementData } from "@/lib/users";
 import type { BankTransaction, BankTransactionType, PettyCashTransaction } from "@/lib/types";
@@ -148,27 +150,34 @@ export default async function BankPage({ searchParams }: { searchParams: Promise
       && (selectedCategory === "all" || transaction.category === selectedCategory)
       && (selectedManualTransactionType === "all" || transaction.transaction_type === selectedManualTransactionType);
   };
-  const selectedSales = data.sales.filter((sale) => isWithinDateRange(sale.sale_date, range) && saleMatchesScope(sale));
-  const selectedCashBankIns = data.cashBankIns.filter((bankIn) => isWithinDateRange(bankIn.bank_in_date, range) && bankInMatchesScope(bankIn));
-  const selectedBankTransactions = data.bankTransactions.filter((transaction) => {
+  const selectedSales = data.sales.filter((sale) => {
+    return isActiveFinancialRecord(sale) && isWithinDateRange(sale.sale_date, range) && saleMatchesScope(sale);
+  });
+  const selectedCashBankIns = data.cashBankIns.filter((bankIn) => {
+    return isActiveFinancialRecord(bankIn) && isWithinDateRange(bankIn.bank_in_date, range) && bankInMatchesScope(bankIn);
+  });
+  const bankTransactionHistory = data.bankTransactions.filter((transaction) => {
     return isWithinDateRange(transaction.transaction_date, range) && transactionMatchesScope(transaction);
   });
+  const selectedBankTransactions = bankTransactionHistory.filter(isActiveFinancialRecord);
   const pettyCashMatchesScope = (transaction: PettyCashTransaction) => {
     return (selectedBankAccountId === "all" || transaction.bank_account_id === selectedBankAccountId)
       && (selectedBranchId === "all" || transaction.branch_id === selectedBranchId);
   };
   const selectedBankLinkedPettyCash = data.pettyCashTransactions.filter((transaction) => {
-    return transaction.bank_account_id
+    return isActiveFinancialRecord(transaction)
+      && transaction.bank_account_id
       && (transaction.transaction_type === "petty_cash_issued" || transaction.transaction_type === "petty_cash_returned")
       && isWithinDateRange(transaction.transaction_date, range)
       && pettyCashMatchesScope(transaction);
   });
-  const todaySales = data.sales.filter((sale) => isWithinDateRange(sale.sale_date, todayRange));
-  const monthSales = data.sales.filter((sale) => isWithinDateRange(sale.sale_date, monthRange));
-  const todayCashBankIns = data.cashBankIns.filter((bankIn) => isWithinDateRange(bankIn.bank_in_date, todayRange));
-  const monthCashBankIns = data.cashBankIns.filter((bankIn) => isWithinDateRange(bankIn.bank_in_date, monthRange));
+  const todaySales = data.sales.filter((sale) => isActiveFinancialRecord(sale) && isWithinDateRange(sale.sale_date, todayRange));
+  const monthSales = data.sales.filter((sale) => isActiveFinancialRecord(sale) && isWithinDateRange(sale.sale_date, monthRange));
+  const todayCashBankIns = data.cashBankIns.filter((bankIn) => isActiveFinancialRecord(bankIn) && isWithinDateRange(bankIn.bank_in_date, todayRange));
+  const monthCashBankIns = data.cashBankIns.filter((bankIn) => isActiveFinancialRecord(bankIn) && isWithinDateRange(bankIn.bank_in_date, monthRange));
   const monthBankLinkedPettyCash = data.pettyCashTransactions.filter((transaction) => {
-    return transaction.bank_account_id
+    return isActiveFinancialRecord(transaction)
+      && transaction.bank_account_id
       && (transaction.transaction_type === "petty_cash_issued" || transaction.transaction_type === "petty_cash_returned")
       && isWithinDateRange(transaction.transaction_date, monthRange);
   });
@@ -654,72 +663,121 @@ export default async function BankPage({ searchParams }: { searchParams: Promise
       <section className="table-section mt-section">
         <h2>Manual bank transactions</h2>
         <DataTable
-          columns={["Date", "Bank account", "Type", "Direction", "Related bank", "Category", "Branch", "Amount", "Description", "Reference", "Edit"]}
-          rows={selectedBankTransactions.map((transaction) => [
-            formatDate(transaction.transaction_date),
-            bankAccountLabel(transaction.bank_accounts ?? bankAccountById.get(transaction.bank_account_id)),
-            transactionTypeLabel(transaction.transaction_type),
-            transaction.direction === "in" ? "In" : "Out",
-            bankAccountLabel(transaction.related_bank_account_id ? bankAccountById.get(transaction.related_bank_account_id) : null),
-            categoryLabel(transaction.category),
-            branchLabel(transaction.branches ?? (transaction.branch_id ? branchById.get(transaction.branch_id) : null)),
-            formatCurrency(bankTransactionAmount(transaction)),
-            transaction.description ?? "-",
-            transaction.reference_no ?? "-",
-            hasBankAccountPermission(profile, data.bankAccountPermissions, transaction.bank_account_id, "edit_transaction") ? (
+          columns={["Date", "Bank account", "Type", "Direction", "Related bank", "Category", "Branch", "Amount", "Description", "Reference", "Status", "View details", "Edit", "Void"]}
+          rows={bankTransactionHistory.map((transaction) => {
+            const branchPicOwnBranch = normalizeRole(profile.role) !== "branch_pic" || transaction.branch_id === profile.branch_id;
+            const canCorrectTransaction = branchPicOwnBranch
+              && !transaction.is_void
+              && hasBankAccountPermission(profile, data.bankAccountPermissions, transaction.bank_account_id, "edit_transaction");
+
+            return [
+              formatDate(transaction.transaction_date),
+              bankAccountLabel(transaction.bank_accounts ?? bankAccountById.get(transaction.bank_account_id)),
+              transactionTypeLabel(transaction.transaction_type),
+              transaction.direction === "in" ? "In" : "Out",
+              bankAccountLabel(transaction.related_bank_account_id ? bankAccountById.get(transaction.related_bank_account_id) : null),
+              categoryLabel(transaction.category),
+              branchLabel(transaction.branches ?? (transaction.branch_id ? branchById.get(transaction.branch_id) : null)),
+              formatCurrency(bankTransactionAmount(transaction)),
+              transaction.description ?? "-",
+              transaction.reference_no ?? "-",
+              <span className={`status-pill ${transaction.is_void ? "status-voided" : "status-paid"}`}>
+                {transaction.is_void ? "VOIDED" : "Active"}
+              </span>,
               <details className="manual-bank-editor">
-                <summary>Edit</summary>
-                <form action={updateBankTransaction} className="manual-bank-edit-form">
-                  <input name="transaction_id" type="hidden" value={transaction.id} />
-                  <label>
-                    Date
-                    <input name="transaction_date" type="date" defaultValue={transaction.transaction_date} required />
-                  </label>
-                  <label>
-                    Amount
-                    <input name="amount" min="0.01" step="0.01" type="number" defaultValue={transaction.amount} required />
-                  </label>
-                  {transaction.transaction_type === "money_out" ? (
+                <summary>View details</summary>
+                <div className="record-detail-grid">
+                  <div>
+                    <strong>Record ID</strong>
+                    <span>{transaction.id}</span>
+                  </div>
+                  <div>
+                    <strong>Entered by</strong>
+                    <span>{transaction.entered_by ?? "-"}</span>
+                  </div>
+                  <div>
+                    <strong>Voided at</strong>
+                    <span>{formatDateTime(transaction.voided_at)}</span>
+                  </div>
+                  <div>
+                    <strong>Void reason</strong>
+                    <span>{transaction.void_reason ?? "-"}</span>
+                  </div>
+                </div>
+              </details>,
+              canCorrectTransaction ? (
+                <details className="manual-bank-editor">
+                  <summary>Edit</summary>
+                  <form action={updateBankTransaction} className="manual-bank-edit-form">
+                    <input name="transaction_id" type="hidden" value={transaction.id} />
                     <label>
-                      Category
-                      <select name="category" defaultValue={transaction.category ?? ""}>
-                        <option value="">No category</option>
-                        {bankMoneyOutCategories.map((category) => (
-                          <option key={category.value} value={category.value}>
-                            {category.label}
+                      Date
+                      <input name="transaction_date" type="date" defaultValue={transaction.transaction_date} required />
+                    </label>
+                    <label>
+                      Amount
+                      <input name="amount" min="0.01" step="0.01" type="number" defaultValue={transaction.amount} required />
+                    </label>
+                    {transaction.transaction_type === "money_out" ? (
+                      <label>
+                        Category
+                        <select name="category" defaultValue={transaction.category ?? ""}>
+                          <option value="">No category</option>
+                          {bankMoneyOutCategories.map((category) => (
+                            <option key={category.value} value={category.value}>
+                              {category.label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    ) : null}
+                    <label>
+                      Branch
+                      <select name="branch_id" defaultValue={transaction.branch_id ?? ""}>
+                        <option value="">No branch</option>
+                        {data.branches.map((branch) => (
+                          <option key={branch.id} value={branch.id}>
+                            {branch.name}
                           </option>
                         ))}
                       </select>
                     </label>
-                  ) : null}
-                  <label>
-                    Branch
-                    <select name="branch_id" defaultValue={transaction.branch_id ?? ""}>
-                      <option value="">No branch</option>
-                      {data.branches.map((branch) => (
-                        <option key={branch.id} value={branch.id}>
-                          {branch.name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label>
-                    Reference
-                    <input name="reference_no" defaultValue={transaction.reference_no ?? ""} />
-                  </label>
-                  <label>
-                    Description
-                    <textarea name="description" defaultValue={transaction.description ?? ""} />
-                  </label>
-                  <button className="primary-button compact-button" type="submit">
-                    Save
-                  </button>
-                </form>
-              </details>
-            ) : (
-              "-"
-            )
-          ])}
+                    <label>
+                      Reference
+                      <input name="reference_no" defaultValue={transaction.reference_no ?? ""} />
+                    </label>
+                    <label>
+                      Description
+                      <textarea name="description" defaultValue={transaction.description ?? ""} />
+                    </label>
+                    <button className="primary-button compact-button" type="submit">
+                      Save
+                    </button>
+                  </form>
+                </details>
+              ) : (
+                "-"
+              ),
+              canCorrectTransaction ? (
+                <details className="manual-bank-editor">
+                  <summary>Void</summary>
+                  <form action={voidBankTransaction} className="manual-bank-edit-form void-record-form">
+                    <input name="transaction_id" type="hidden" value={transaction.id} />
+                    <p className="void-warning">Voided records stay in history and are excluded from reports.</p>
+                    <label>
+                      Void reason
+                      <textarea name="void_reason" required />
+                    </label>
+                    <button className="primary-button compact-button" type="submit">
+                      Confirm void
+                    </button>
+                  </form>
+                </details>
+              ) : (
+                "-"
+              )
+            ];
+          })}
         />
       </section>
 

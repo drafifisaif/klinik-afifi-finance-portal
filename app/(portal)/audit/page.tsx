@@ -19,7 +19,7 @@ type AuditSearchParams = {
   start?: string;
 };
 
-const auditActions = ["create", "update", "delete", "role_change", "permission_change"];
+const auditActions = ["create", "update", "void", "delete", "role_change", "permission_change"];
 
 const auditEntities = [
   "branches",

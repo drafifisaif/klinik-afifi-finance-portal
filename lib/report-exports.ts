@@ -10,6 +10,7 @@ import {
   getBankAccountById,
   getBranchById,
   getMappingByBranch,
+  isActiveFinancialRecord,
   isWithinDateRange,
   pettyCashAmount,
   resolveDateRange
@@ -108,24 +109,28 @@ function bankExportScope(data: BankingData, searchParams: URLSearchParams) {
   const manualType = selectedManualType(searchParams);
   const selectedSales = data.sales.filter((sale) => {
     const mapping = mappingByBranch.get(sale.branch_id);
-    return isWithinDateRange(sale.sale_date, range)
+    return isActiveFinancialRecord(sale)
+      && isWithinDateRange(sale.sale_date, range)
       && (selectedBranchId === "all" || sale.branch_id === selectedBranchId)
       && (selectedBankAccountId === "all" || mapping?.bank_account_id === selectedBankAccountId);
   });
   const selectedCashBankIns = data.cashBankIns.filter((bankIn) => {
-    return isWithinDateRange(bankIn.bank_in_date, range)
+    return isActiveFinancialRecord(bankIn)
+      && isWithinDateRange(bankIn.bank_in_date, range)
       && (selectedBranchId === "all" || bankIn.branch_id === selectedBranchId)
       && (selectedBankAccountId === "all" || bankIn.bank_account_id === selectedBankAccountId);
   });
   const selectedBankTransactions = data.bankTransactions.filter((transaction) => {
-    return isWithinDateRange(transaction.transaction_date, range)
+    return isActiveFinancialRecord(transaction)
+      && isWithinDateRange(transaction.transaction_date, range)
       && (selectedBankAccountId === "all" || transaction.bank_account_id === selectedBankAccountId)
       && (selectedBranchId === "all" || transaction.branch_id === selectedBranchId)
       && (selectedCategory === "all" || transaction.category === selectedCategory)
       && (manualType === "all" || transaction.transaction_type === manualType);
   });
   const selectedBankLinkedPettyCash = data.pettyCashTransactions.filter((transaction) => {
-    return transaction.bank_account_id
+    return isActiveFinancialRecord(transaction)
+      && transaction.bank_account_id
       && (transaction.transaction_type === "petty_cash_issued" || transaction.transaction_type === "petty_cash_returned")
       && isWithinDateRange(transaction.transaction_date, range)
       && (selectedBankAccountId === "all" || transaction.bank_account_id === selectedBankAccountId)
@@ -154,7 +159,9 @@ export async function dashboardSummaryCsv(searchParams: URLSearchParams): Promis
   });
   const { branches, includeUnassigned, selectedBranchIdSet } = dashboardSelection(profile, searchParams, dashboardData);
   const branchIds = new Set(branches.map((branch) => branch.id));
-  const sales = dashboardData.sales.filter((sale) => branchIds.has(sale.branch_id) && isWithinDateRange(sale.sale_date, range));
+  const sales = dashboardData.sales.filter((sale) => {
+    return isActiveFinancialRecord(sale) && branchIds.has(sale.branch_id) && isWithinDateRange(sale.sale_date, range);
+  });
   const expenses = dashboardData.expenses.filter((expense) => branchIds.has(expense.branch_id) && isWithinDateRange(expense.expense_date, range));
   const purchases = dashboardData.purchases.filter((purchase) => branchIds.has(purchase.branch_id) && isWithinDateRange(purchase.purchase_date, range));
   const supplierPayments = dashboardData.supplierPayments.filter((payment) => {
@@ -163,13 +170,21 @@ export async function dashboardSummaryCsv(searchParams: URLSearchParams): Promis
   const panels = dashboardData.panels.filter((panel) => branchIds.has(panel.branch_id) && isWithinDateRange(panel.claim_month, range));
   const bankBranches = bankingData.branches.filter((branch) => branchIds.has(branch.id));
   const bankBranchIds = new Set(bankBranches.map((branch) => branch.id));
-  const bankSales = bankingData.sales.filter((sale) => bankBranchIds.has(sale.branch_id) && isWithinDateRange(sale.sale_date, range));
-  const cashBankIns = bankingData.cashBankIns.filter((bankIn) => bankBranchIds.has(bankIn.branch_id) && isWithinDateRange(bankIn.bank_in_date, range));
+  const bankSales = bankingData.sales.filter((sale) => {
+    return isActiveFinancialRecord(sale) && bankBranchIds.has(sale.branch_id) && isWithinDateRange(sale.sale_date, range);
+  });
+  const cashBankIns = bankingData.cashBankIns.filter((bankIn) => {
+    return isActiveFinancialRecord(bankIn) && bankBranchIds.has(bankIn.branch_id) && isWithinDateRange(bankIn.bank_in_date, range);
+  });
   const bankTransactions = bankingData.bankTransactions.filter((transaction) => {
-    return branchMatches(transaction.branch_id, branchIds, includeUnassigned) && isWithinDateRange(transaction.transaction_date, range);
+    return isActiveFinancialRecord(transaction)
+      && branchMatches(transaction.branch_id, branchIds, includeUnassigned)
+      && isWithinDateRange(transaction.transaction_date, range);
   });
   const pettyCashTransactions = bankingData.pettyCashTransactions.filter((transaction) => {
-    return bankBranchIds.has(transaction.branch_id) && isWithinDateRange(transaction.transaction_date, range);
+    return isActiveFinancialRecord(transaction)
+      && bankBranchIds.has(transaction.branch_id)
+      && isWithinDateRange(transaction.transaction_date, range);
   });
   const cashInHandRows = buildCashInHandRows({ branches: bankBranches, cashBankIns, sales: bankSales }, range);
   const pettyCashRows = buildPettyCashBalanceRows({ branches: bankBranches, pettyCashTransactions }, range);
@@ -302,7 +317,8 @@ export async function pettyCashLedgerCsv(searchParams: URLSearchParams): Promise
   const selectedBankAccountId = param(searchParams, "bank_account_id") ?? "all";
   const selectedType = param(searchParams, "transaction_type") ?? "all";
   const rows = data.pettyCashTransactions.filter((transaction) => {
-    return matchesOptionalDate(transaction.transaction_date, searchParams)
+    return isActiveFinancialRecord(transaction)
+      && matchesOptionalDate(transaction.transaction_date, searchParams)
       && (selectedBranchId === "all" || transaction.branch_id === selectedBranchId)
       && (selectedBankAccountId === "all" || transaction.bank_account_id === selectedBankAccountId)
       && (selectedType === "all" || transaction.transaction_type === selectedType);
@@ -393,7 +409,8 @@ export async function dailySalesCsv(searchParams: URLSearchParams): Promise<CsvE
     filename: "daily-sales-report.csv",
     headers: ["Date", "Branch", "Cash", "Bank Transfer", "Card", "Panel", "QR", "Total", "Notes"],
     rows: data.sales.filter((sale) => {
-      return matchesOptionalDate(sale.sale_date, searchParams)
+      return isActiveFinancialRecord(sale)
+        && matchesOptionalDate(sale.sale_date, searchParams)
         && (selectedBranchId === "all" || sale.branch_id === selectedBranchId);
     }).map((sale) => [
       sale.sale_date,
