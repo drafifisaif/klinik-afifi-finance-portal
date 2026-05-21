@@ -12,7 +12,7 @@ import {
   requireBankAccountPermission,
   requirePermission
 } from "@/lib/permissions";
-import type { ExpenseCategory, PaymentType, PurchaseCategory, UserRole } from "@/lib/types";
+import type { BankTransactionType, ExpenseCategory, PaymentType, PurchaseCategory, UserRole } from "@/lib/types";
 
 function text(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -26,6 +26,18 @@ function number(formData: FormData, key: string) {
 
 function checked(formData: FormData, key: string) {
   return formData.get(key) === "true";
+}
+
+function bankTransactionType(formData: FormData) {
+  const value = text(formData, "transaction_type");
+  if (value === "money_in" || value === "money_out" || value === "interbank_transfer" || value === "owner_drawing") {
+    return value;
+  }
+  throw new Error("Select a valid manual bank transaction type.");
+}
+
+function bankTransactionDirection(type: BankTransactionType) {
+  return type === "money_in" ? "in" : "out";
 }
 
 async function getUserId() {
@@ -147,6 +159,148 @@ export async function createCashBankIn(formData: FormData) {
   revalidatePath("/cash-bank-ins");
   revalidatePath("/bank");
   revalidatePath("/dashboard");
+}
+
+export async function createBankTransaction(formData: FormData) {
+  if (!hasSupabaseEnv()) return;
+
+  const type = bankTransactionType(formData);
+  const bankAccountId = text(formData, "bank_account_id");
+  const relatedBankAccountId = text(formData, "related_bank_account_id");
+  const transactionDate = text(formData, "transaction_date");
+  const amount = number(formData, "amount");
+
+  if (!bankAccountId || !transactionDate || amount <= 0) {
+    throw new Error("Bank account, date, and a positive amount are required.");
+  }
+
+  await requireBankAccountPermission(bankAccountId, "create_transaction");
+
+  const branchId = text(formData, "branch_id");
+  const referenceNo = text(formData, "reference_no");
+  const notes = text(formData, "description");
+  const userId = await getUserId();
+  const supabase = await createClient();
+
+  if (type === "interbank_transfer") {
+    if (!relatedBankAccountId || relatedBankAccountId === bankAccountId) {
+      throw new Error("Interbank transfers need different source and destination bank accounts.");
+    }
+
+    await requireBankAccountPermission(relatedBankAccountId, "create_transaction");
+    const transferGroupId = crypto.randomUUID();
+    const { error } = await supabase.from("bank_transactions").insert([
+      {
+        bank_account_id: bankAccountId,
+        related_bank_account_id: relatedBankAccountId,
+        transfer_group_id: transferGroupId,
+        transaction_date: transactionDate,
+        transaction_type: type,
+        direction: "out",
+        amount,
+        description: notes,
+        reference_no: referenceNo,
+        branch_id: branchId,
+        entered_by: userId
+      },
+      {
+        bank_account_id: relatedBankAccountId,
+        related_bank_account_id: bankAccountId,
+        transfer_group_id: transferGroupId,
+        transaction_date: transactionDate,
+        transaction_type: type,
+        direction: "in",
+        amount,
+        description: notes,
+        reference_no: referenceNo,
+        branch_id: branchId,
+        entered_by: userId
+      }
+    ]);
+
+    if (error) throw error;
+  } else {
+    const { error } = await supabase.from("bank_transactions").insert({
+      bank_account_id: bankAccountId,
+      transaction_date: transactionDate,
+      transaction_type: type,
+      direction: bankTransactionDirection(type),
+      category: type === "money_out" ? text(formData, "category") : null,
+      amount,
+      description: notes,
+      reference_no: referenceNo,
+      branch_id: branchId,
+      entered_by: userId
+    });
+
+    if (error) throw error;
+  }
+
+  revalidatePath("/bank");
+}
+
+export async function updateBankTransaction(formData: FormData) {
+  if (!hasSupabaseEnv()) return;
+
+  const transactionId = text(formData, "transaction_id");
+  const transactionDate = text(formData, "transaction_date");
+  const amount = number(formData, "amount");
+  if (!transactionId || !transactionDate || amount <= 0) {
+    throw new Error("Transaction, date, and a positive amount are required.");
+  }
+
+  const supabase = await createClient();
+  const { data: transaction, error: transactionError } = await supabase
+    .from("bank_transactions")
+    .select("id, bank_account_id, transaction_type, transfer_group_id")
+    .eq("id", transactionId)
+    .maybeSingle();
+
+  if (transactionError || !transaction) throw new Error("Manual bank transaction not found.");
+  await requireBankAccountPermission(transaction.bank_account_id, "edit_transaction");
+
+  const updates = {
+    transaction_date: transactionDate,
+    amount,
+    description: text(formData, "description"),
+    reference_no: text(formData, "reference_no"),
+    branch_id: text(formData, "branch_id")
+  };
+
+  if (transaction.transaction_type === "interbank_transfer") {
+    if (!transaction.transfer_group_id) throw new Error("Interbank transfer pair is incomplete.");
+
+    const { data: transferRows, error: transferError } = await supabase
+      .from("bank_transactions")
+      .select("id, bank_account_id")
+      .eq("transfer_group_id", transaction.transfer_group_id)
+      .eq("transaction_type", "interbank_transfer");
+
+    if (transferError || !transferRows || transferRows.length < 2) {
+      throw new Error("Interbank transfer pair could not be loaded.");
+    }
+
+    await Promise.all(transferRows.map((row) => requireBankAccountPermission(row.bank_account_id, "edit_transaction")));
+    const { error } = await supabase
+      .from("bank_transactions")
+      .update(updates)
+      .eq("transfer_group_id", transaction.transfer_group_id)
+      .eq("transaction_type", "interbank_transfer");
+
+    if (error) throw error;
+  } else {
+    const { error } = await supabase
+      .from("bank_transactions")
+      .update({
+        ...updates,
+        category: transaction.transaction_type === "money_out" ? text(formData, "category") : null
+      })
+      .eq("id", transaction.id);
+
+    if (error) throw error;
+  }
+
+  revalidatePath("/bank");
 }
 
 export async function createExpense(formData: FormData) {

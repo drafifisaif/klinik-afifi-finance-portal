@@ -3,6 +3,7 @@ import { canViewAllBranches, filterBranchesForProfile, filterDashboardDataForPro
 import type {
   BankAccount,
   BankAccountPermission,
+  BankTransaction,
   BankingData,
   Branch,
   BranchBankMapping,
@@ -255,6 +256,7 @@ const branchBankMappings: BranchBankMapping[] = [
 
 const cashBankIns: CashBankIn[] = [];
 const bankAccountPermissions: BankAccountPermission[] = [];
+const bankTransactions: BankTransaction[] = [];
 
 export const demoData: DashboardData = {
   branches,
@@ -270,6 +272,7 @@ export const demoBankingData: BankingData = {
   sales,
   bankAccounts,
   bankAccountPermissions,
+  bankTransactions,
   branchBankMappings,
   cashBankIns
 };
@@ -381,8 +384,17 @@ function filterBankingDataForProfile(data: BankingData, profile: Awaited<ReturnT
     if (!branchIds.has(bankIn.branch_id)) return false;
     return !permittedBankAccountIds || permittedBankAccountIds.has(bankIn.bank_account_id);
   });
+  const filteredBankTransactions = data.bankTransactions.filter((transaction) => {
+    return !permittedBankAccountIds || permittedBankAccountIds.has(transaction.bank_account_id);
+  });
   const visibleBranchIds = permittedBankAccountIds
-    ? new Set([...mappedBranchIds, ...filteredCashBankIns.map((bankIn) => bankIn.branch_id)])
+    ? new Set([
+        ...mappedBranchIds,
+        ...filteredCashBankIns.map((bankIn) => bankIn.branch_id),
+        ...filteredBankTransactions
+          .map((transaction) => transaction.branch_id)
+          .filter((branchId): branchId is string => Boolean(branchId))
+      ])
     : branchIds;
 
   return {
@@ -390,6 +402,7 @@ function filterBankingDataForProfile(data: BankingData, profile: Awaited<ReturnT
     sales: data.sales.filter((sale) => visibleBranchIds.has(sale.branch_id) && (!permittedBankAccountIds || mappedBranchIds.has(sale.branch_id))),
     bankAccounts: data.bankAccounts.filter((account) => account.is_active && (!permittedBankAccountIds || permittedBankAccountIds.has(account.id))),
     bankAccountPermissions: data.bankAccountPermissions.filter((permission) => !profile || permission.user_id === profile.id),
+    bankTransactions: filteredBankTransactions,
     branchBankMappings: permittedMappings,
     cashBankIns: filteredCashBankIns
   };
@@ -404,7 +417,7 @@ export async function getBankingDataForScope(options: BankingDataOptions = {}): 
   if (!hasSupabaseEnv()) return filterBankingDataForProfile(demoBankingData, profile, options);
 
   const supabase = await createClient();
-  const [branchRows, salesRows, bankRows, permissionRows, mappingRows, cashBankInRows] = await Promise.all([
+  const [branchRows, salesRows, bankRows, permissionRows, transactionRows, mappingRows, cashBankInRows] = await Promise.all([
     fetchOrDemo(supabase.from("branches").select("*").eq("is_active", true).order("name"), demoBankingData.branches),
     fetchOrDemo(
       supabase
@@ -420,6 +433,14 @@ export async function getBankingDataForScope(options: BankingDataOptions = {}): 
         .from("bank_account_permissions")
         .select("id, user_id, bank_account_id, can_view, can_create_transaction, can_edit_transaction, can_manage_account, granted_by, created_at, updated_at"),
       demoBankingData.bankAccountPermissions
+    ),
+    fetchOrDemo(
+      supabase
+        .from("bank_transactions")
+        .select("*, branches(name, code), bank_accounts(name, bank_name, account_no)")
+        .order("transaction_date", { ascending: false })
+        .limit(2000),
+      demoBankingData.bankTransactions
     ),
     fetchOrDemo(
       supabase
@@ -444,6 +465,7 @@ export async function getBankingDataForScope(options: BankingDataOptions = {}): 
       sales: salesRows as DailySale[],
       bankAccounts: bankRows as BankAccount[],
       bankAccountPermissions: permissionRows as BankAccountPermission[],
+      bankTransactions: transactionRows as BankTransaction[],
       branchBankMappings: mappingRows as BranchBankMapping[],
       cashBankIns: cashBankInRows as CashBankIn[]
     },

@@ -156,6 +156,30 @@ export type BankAccountPermission = {
   profiles?: Pick<Profile, "full_name" | "role"> | null;
 };
 
+export type BankTransactionType = "money_in" | "money_out" | "interbank_transfer" | "owner_drawing";
+
+export type BankTransactionDirection = "in" | "out";
+
+export type BankTransaction = {
+  id: string;
+  bank_account_id: string;
+  related_bank_account_id?: string | null;
+  transfer_group_id?: string | null;
+  transaction_date: string;
+  transaction_type: BankTransactionType;
+  direction: BankTransactionDirection;
+  category?: string | null;
+  amount: number;
+  description?: string | null;
+  reference_no?: string | null;
+  branch_id?: string | null;
+  entered_by?: string | null;
+  created_at?: string;
+  updated_at?: string;
+  bank_accounts?: Pick<BankAccount, "name" | "bank_name" | "account_no"> | null;
+  branches?: Pick<Branch, "name" | "code"> | null;
+};
+
 export type BranchBankMapping = {
   id: string;
   branch_id: string;
@@ -194,6 +218,7 @@ export type BankingData = {
   sales: DailySale[];
   bankAccounts: BankAccount[];
   bankAccountPermissions: BankAccountPermission[];
+  bankTransactions: BankTransaction[];
   branchBankMappings: BranchBankMapping[];
   cashBankIns: CashBankIn[];
 };

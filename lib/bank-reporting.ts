@@ -1,4 +1,4 @@
-import type { BankAccount, BankingData, Branch, CashBankIn, DailySale } from "@/lib/types";
+import type { BankAccount, BankTransaction, BankingData, Branch, CashBankIn, DailySale } from "@/lib/types";
 
 export type DatePeriod = "today" | "this_month" | "last_month" | "custom";
 
@@ -81,6 +81,15 @@ export function panelSalesAmount(sale: DailySale) {
 
 export function bankInAmount(bankIn: CashBankIn) {
   return Number(bankIn.amount ?? 0);
+}
+
+export function bankTransactionAmount(transaction: BankTransaction) {
+  return Number(transaction.amount ?? 0);
+}
+
+export function signedBankTransactionAmount(transaction: BankTransaction) {
+  const amount = bankTransactionAmount(transaction);
+  return transaction.direction === "in" ? amount : -amount;
 }
 
 export function branchLabel(branch: Pick<Branch, "code" | "name"> | null | undefined) {

@@ -1,10 +1,18 @@
-import { createBankAccount, revokeBankAccountPermission, upsertBankAccountPermission } from "@/app/actions";
+import {
+  createBankAccount,
+  createBankTransaction,
+  revokeBankAccountPermission,
+  updateBankTransaction,
+  upsertBankAccountPermission
+} from "@/app/actions";
 import { DataTable } from "@/components/data-table";
 import { MetricCard } from "@/components/metric-card";
 import { ModuleHeader } from "@/components/module-header";
+import { bankMoneyOutCategories, bankTransactionTypes } from "@/lib/constants";
 import {
   bankAccountLabel,
   bankInAmount,
+  bankTransactionAmount,
   branchLabel,
   buildCashInHandRows,
   directBankInflow,
@@ -13,18 +21,24 @@ import {
   getMappingByBranch,
   isWithinDateRange,
   panelSalesAmount,
-  resolveDateRange
+  resolveDateRange,
+  signedBankTransactionAmount
 } from "@/lib/bank-reporting";
 import { getBankingDataForScope, totalBy } from "@/lib/data";
 import { formatCurrency, formatDate } from "@/lib/format";
-import { canManageBankPermissions, requireBankPositionAccess } from "@/lib/permissions";
+import { canManageBankPermissions, hasBankAccountPermission, requireBankPositionAccess } from "@/lib/permissions";
 import { getUserManagementData } from "@/lib/users";
+import type { BankTransaction, BankTransactionType } from "@/lib/types";
 import { Banknote, CreditCard, Landmark, ReceiptText, WalletCards } from "lucide-react";
 
 type BankPageSearchParams = {
+  bank_account_id?: string;
+  branch_id?: string;
+  category?: string;
   end?: string;
   period?: string;
   start?: string;
+  transaction_type?: string;
 };
 
 type StatementRow = {
@@ -34,11 +48,16 @@ type StatementRow = {
   cardAmount: number;
   cashBankInAmount: number;
   date: string;
+  manualMoneyInAmount: number;
+  moneyOutAmount: number;
+  netMovement: number;
   notes: string;
+  ownerDrawingAmount: number;
   qrAmount: number;
   referenceNo: string;
-  sourceType: "Cash Bank-In" | "Direct Sales Inflow";
-  totalInflow: number;
+  sourceType: "Cash Bank-In" | "Direct Sales Inflow" | "Manual Money In" | "Money Out" | "Interbank Transfer" | "Owner Drawing";
+  transferInAmount: number;
+  transferOutAmount: number;
 };
 
 function addToMap(map: Map<string, number>, key: string, amount: number) {
@@ -61,6 +80,22 @@ function permissionSummary(permission: {
   return flags.length ? flags.join(", ") : "No access";
 }
 
+function manualTransactionSourceType(transaction: BankTransaction): StatementRow["sourceType"] {
+  if (transaction.transaction_type === "money_in") return "Manual Money In";
+  if (transaction.transaction_type === "money_out") return "Money Out";
+  if (transaction.transaction_type === "owner_drawing") return "Owner Drawing";
+  return "Interbank Transfer";
+}
+
+function transactionTypeLabel(type: BankTransactionType) {
+  return bankTransactionTypes.find((option) => option.value === type)?.label ?? type;
+}
+
+function categoryLabel(category: string | null | undefined) {
+  if (!category) return "-";
+  return bankMoneyOutCategories.find((option) => option.value === category)?.label ?? category;
+}
+
 export default async function BankPage({ searchParams }: { searchParams: Promise<BankPageSearchParams> }) {
   const profile = await requireBankPositionAccess();
   const canManageBankAccounts = canManageBankPermissions(profile);
@@ -78,8 +113,32 @@ export default async function BankPage({ searchParams }: { searchParams: Promise
   const mappingByBranch = getMappingByBranch(data);
   const bankAccountById = getBankAccountById(data);
   const branchById = getBranchById(data);
-  const selectedSales = data.sales.filter((sale) => isWithinDateRange(sale.sale_date, range));
-  const selectedCashBankIns = data.cashBankIns.filter((bankIn) => isWithinDateRange(bankIn.bank_in_date, range));
+  const selectedBankAccountId = params.bank_account_id ?? "all";
+  const selectedBranchId = params.branch_id ?? "all";
+  const selectedCategory = params.category ?? "all";
+  const selectedManualTransactionType = bankTransactionTypes.some((option) => option.value === params.transaction_type)
+    ? params.transaction_type as BankTransactionType
+    : "all";
+  const saleMatchesScope = (sale: (typeof data.sales)[number]) => {
+    const mapping = mappingByBranch.get(sale.branch_id);
+    return (selectedBranchId === "all" || sale.branch_id === selectedBranchId)
+      && (selectedBankAccountId === "all" || mapping?.bank_account_id === selectedBankAccountId);
+  };
+  const bankInMatchesScope = (bankIn: (typeof data.cashBankIns)[number]) => {
+    return (selectedBranchId === "all" || bankIn.branch_id === selectedBranchId)
+      && (selectedBankAccountId === "all" || bankIn.bank_account_id === selectedBankAccountId);
+  };
+  const transactionMatchesScope = (transaction: BankTransaction) => {
+    return (selectedBankAccountId === "all" || transaction.bank_account_id === selectedBankAccountId)
+      && (selectedBranchId === "all" || transaction.branch_id === selectedBranchId)
+      && (selectedCategory === "all" || transaction.category === selectedCategory)
+      && (selectedManualTransactionType === "all" || transaction.transaction_type === selectedManualTransactionType);
+  };
+  const selectedSales = data.sales.filter((sale) => isWithinDateRange(sale.sale_date, range) && saleMatchesScope(sale));
+  const selectedCashBankIns = data.cashBankIns.filter((bankIn) => isWithinDateRange(bankIn.bank_in_date, range) && bankInMatchesScope(bankIn));
+  const selectedBankTransactions = data.bankTransactions.filter((transaction) => {
+    return isWithinDateRange(transaction.transaction_date, range) && transactionMatchesScope(transaction);
+  });
   const todaySales = data.sales.filter((sale) => isWithinDateRange(sale.sale_date, todayRange));
   const monthSales = data.sales.filter((sale) => isWithinDateRange(sale.sale_date, monthRange));
   const todayCashBankIns = data.cashBankIns.filter((bankIn) => isWithinDateRange(bankIn.bank_in_date, todayRange));
@@ -89,18 +148,38 @@ export default async function BankPage({ searchParams }: { searchParams: Promise
   const selectedCashBankIn = totalBy(selectedCashBankIns, bankInAmount);
   const selectedCashSales = totalBy(selectedSales, (sale) => Number(sale.cash_amount ?? 0));
   const selectedPanelSales = totalBy(selectedSales, panelSalesAmount);
+  const selectedManualMoneyIn = totalBy(selectedBankTransactions, (transaction) => {
+    return transaction.transaction_type === "money_in" ? bankTransactionAmount(transaction) : 0;
+  });
+  const selectedMoneyOut = totalBy(selectedBankTransactions, (transaction) => {
+    return transaction.transaction_type === "money_out" ? bankTransactionAmount(transaction) : 0;
+  });
+  const selectedOwnerDrawing = totalBy(selectedBankTransactions, (transaction) => {
+    return transaction.transaction_type === "owner_drawing" ? bankTransactionAmount(transaction) : 0;
+  });
+  const selectedTransferIn = totalBy(selectedBankTransactions, (transaction) => {
+    return transaction.transaction_type === "interbank_transfer" && transaction.direction === "in" ? bankTransactionAmount(transaction) : 0;
+  });
+  const selectedTransferOut = totalBy(selectedBankTransactions, (transaction) => {
+    return transaction.transaction_type === "interbank_transfer" && transaction.direction === "out" ? bankTransactionAmount(transaction) : 0;
+  });
+  const selectedNetBankMovement = selectedDirectBankInflow + selectedCashBankIn + selectedManualMoneyIn
+    - selectedMoneyOut - selectedOwnerDrawing + selectedTransferIn - selectedTransferOut;
   const cashInHandRows = buildCashInHandRows(data, range);
+  const creatableBankAccounts = data.bankAccounts.filter((account) => {
+    return hasBankAccountPermission(profile, data.bankAccountPermissions, account.id, "create_transaction");
+  });
 
-  const bankInflows = new Map(data.bankAccounts.map((account) => [account.id, 0]));
-  const branchInflows = new Map(data.branches.map((branch) => [branch.id, 0]));
+  const bankMovements = new Map(data.bankAccounts.map((account) => [account.id, 0]));
+  const branchMovements = new Map(data.branches.map((branch) => [branch.id, 0]));
   const statementRows: StatementRow[] = [];
 
   selectedSales.forEach((sale) => {
     const mapping = mappingByBranch.get(sale.branch_id);
     const account = mapping ? bankAccountById.get(mapping.bank_account_id) : undefined;
     const directAmount = directBankInflow(sale);
-    addToMap(branchInflows, sale.branch_id, directAmount);
-    if (mapping) addToMap(bankInflows, mapping.bank_account_id, directAmount);
+    addToMap(branchMovements, sale.branch_id, directAmount);
+    if (mapping) addToMap(bankMovements, mapping.bank_account_id, directAmount);
 
     if (directAmount > 0) {
       statementRows.push({
@@ -110,11 +189,16 @@ export default async function BankPage({ searchParams }: { searchParams: Promise
         cardAmount: Number(sale.card_amount ?? 0),
         cashBankInAmount: 0,
         date: sale.sale_date,
+        manualMoneyInAmount: 0,
+        moneyOutAmount: 0,
+        netMovement: directAmount,
         notes: sale.notes ?? "",
+        ownerDrawingAmount: 0,
         qrAmount: Number(sale.qr_amount ?? 0),
         referenceNo: sale.id,
         sourceType: "Direct Sales Inflow",
-        totalInflow: directAmount
+        transferInAmount: 0,
+        transferOutAmount: 0
       });
     }
   });
@@ -122,8 +206,8 @@ export default async function BankPage({ searchParams }: { searchParams: Promise
   selectedCashBankIns.forEach((bankIn) => {
     const account = bankAccountById.get(bankIn.bank_account_id);
     const amount = bankInAmount(bankIn);
-    addToMap(bankInflows, bankIn.bank_account_id, amount);
-    addToMap(branchInflows, bankIn.branch_id, amount);
+    addToMap(bankMovements, bankIn.bank_account_id, amount);
+    addToMap(branchMovements, bankIn.branch_id, amount);
     statementRows.push({
       bankAccount: bankAccountLabel(bankIn.bank_accounts ?? account),
       bankTransferAmount: 0,
@@ -131,11 +215,45 @@ export default async function BankPage({ searchParams }: { searchParams: Promise
       cardAmount: 0,
       cashBankInAmount: amount,
       date: bankIn.bank_in_date,
+      manualMoneyInAmount: 0,
+      moneyOutAmount: 0,
+      netMovement: amount,
       notes: bankIn.notes ?? "",
+      ownerDrawingAmount: 0,
       qrAmount: 0,
       referenceNo: bankIn.reference_no ?? "-",
       sourceType: "Cash Bank-In",
-      totalInflow: amount
+      transferInAmount: 0,
+      transferOutAmount: 0
+    });
+  });
+
+  selectedBankTransactions.forEach((transaction) => {
+    const account = bankAccountById.get(transaction.bank_account_id);
+    const amount = bankTransactionAmount(transaction);
+    const signedAmount = signedBankTransactionAmount(transaction);
+    addToMap(bankMovements, transaction.bank_account_id, signedAmount);
+    if (transaction.branch_id && branchById.has(transaction.branch_id)) {
+      addToMap(branchMovements, transaction.branch_id, signedAmount);
+    }
+
+    statementRows.push({
+      bankAccount: bankAccountLabel(transaction.bank_accounts ?? account),
+      bankTransferAmount: 0,
+      branch: branchLabel(transaction.branches ?? (transaction.branch_id ? branchById.get(transaction.branch_id) : null)),
+      cardAmount: 0,
+      cashBankInAmount: 0,
+      date: transaction.transaction_date,
+      manualMoneyInAmount: transaction.transaction_type === "money_in" ? amount : 0,
+      moneyOutAmount: transaction.transaction_type === "money_out" ? amount : 0,
+      netMovement: signedAmount,
+      notes: transaction.description ?? "",
+      ownerDrawingAmount: transaction.transaction_type === "owner_drawing" ? amount : 0,
+      qrAmount: 0,
+      referenceNo: transaction.reference_no ?? "-",
+      sourceType: manualTransactionSourceType(transaction),
+      transferInAmount: transaction.transaction_type === "interbank_transfer" && transaction.direction === "in" ? amount : 0,
+      transferOutAmount: transaction.transaction_type === "interbank_transfer" && transaction.direction === "out" ? amount : 0
     });
   });
 
@@ -146,7 +264,7 @@ export default async function BankPage({ searchParams }: { searchParams: Promise
       <ModuleHeader
         eyebrow="Banking"
         title="Bank Position"
-        description="View direct bank inflow, cash bank-ins, and cash in hand for assigned bank accounts."
+        description="View assigned bank account movements from direct bank inflow, cash bank-ins, and manual bank transactions."
       />
 
       <form className="reporting-filter bank-filter" method="get">
@@ -167,6 +285,50 @@ export default async function BankPage({ searchParams }: { searchParams: Promise
           End date
           <input name="end" type="date" defaultValue={range.endDate} />
         </label>
+        <label>
+          Bank account
+          <select name="bank_account_id" defaultValue={selectedBankAccountId}>
+            <option value="all">All assigned bank accounts</option>
+            {data.bankAccounts.map((account) => (
+              <option key={account.id} value={account.id}>
+                {bankAccountLabel(account)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Manual transaction type
+          <select name="transaction_type" defaultValue={selectedManualTransactionType}>
+            <option value="all">All manual types</option>
+            {bankTransactionTypes.map((type) => (
+              <option key={type.value} value={type.value}>
+                {type.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Category
+          <select name="category" defaultValue={selectedCategory}>
+            <option value="all">All categories</option>
+            {bankMoneyOutCategories.map((category) => (
+              <option key={category.value} value={category.value}>
+                {category.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Branch
+          <select name="branch_id" defaultValue={selectedBranchId}>
+            <option value="all">All branches</option>
+            {data.branches.map((branch) => (
+              <option key={branch.id} value={branch.id}>
+                {branch.name}
+              </option>
+            ))}
+          </select>
+        </label>
         <button className="primary-button" type="submit">
           Apply
         </button>
@@ -180,9 +342,117 @@ export default async function BankPage({ searchParams }: { searchParams: Promise
         <MetricCard icon={Landmark} label="Direct bank inflow this month" value={formatCurrency(totalBy(monthSales, directBankInflow))} detail="Existing daily sales" tone="blue" />
         <MetricCard icon={Banknote} label="Cash bank-in today" value={formatCurrency(totalBy(todayCashBankIns, bankInAmount))} detail="Cash moved to bank" tone="amber" />
         <MetricCard icon={WalletCards} label="Cash bank-in this month" value={formatCurrency(totalBy(monthCashBankIns, bankInAmount))} detail="Not new sales" tone="teal" />
-        <MetricCard icon={Landmark} label="Total bank inflow" value={formatCurrency(selectedDirectBankInflow + selectedCashBankIn)} detail={range.label} tone="blue" />
+        <MetricCard icon={Landmark} label="Manual money in" value={formatCurrency(selectedManualMoneyIn)} detail={range.label} tone="teal" />
+        <MetricCard icon={ReceiptText} label="Money out" value={formatCurrency(selectedMoneyOut)} detail="Manual outgoing payment" tone="rose" />
+        <MetricCard icon={WalletCards} label="Owner drawing" value={formatCurrency(selectedOwnerDrawing)} detail="Not clinic operating expense" tone="amber" />
+        <MetricCard icon={Landmark} label="Interbank transfer in" value={formatCurrency(selectedTransferIn)} detail="Transfer movement only" tone="blue" />
+        <MetricCard icon={Landmark} label="Interbank transfer out" value={formatCurrency(selectedTransferOut)} detail="Transfer movement only" tone="blue" />
+        <MetricCard icon={Landmark} label="Net bank movement" value={formatCurrency(selectedNetBankMovement)} detail="Transfers are not income or expense" tone="blue" />
         <MetricCard icon={ReceiptText} label="Cash sales" value={formatCurrency(selectedCashSales)} detail="Held by branch until banked in" tone="amber" />
         <MetricCard icon={WalletCards} label="Panel sales" value={formatCurrency(selectedPanelSales)} detail="Outstanding, not bank inflow" tone="rose" />
+      </section>
+
+      <section className="section-grid">
+        <form action={createBankTransaction} className="form-card manual-bank-form">
+          <h2>Record manual bank transaction</h2>
+          <div className="form-grid">
+            <label>
+              Transaction type
+              <select name="transaction_type" defaultValue="money_in" required>
+                {bankTransactionTypes.map((type) => (
+                  <option key={type.value} value={type.value}>
+                    {type.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Transaction date
+              <input name="transaction_date" type="date" defaultValue={range.endDate} required />
+            </label>
+            <label>
+              Bank account
+              <select name="bank_account_id" required>
+                {creatableBankAccounts.map((account) => (
+                  <option key={account.id} value={account.id}>
+                    {bankAccountLabel(account)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Transfer destination
+              <select name="related_bank_account_id" defaultValue="">
+                <option value="">Not a transfer</option>
+                {creatableBankAccounts.map((account) => (
+                  <option key={account.id} value={account.id}>
+                    {bankAccountLabel(account)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Money out category
+              <select name="category" defaultValue="">
+                <option value="">No category</option>
+                {bankMoneyOutCategories.map((category) => (
+                  <option key={category.value} value={category.value}>
+                    {category.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Branch
+              <select name="branch_id" defaultValue="">
+                <option value="">No branch</option>
+                {data.branches.map((branch) => (
+                  <option key={branch.id} value={branch.id}>
+                    {branch.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Amount
+              <input min="0.01" name="amount" step="0.01" type="number" required />
+            </label>
+            <label>
+              Reference number
+              <input name="reference_no" />
+            </label>
+            <label className="full-span">
+              Description
+              <textarea name="description" />
+            </label>
+          </div>
+          <button className="primary-button" disabled={!creatableBankAccounts.length} type="submit">
+            Save bank transaction
+          </button>
+          {!creatableBankAccounts.length ? <p className="muted-copy">No creatable bank accounts are assigned to your user.</p> : null}
+        </form>
+
+        <aside className="report-panel">
+          <h2>Manual movement summary</h2>
+          <dl className="summary-list">
+            <div>
+              <dt>Money in</dt>
+              <dd>{formatCurrency(selectedManualMoneyIn)}</dd>
+            </div>
+            <div>
+              <dt>Money out</dt>
+              <dd>{formatCurrency(selectedMoneyOut)}</dd>
+            </div>
+            <div>
+              <dt>Owner drawing</dt>
+              <dd>{formatCurrency(selectedOwnerDrawing)}</dd>
+            </div>
+            <div>
+              <dt>Transfers in / out</dt>
+              <dd>{formatCurrency(selectedTransferIn)} / {formatCurrency(selectedTransferOut)}</dd>
+            </div>
+          </dl>
+        </aside>
       </section>
 
       <section className="section-grid">
@@ -205,7 +475,7 @@ export default async function BankPage({ searchParams }: { searchParams: Promise
             {data.bankAccounts.map((account) => (
               <div key={account.id}>
                 <dt>{bankAccountLabel(account)}</dt>
-                <dd>{formatCurrency(bankInflows.get(account.id) ?? 0)}</dd>
+                <dd>{formatCurrency(bankMovements.get(account.id) ?? 0)}</dd>
               </div>
             ))}
           </dl>
@@ -214,18 +484,18 @@ export default async function BankPage({ searchParams }: { searchParams: Promise
 
       <section className="section-grid">
         <div className="table-section">
-          <h2>Bank inflow by bank account</h2>
+          <h2>Net bank movement by bank account</h2>
           <DataTable
-            columns={["Bank account", "Total inflow"]}
-            rows={data.bankAccounts.map((account) => [bankAccountLabel(account), formatCurrency(bankInflows.get(account.id) ?? 0)])}
+            columns={["Bank account", "Net movement"]}
+            rows={data.bankAccounts.map((account) => [bankAccountLabel(account), formatCurrency(bankMovements.get(account.id) ?? 0)])}
           />
         </div>
 
         <div className="table-section">
-          <h2>Bank inflow by branch</h2>
+          <h2>Net bank movement by branch</h2>
           <DataTable
-            columns={["Branch", "Direct bank inflow + cash bank-in"]}
-            rows={data.branches.map((branch) => [branch.name, formatCurrency(branchInflows.get(branch.id) ?? 0)])}
+            columns={["Branch", "Net movement with branch tag"]}
+            rows={data.branches.map((branch) => [branch.name, formatCurrency(branchMovements.get(branch.id) ?? 0)])}
           />
         </div>
       </section>
@@ -233,7 +503,7 @@ export default async function BankPage({ searchParams }: { searchParams: Promise
       <section className="table-section mt-section">
         <h2>Bank statement-style report</h2>
         <DataTable
-          columns={["Date", "Bank account", "Source type", "Branch", "Card", "QR", "Bank transfer", "Cash bank-in", "Total inflow", "Reference", "Notes"]}
+          columns={["Date", "Bank account", "Source type", "Branch", "Card", "QR", "Bank transfer", "Cash bank-in", "Manual money in", "Money out", "Transfer in", "Transfer out", "Owner drawing", "Net movement", "Reference", "Notes"]}
           rows={statementRows.map((row) => [
             formatDate(row.date),
             row.bankAccount,
@@ -243,9 +513,86 @@ export default async function BankPage({ searchParams }: { searchParams: Promise
             formatCurrency(row.qrAmount),
             formatCurrency(row.bankTransferAmount),
             formatCurrency(row.cashBankInAmount),
-            formatCurrency(row.totalInflow),
+            formatCurrency(row.manualMoneyInAmount),
+            formatCurrency(row.moneyOutAmount),
+            formatCurrency(row.transferInAmount),
+            formatCurrency(row.transferOutAmount),
+            formatCurrency(row.ownerDrawingAmount),
+            formatCurrency(row.netMovement),
             row.referenceNo,
             row.notes || "-"
+          ])}
+        />
+      </section>
+
+      <section className="table-section mt-section">
+        <h2>Manual bank transactions</h2>
+        <DataTable
+          columns={["Date", "Bank account", "Type", "Direction", "Related bank", "Category", "Branch", "Amount", "Description", "Reference", "Edit"]}
+          rows={selectedBankTransactions.map((transaction) => [
+            formatDate(transaction.transaction_date),
+            bankAccountLabel(transaction.bank_accounts ?? bankAccountById.get(transaction.bank_account_id)),
+            transactionTypeLabel(transaction.transaction_type),
+            transaction.direction === "in" ? "In" : "Out",
+            bankAccountLabel(transaction.related_bank_account_id ? bankAccountById.get(transaction.related_bank_account_id) : null),
+            categoryLabel(transaction.category),
+            branchLabel(transaction.branches ?? (transaction.branch_id ? branchById.get(transaction.branch_id) : null)),
+            formatCurrency(bankTransactionAmount(transaction)),
+            transaction.description ?? "-",
+            transaction.reference_no ?? "-",
+            hasBankAccountPermission(profile, data.bankAccountPermissions, transaction.bank_account_id, "edit_transaction") ? (
+              <details className="manual-bank-editor">
+                <summary>Edit</summary>
+                <form action={updateBankTransaction} className="manual-bank-edit-form">
+                  <input name="transaction_id" type="hidden" value={transaction.id} />
+                  <label>
+                    Date
+                    <input name="transaction_date" type="date" defaultValue={transaction.transaction_date} required />
+                  </label>
+                  <label>
+                    Amount
+                    <input name="amount" min="0.01" step="0.01" type="number" defaultValue={transaction.amount} required />
+                  </label>
+                  {transaction.transaction_type === "money_out" ? (
+                    <label>
+                      Category
+                      <select name="category" defaultValue={transaction.category ?? ""}>
+                        <option value="">No category</option>
+                        {bankMoneyOutCategories.map((category) => (
+                          <option key={category.value} value={category.value}>
+                            {category.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  ) : null}
+                  <label>
+                    Branch
+                    <select name="branch_id" defaultValue={transaction.branch_id ?? ""}>
+                      <option value="">No branch</option>
+                      {data.branches.map((branch) => (
+                        <option key={branch.id} value={branch.id}>
+                          {branch.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    Reference
+                    <input name="reference_no" defaultValue={transaction.reference_no ?? ""} />
+                  </label>
+                  <label>
+                    Description
+                    <textarea name="description" defaultValue={transaction.description ?? ""} />
+                  </label>
+                  <button className="primary-button compact-button" type="submit">
+                    Save
+                  </button>
+                </form>
+              </details>
+            ) : (
+              "-"
+            )
           ])}
         />
       </section>
