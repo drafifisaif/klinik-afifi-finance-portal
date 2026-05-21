@@ -1,4 +1,4 @@
-import type { BankTransactionType, ExpenseCategory, PaymentType, PurchaseCategory, UserRole } from "@/lib/types";
+import type { BankTransactionType, ExpenseCategory, PaymentType, PettyCashTransactionType, PurchaseCategory, UserRole } from "@/lib/types";
 
 export const APP_NAME = "Klinik Afifi Finance Portal";
 
@@ -60,5 +60,24 @@ export const bankMoneyOutCategories = [
   { value: "credit_card_payment", label: "Credit Card Payment" },
   { value: "marketing", label: "Marketing" },
   { value: "maintenance", label: "Maintenance" },
+  { value: "other", label: "Other" }
+];
+
+export const pettyCashTransactionTypes: { value: PettyCashTransactionType; label: string }[] = [
+  { value: "petty_cash_issued", label: "Petty Cash Issued" },
+  { value: "petty_cash_spent", label: "Petty Cash Spent" },
+  { value: "petty_cash_returned", label: "Petty Cash Returned" },
+  { value: "petty_cash_adjustment", label: "Petty Cash Adjustment" }
+];
+
+export const pettyCashCategories = [
+  { value: "medicine", label: "Medicine" },
+  { value: "consumables", label: "Consumables" },
+  { value: "utilities", label: "Utilities" },
+  { value: "maintenance", label: "Maintenance" },
+  { value: "marketing", label: "Marketing" },
+  { value: "transport", label: "Transport" },
+  { value: "office_supplies", label: "Office Supplies" },
+  { value: "meals", label: "Meals" },
   { value: "other", label: "Other" }
 ];

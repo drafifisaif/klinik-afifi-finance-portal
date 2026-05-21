@@ -180,6 +180,34 @@ export type BankTransaction = {
   branches?: Pick<Branch, "name" | "code"> | null;
 };
 
+export type PettyCashTransactionType =
+  | "petty_cash_issued"
+  | "petty_cash_spent"
+  | "petty_cash_returned"
+  | "petty_cash_adjustment";
+
+export type PettyCashDirection = "in" | "out" | "adjustment";
+
+export type PettyCashTransaction = {
+  id: string;
+  branch_id: string;
+  bank_account_id?: string | null;
+  transaction_date: string;
+  transaction_type: PettyCashTransactionType;
+  direction: PettyCashDirection;
+  category?: string | null;
+  amount: number;
+  description?: string | null;
+  reference_no?: string | null;
+  receipt_path?: string | null;
+  entered_by?: string | null;
+  created_at?: string;
+  updated_at?: string;
+  branches?: Pick<Branch, "name" | "code"> | null;
+  bank_accounts?: Pick<BankAccount, "name" | "bank_name" | "account_no"> | null;
+  profiles?: Pick<Profile, "full_name"> | null;
+};
+
 export type BranchBankMapping = {
   id: string;
   branch_id: string;
@@ -221,4 +249,5 @@ export type BankingData = {
   bankTransactions: BankTransaction[];
   branchBankMappings: BranchBankMapping[];
   cashBankIns: CashBankIn[];
+  pettyCashTransactions: PettyCashTransaction[];
 };

@@ -8,11 +8,12 @@ import {
   canManageBankPermissions,
   canManageTargetProfile,
   canViewAllBranches,
+  hasPermission,
   normalizeRole,
   requireBankAccountPermission,
   requirePermission
 } from "@/lib/permissions";
-import type { BankTransactionType, ExpenseCategory, PaymentType, PurchaseCategory, UserRole } from "@/lib/types";
+import type { BankTransactionType, ExpenseCategory, PaymentType, PettyCashTransactionType, PurchaseCategory, UserRole } from "@/lib/types";
 
 function text(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -38,6 +39,25 @@ function bankTransactionType(formData: FormData) {
 
 function bankTransactionDirection(type: BankTransactionType) {
   return type === "money_in" ? "in" : "out";
+}
+
+function pettyCashTransactionType(formData: FormData) {
+  const value = text(formData, "transaction_type");
+  if (
+    value === "petty_cash_issued"
+    || value === "petty_cash_spent"
+    || value === "petty_cash_returned"
+    || value === "petty_cash_adjustment"
+  ) {
+    return value;
+  }
+  throw new Error("Select a valid petty cash transaction type.");
+}
+
+function pettyCashDirection(type: PettyCashTransactionType) {
+  if (type === "petty_cash_issued") return "in";
+  if (type === "petty_cash_adjustment") return "adjustment";
+  return "out";
 }
 
 async function getUserId() {
@@ -300,6 +320,129 @@ export async function updateBankTransaction(formData: FormData) {
     if (error) throw error;
   }
 
+  revalidatePath("/bank");
+}
+
+export async function createPettyCashTransaction(formData: FormData) {
+  if (!hasSupabaseEnv()) return;
+
+  const profile = await requirePermission("record_petty_cash");
+  const role = normalizeRole(profile.role);
+  const type = pettyCashTransactionType(formData);
+  const branchId = text(formData, "branch_id");
+  const bankAccountId = text(formData, "bank_account_id");
+  const transactionDate = text(formData, "transaction_date");
+  const amount = number(formData, "amount");
+  const category = text(formData, "category");
+
+  if (!branchId || !transactionDate || amount === 0) {
+    throw new Error("Branch, date, and amount are required.");
+  }
+
+  if (type !== "petty_cash_adjustment" && amount <= 0) {
+    throw new Error("Petty cash issued, spent, and returned amounts must be positive.");
+  }
+
+  if (type === "petty_cash_adjustment" && role !== "owner") {
+    throw new Error("Only Owner can record petty cash adjustments.");
+  }
+
+  if (role === "branch_pic") {
+    if (profile.branch_id !== branchId) {
+      throw new Error("You can only record petty cash for your own branch.");
+    }
+    if (type === "petty_cash_issued") {
+      throw new Error("Branch PIC cannot issue petty cash from a bank account.");
+    }
+  } else if (!canEditBranch(profile, branchId)) {
+    throw new Error("You do not have permission to manage petty cash for this branch.");
+  }
+
+  if (type === "petty_cash_issued" || (type === "petty_cash_returned" && role !== "branch_pic")) {
+    if (!bankAccountId) throw new Error("Select the related bank account.");
+    await requireBankAccountPermission(bankAccountId, "create_transaction");
+  }
+
+  if (type === "petty_cash_returned" && !bankAccountId) {
+    throw new Error("Petty cash returned needs a bank account.");
+  }
+  if (type === "petty_cash_spent" && !category) {
+    throw new Error("Petty cash spending needs a category.");
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase.from("petty_cash_transactions").insert({
+    branch_id: branchId,
+    bank_account_id: type === "petty_cash_issued" || type === "petty_cash_returned" ? bankAccountId : null,
+    transaction_date: transactionDate,
+    transaction_type: type,
+    direction: pettyCashDirection(type),
+    category: type === "petty_cash_spent" ? category : null,
+    amount,
+    description: text(formData, "description"),
+    reference_no: text(formData, "reference_no"),
+    entered_by: await getUserId()
+  });
+
+  if (error) throw error;
+  revalidatePath("/petty-cash");
+  revalidatePath("/bank");
+}
+
+export async function updatePettyCashTransaction(formData: FormData) {
+  if (!hasSupabaseEnv()) return;
+
+  const profile = await requirePermission("record_petty_cash");
+  const role = normalizeRole(profile.role);
+  if (!hasPermission(profile, "edit_finance") || role === "branch_pic") {
+    throw new Error("You do not have permission to edit petty cash transactions.");
+  }
+
+  const transactionId = text(formData, "transaction_id");
+  const transactionDate = text(formData, "transaction_date");
+  const amount = number(formData, "amount");
+  const category = text(formData, "category");
+  if (!transactionId || !transactionDate || amount === 0) {
+    throw new Error("Transaction, date, and amount are required.");
+  }
+
+  const supabase = await createClient();
+  const { data: transaction, error: transactionError } = await supabase
+    .from("petty_cash_transactions")
+    .select("id, branch_id, bank_account_id, transaction_type")
+    .eq("id", transactionId)
+    .maybeSingle();
+
+  if (transactionError || !transaction) throw new Error("Petty cash transaction not found.");
+  if (!canEditBranch(profile, transaction.branch_id)) {
+    throw new Error("You do not have permission to edit petty cash for this branch.");
+  }
+  if (transaction.transaction_type === "petty_cash_adjustment" && role !== "owner") {
+    throw new Error("Only Owner can edit petty cash adjustments.");
+  }
+  if (transaction.transaction_type !== "petty_cash_adjustment" && amount <= 0) {
+    throw new Error("Petty cash issued, spent, and returned amounts must be positive.");
+  }
+  if (transaction.transaction_type === "petty_cash_spent" && !category) {
+    throw new Error("Petty cash spending needs a category.");
+  }
+  if (transaction.bank_account_id && role !== "owner") {
+    await requireBankAccountPermission(transaction.bank_account_id, "edit_transaction");
+  }
+
+  const { error } = await supabase
+    .from("petty_cash_transactions")
+    .update({
+      transaction_date: transactionDate,
+      amount,
+      category: transaction.transaction_type === "petty_cash_spent" ? category : null,
+      description: text(formData, "description"),
+      reference_no: text(formData, "reference_no")
+    })
+    .eq("id", transaction.id);
+
+  if (error) throw error;
+  revalidatePath("/petty-cash");
   revalidatePath("/bank");
 }
 

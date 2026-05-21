@@ -13,6 +13,7 @@ import type {
   Expense,
   PanelClaim,
   PanelCompany,
+  PettyCashTransaction,
   Supplier,
   SupplierPayment,
   SupplierPurchase
@@ -257,6 +258,7 @@ const branchBankMappings: BranchBankMapping[] = [
 const cashBankIns: CashBankIn[] = [];
 const bankAccountPermissions: BankAccountPermission[] = [];
 const bankTransactions: BankTransaction[] = [];
+const pettyCashTransactions: PettyCashTransaction[] = [];
 
 export const demoData: DashboardData = {
   branches,
@@ -274,7 +276,8 @@ export const demoBankingData: BankingData = {
   bankAccountPermissions,
   bankTransactions,
   branchBankMappings,
-  cashBankIns
+  cashBankIns,
+  pettyCashTransactions
 };
 
 async function fetchOrDemo<T>(query: PromiseLike<{ data: T | null; error: unknown }>, fallback: T) {
@@ -387,13 +390,21 @@ function filterBankingDataForProfile(data: BankingData, profile: Awaited<ReturnT
   const filteredBankTransactions = data.bankTransactions.filter((transaction) => {
     return !permittedBankAccountIds || permittedBankAccountIds.has(transaction.bank_account_id);
   });
+  const filteredPettyCashTransactions = data.pettyCashTransactions.filter((transaction) => {
+    if (!branchIds.has(transaction.branch_id)) return false;
+    return !options.bankAccessOnly
+      || !transaction.bank_account_id
+      || !permittedBankAccountIds
+      || permittedBankAccountIds.has(transaction.bank_account_id);
+  });
   const visibleBranchIds = permittedBankAccountIds
     ? new Set([
         ...mappedBranchIds,
         ...filteredCashBankIns.map((bankIn) => bankIn.branch_id),
         ...filteredBankTransactions
           .map((transaction) => transaction.branch_id)
-          .filter((branchId): branchId is string => Boolean(branchId))
+          .filter((branchId): branchId is string => Boolean(branchId)),
+        ...filteredPettyCashTransactions.map((transaction) => transaction.branch_id)
       ])
     : branchIds;
 
@@ -404,7 +415,8 @@ function filterBankingDataForProfile(data: BankingData, profile: Awaited<ReturnT
     bankAccountPermissions: data.bankAccountPermissions.filter((permission) => !profile || permission.user_id === profile.id),
     bankTransactions: filteredBankTransactions,
     branchBankMappings: permittedMappings,
-    cashBankIns: filteredCashBankIns
+    cashBankIns: filteredCashBankIns,
+    pettyCashTransactions: filteredPettyCashTransactions
   };
 }
 
@@ -417,7 +429,7 @@ export async function getBankingDataForScope(options: BankingDataOptions = {}): 
   if (!hasSupabaseEnv()) return filterBankingDataForProfile(demoBankingData, profile, options);
 
   const supabase = await createClient();
-  const [branchRows, salesRows, bankRows, permissionRows, transactionRows, mappingRows, cashBankInRows] = await Promise.all([
+  const [branchRows, salesRows, bankRows, permissionRows, transactionRows, mappingRows, cashBankInRows, pettyCashRows] = await Promise.all([
     fetchOrDemo(supabase.from("branches").select("*").eq("is_active", true).order("name"), demoBankingData.branches),
     fetchOrDemo(
       supabase
@@ -456,6 +468,14 @@ export async function getBankingDataForScope(options: BankingDataOptions = {}): 
         .order("bank_in_date", { ascending: false })
         .limit(1000),
       demoBankingData.cashBankIns
+    ),
+    fetchOrDemo(
+      supabase
+        .from("petty_cash_transactions")
+        .select("*, branches(name, code), bank_accounts(name, bank_name, account_no), profiles(full_name)")
+        .order("transaction_date", { ascending: false })
+        .limit(2000),
+      demoBankingData.pettyCashTransactions
     )
   ]);
 
@@ -467,7 +487,8 @@ export async function getBankingDataForScope(options: BankingDataOptions = {}): 
       bankAccountPermissions: permissionRows as BankAccountPermission[],
       bankTransactions: transactionRows as BankTransaction[],
       branchBankMappings: mappingRows as BranchBankMapping[],
-      cashBankIns: cashBankInRows as CashBankIn[]
+      cashBankIns: cashBankInRows as CashBankIn[],
+      pettyCashTransactions: pettyCashRows as PettyCashTransaction[]
     },
     profile,
     options

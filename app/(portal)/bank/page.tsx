@@ -15,20 +15,22 @@ import {
   bankTransactionAmount,
   branchLabel,
   buildCashInHandRows,
+  buildPettyCashBalanceRows,
   directBankInflow,
   getBankAccountById,
   getBranchById,
   getMappingByBranch,
   isWithinDateRange,
   panelSalesAmount,
+  pettyCashAmount,
   resolveDateRange,
   signedBankTransactionAmount
 } from "@/lib/bank-reporting";
 import { getBankingDataForScope, totalBy } from "@/lib/data";
 import { formatCurrency, formatDate } from "@/lib/format";
-import { canManageBankPermissions, hasBankAccountPermission, requireBankPositionAccess } from "@/lib/permissions";
+import { canManageBankPermissions, hasBankAccountPermission, normalizeRole, requireBankPositionAccess } from "@/lib/permissions";
 import { getUserManagementData } from "@/lib/users";
-import type { BankTransaction, BankTransactionType } from "@/lib/types";
+import type { BankTransaction, BankTransactionType, PettyCashTransaction } from "@/lib/types";
 import { Banknote, CreditCard, Landmark, ReceiptText, WalletCards } from "lucide-react";
 
 type BankPageSearchParams = {
@@ -53,9 +55,19 @@ type StatementRow = {
   netMovement: number;
   notes: string;
   ownerDrawingAmount: number;
+  pettyCashIssuedAmount: number;
+  pettyCashReturnedAmount: number;
   qrAmount: number;
   referenceNo: string;
-  sourceType: "Cash Bank-In" | "Direct Sales Inflow" | "Manual Money In" | "Money Out" | "Interbank Transfer" | "Owner Drawing";
+  sourceType:
+    | "Cash Bank-In"
+    | "Direct Sales Inflow"
+    | "Manual Money In"
+    | "Money Out"
+    | "Interbank Transfer"
+    | "Owner Drawing"
+    | "Petty Cash Issued"
+    | "Petty Cash Returned";
   transferInAmount: number;
   transferOutAmount: number;
 };
@@ -99,6 +111,7 @@ function categoryLabel(category: string | null | undefined) {
 export default async function BankPage({ searchParams }: { searchParams: Promise<BankPageSearchParams> }) {
   const profile = await requireBankPositionAccess();
   const canManageBankAccounts = canManageBankPermissions(profile);
+  const showPettyCashManagement = ["owner", "admin", "finance"].includes(normalizeRole(profile.role));
   const params = await searchParams;
   const range = resolveDateRange(params);
   const todayRange = resolveDateRange({ period: "today" });
@@ -139,10 +152,25 @@ export default async function BankPage({ searchParams }: { searchParams: Promise
   const selectedBankTransactions = data.bankTransactions.filter((transaction) => {
     return isWithinDateRange(transaction.transaction_date, range) && transactionMatchesScope(transaction);
   });
+  const pettyCashMatchesScope = (transaction: PettyCashTransaction) => {
+    return (selectedBankAccountId === "all" || transaction.bank_account_id === selectedBankAccountId)
+      && (selectedBranchId === "all" || transaction.branch_id === selectedBranchId);
+  };
+  const selectedBankLinkedPettyCash = data.pettyCashTransactions.filter((transaction) => {
+    return transaction.bank_account_id
+      && (transaction.transaction_type === "petty_cash_issued" || transaction.transaction_type === "petty_cash_returned")
+      && isWithinDateRange(transaction.transaction_date, range)
+      && pettyCashMatchesScope(transaction);
+  });
   const todaySales = data.sales.filter((sale) => isWithinDateRange(sale.sale_date, todayRange));
   const monthSales = data.sales.filter((sale) => isWithinDateRange(sale.sale_date, monthRange));
   const todayCashBankIns = data.cashBankIns.filter((bankIn) => isWithinDateRange(bankIn.bank_in_date, todayRange));
   const monthCashBankIns = data.cashBankIns.filter((bankIn) => isWithinDateRange(bankIn.bank_in_date, monthRange));
+  const monthBankLinkedPettyCash = data.pettyCashTransactions.filter((transaction) => {
+    return transaction.bank_account_id
+      && (transaction.transaction_type === "petty_cash_issued" || transaction.transaction_type === "petty_cash_returned")
+      && isWithinDateRange(transaction.transaction_date, monthRange);
+  });
 
   const selectedDirectBankInflow = totalBy(selectedSales, directBankInflow);
   const selectedCashBankIn = totalBy(selectedCashBankIns, bankInAmount);
@@ -163,9 +191,25 @@ export default async function BankPage({ searchParams }: { searchParams: Promise
   const selectedTransferOut = totalBy(selectedBankTransactions, (transaction) => {
     return transaction.transaction_type === "interbank_transfer" && transaction.direction === "out" ? bankTransactionAmount(transaction) : 0;
   });
+  const selectedPettyCashIssued = totalBy(selectedBankLinkedPettyCash, (transaction) => {
+    return transaction.transaction_type === "petty_cash_issued" ? pettyCashAmount(transaction) : 0;
+  });
+  const selectedPettyCashReturned = totalBy(selectedBankLinkedPettyCash, (transaction) => {
+    return transaction.transaction_type === "petty_cash_returned" ? pettyCashAmount(transaction) : 0;
+  });
+  const monthPettyCashIssued = totalBy(monthBankLinkedPettyCash, (transaction) => {
+    return transaction.transaction_type === "petty_cash_issued" ? pettyCashAmount(transaction) : 0;
+  });
+  const monthPettyCashReturned = totalBy(monthBankLinkedPettyCash, (transaction) => {
+    return transaction.transaction_type === "petty_cash_returned" ? pettyCashAmount(transaction) : 0;
+  });
   const selectedNetBankMovement = selectedDirectBankInflow + selectedCashBankIn + selectedManualMoneyIn
-    - selectedMoneyOut - selectedOwnerDrawing + selectedTransferIn - selectedTransferOut;
+    - selectedMoneyOut - selectedOwnerDrawing + selectedTransferIn - selectedTransferOut
+    - selectedPettyCashIssued + selectedPettyCashReturned;
   const cashInHandRows = buildCashInHandRows(data, range);
+  const pettyCashBalanceRows = buildPettyCashBalanceRows(data);
+  const cashInHandByBranchId = new Map(cashInHandRows.map((row) => [row.branch.id, row]));
+  const pettyCashBalanceByBranchId = new Map(pettyCashBalanceRows.map((row) => [row.branch.id, row]));
   const creatableBankAccounts = data.bankAccounts.filter((account) => {
     return hasBankAccountPermission(profile, data.bankAccountPermissions, account.id, "create_transaction");
   });
@@ -194,6 +238,8 @@ export default async function BankPage({ searchParams }: { searchParams: Promise
         netMovement: directAmount,
         notes: sale.notes ?? "",
         ownerDrawingAmount: 0,
+        pettyCashIssuedAmount: 0,
+        pettyCashReturnedAmount: 0,
         qrAmount: Number(sale.qr_amount ?? 0),
         referenceNo: sale.id,
         sourceType: "Direct Sales Inflow",
@@ -220,6 +266,8 @@ export default async function BankPage({ searchParams }: { searchParams: Promise
       netMovement: amount,
       notes: bankIn.notes ?? "",
       ownerDrawingAmount: 0,
+      pettyCashIssuedAmount: 0,
+      pettyCashReturnedAmount: 0,
       qrAmount: 0,
       referenceNo: bankIn.reference_no ?? "-",
       sourceType: "Cash Bank-In",
@@ -249,11 +297,43 @@ export default async function BankPage({ searchParams }: { searchParams: Promise
       netMovement: signedAmount,
       notes: transaction.description ?? "",
       ownerDrawingAmount: transaction.transaction_type === "owner_drawing" ? amount : 0,
+      pettyCashIssuedAmount: 0,
+      pettyCashReturnedAmount: 0,
       qrAmount: 0,
       referenceNo: transaction.reference_no ?? "-",
       sourceType: manualTransactionSourceType(transaction),
       transferInAmount: transaction.transaction_type === "interbank_transfer" && transaction.direction === "in" ? amount : 0,
       transferOutAmount: transaction.transaction_type === "interbank_transfer" && transaction.direction === "out" ? amount : 0
+    });
+  });
+
+  selectedBankLinkedPettyCash.forEach((transaction) => {
+    if (!transaction.bank_account_id) return;
+    const amount = pettyCashAmount(transaction);
+    const isIssued = transaction.transaction_type === "petty_cash_issued";
+    const netMovement = isIssued ? -amount : amount;
+    addToMap(bankMovements, transaction.bank_account_id, netMovement);
+    addToMap(branchMovements, transaction.branch_id, netMovement);
+
+    statementRows.push({
+      bankAccount: bankAccountLabel(transaction.bank_accounts ?? bankAccountById.get(transaction.bank_account_id)),
+      bankTransferAmount: 0,
+      branch: branchLabel(transaction.branches ?? branchById.get(transaction.branch_id)),
+      cardAmount: 0,
+      cashBankInAmount: 0,
+      date: transaction.transaction_date,
+      manualMoneyInAmount: 0,
+      moneyOutAmount: 0,
+      netMovement,
+      notes: transaction.description ?? "",
+      ownerDrawingAmount: 0,
+      pettyCashIssuedAmount: isIssued ? amount : 0,
+      pettyCashReturnedAmount: isIssued ? 0 : amount,
+      qrAmount: 0,
+      referenceNo: transaction.reference_no ?? "-",
+      sourceType: isIssued ? "Petty Cash Issued" : "Petty Cash Returned",
+      transferInAmount: 0,
+      transferOutAmount: 0
     });
   });
 
@@ -347,10 +427,52 @@ export default async function BankPage({ searchParams }: { searchParams: Promise
         <MetricCard icon={WalletCards} label="Owner drawing" value={formatCurrency(selectedOwnerDrawing)} detail="Not clinic operating expense" tone="amber" />
         <MetricCard icon={Landmark} label="Interbank transfer in" value={formatCurrency(selectedTransferIn)} detail="Transfer movement only" tone="blue" />
         <MetricCard icon={Landmark} label="Interbank transfer out" value={formatCurrency(selectedTransferOut)} detail="Transfer movement only" tone="blue" />
+        {showPettyCashManagement ? (
+          <>
+            <MetricCard icon={WalletCards} label="Petty cash issued this month" value={formatCurrency(monthPettyCashIssued)} detail="Bank to branch cash float" tone="amber" />
+            <MetricCard icon={Banknote} label="Petty cash returned this month" value={formatCurrency(monthPettyCashReturned)} detail="Float returned to bank" tone="teal" />
+          </>
+        ) : null}
         <MetricCard icon={Landmark} label="Net bank movement" value={formatCurrency(selectedNetBankMovement)} detail="Transfers are not income or expense" tone="blue" />
         <MetricCard icon={ReceiptText} label="Cash sales" value={formatCurrency(selectedCashSales)} detail="Held by branch until banked in" tone="amber" />
         <MetricCard icon={WalletCards} label="Panel sales" value={formatCurrency(selectedPanelSales)} detail="Outstanding, not bank inflow" tone="rose" />
       </section>
+
+      {showPettyCashManagement ? (
+        <section className="section-grid mt-section">
+          <div className="table-section">
+            <h2>Petty cash balance by branch</h2>
+            <DataTable
+              columns={["Branch", "Total issued", "Total spent", "Total returned", "Adjustments", "Current petty cash balance"]}
+              rows={pettyCashBalanceRows.map((row) => [
+                row.branch.name,
+                formatCurrency(row.issued),
+                formatCurrency(row.spent),
+                formatCurrency(row.returned),
+                formatCurrency(row.adjustments),
+                formatCurrency(row.balance)
+              ])}
+            />
+          </div>
+
+          <div className="table-section">
+            <h2>Total physical cash by branch</h2>
+            <DataTable
+              columns={["Branch", "Cash in hand", "Petty cash", "Total physical cash"]}
+              rows={data.branches.map((branch) => {
+                const cashInHand = cashInHandByBranchId.get(branch.id)?.remaining ?? 0;
+                const pettyCash = pettyCashBalanceByBranchId.get(branch.id)?.balance ?? 0;
+                return [
+                  branch.name,
+                  formatCurrency(cashInHand),
+                  formatCurrency(pettyCash),
+                  formatCurrency(cashInHand + pettyCash)
+                ];
+              })}
+            />
+          </div>
+        </section>
+      ) : null}
 
       <section className="section-grid">
         <form action={createBankTransaction} className="form-card manual-bank-form">
@@ -503,7 +625,7 @@ export default async function BankPage({ searchParams }: { searchParams: Promise
       <section className="table-section mt-section">
         <h2>Bank statement-style report</h2>
         <DataTable
-          columns={["Date", "Bank account", "Source type", "Branch", "Card", "QR", "Bank transfer", "Cash bank-in", "Manual money in", "Money out", "Transfer in", "Transfer out", "Owner drawing", "Net movement", "Reference", "Notes"]}
+          columns={["Date", "Bank account", "Source type", "Branch", "Card", "QR", "Bank transfer", "Cash bank-in", "Manual money in", "Money out", "Transfer in", "Transfer out", "Owner drawing", "Petty cash issued", "Petty cash returned", "Net movement", "Reference", "Notes"]}
           rows={statementRows.map((row) => [
             formatDate(row.date),
             row.bankAccount,
@@ -518,6 +640,8 @@ export default async function BankPage({ searchParams }: { searchParams: Promise
             formatCurrency(row.transferInAmount),
             formatCurrency(row.transferOutAmount),
             formatCurrency(row.ownerDrawingAmount),
+            formatCurrency(row.pettyCashIssuedAmount),
+            formatCurrency(row.pettyCashReturnedAmount),
             formatCurrency(row.netMovement),
             row.referenceNo,
             row.notes || "-"

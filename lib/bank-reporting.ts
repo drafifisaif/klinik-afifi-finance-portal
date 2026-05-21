@@ -1,4 +1,4 @@
-import type { BankAccount, BankTransaction, BankingData, Branch, CashBankIn, DailySale } from "@/lib/types";
+import type { BankAccount, BankTransaction, BankingData, Branch, CashBankIn, DailySale, PettyCashTransaction } from "@/lib/types";
 
 export type DatePeriod = "today" | "this_month" | "last_month" | "custom";
 
@@ -14,6 +14,15 @@ export type CashInHandRow = {
   branch: Branch;
   cashSales: number;
   remaining: number;
+};
+
+export type PettyCashBalanceRow = {
+  adjustments: number;
+  balance: number;
+  branch: Branch;
+  issued: number;
+  returned: number;
+  spent: number;
 };
 
 function toDateInput(date: Date) {
@@ -92,6 +101,17 @@ export function signedBankTransactionAmount(transaction: BankTransaction) {
   return transaction.direction === "in" ? amount : -amount;
 }
 
+export function pettyCashAmount(transaction: PettyCashTransaction) {
+  return Number(transaction.amount ?? 0);
+}
+
+export function pettyCashBalanceMovement(transaction: PettyCashTransaction) {
+  const amount = pettyCashAmount(transaction);
+  if (transaction.transaction_type === "petty_cash_issued") return amount;
+  if (transaction.transaction_type === "petty_cash_adjustment") return amount;
+  return -amount;
+}
+
 export function branchLabel(branch: Pick<Branch, "code" | "name"> | null | undefined) {
   return branch ? branch.name : "-";
 }
@@ -127,6 +147,38 @@ export function buildCashInHandRows(data: Pick<BankingData, "branches" | "cashBa
       branch,
       cashSales,
       remaining: cashSales - bankedIn
+    };
+  });
+}
+
+export function buildPettyCashBalanceRows(
+  data: Pick<BankingData, "branches" | "pettyCashTransactions">,
+  range?: DateRange
+): PettyCashBalanceRow[] {
+  return data.branches.map((branch) => {
+    const transactions = data.pettyCashTransactions.filter((transaction) => {
+      return transaction.branch_id === branch.id && (!range || isWithinDateRange(transaction.transaction_date, range));
+    });
+    const issued = transactions.reduce((sum, transaction) => {
+      return transaction.transaction_type === "petty_cash_issued" ? sum + pettyCashAmount(transaction) : sum;
+    }, 0);
+    const spent = transactions.reduce((sum, transaction) => {
+      return transaction.transaction_type === "petty_cash_spent" ? sum + pettyCashAmount(transaction) : sum;
+    }, 0);
+    const returned = transactions.reduce((sum, transaction) => {
+      return transaction.transaction_type === "petty_cash_returned" ? sum + pettyCashAmount(transaction) : sum;
+    }, 0);
+    const adjustments = transactions.reduce((sum, transaction) => {
+      return transaction.transaction_type === "petty_cash_adjustment" ? sum + pettyCashAmount(transaction) : sum;
+    }, 0);
+
+    return {
+      adjustments,
+      balance: issued - spent - returned + adjustments,
+      branch,
+      issued,
+      returned,
+      spent
     };
   });
 }
