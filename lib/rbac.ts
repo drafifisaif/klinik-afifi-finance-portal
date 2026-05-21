@@ -14,6 +14,7 @@ export type PermissionKey =
   | "view_bank_position"
   | "record_cash_bank_in"
   | "record_petty_cash"
+  | "view_audit_trail"
   | "view_settings";
 
 export const rolePermissions: Record<UserRole, PermissionKey[]> = {
@@ -31,6 +32,7 @@ export const rolePermissions: Record<UserRole, PermissionKey[]> = {
     "view_bank_position",
     "record_cash_bank_in",
     "record_petty_cash",
+    "view_audit_trail",
     "view_settings"
   ],
   admin: [

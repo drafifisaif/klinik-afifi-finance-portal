@@ -233,6 +233,14 @@ textarea {
   grid-template-columns: repeat(4, minmax(150px, 1fr));
 }
 
+.audit-filter {
+  grid-template-columns: repeat(4, minmax(170px, 1fr));
+}
+
+.audit-search {
+  grid-column: span 2;
+}
+
 .bank-filter .primary-button {
   justify-self: start;
 }
@@ -686,6 +694,53 @@ tr:last-child td {
   min-height: 64px;
 }
 
+.audit-details {
+  min-width: 240px;
+}
+
+.audit-details summary {
+  list-style: none;
+  width: fit-content;
+}
+
+.audit-details summary::-webkit-details-marker {
+  display: none;
+}
+
+.audit-detail-grid {
+  background: #f7fbfb;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+  min-width: 560px;
+  padding: 12px;
+}
+
+.audit-detail-grid section {
+  display: grid;
+  gap: 7px;
+}
+
+.audit-detail-grid strong {
+  font-size: 12px;
+}
+
+.audit-detail-grid pre {
+  background: #ffffff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: #263f40;
+  font-size: 12px;
+  line-height: 1.5;
+  margin: 0;
+  max-height: 240px;
+  overflow: auto;
+  padding: 10px;
+  white-space: pre-wrap;
+}
+
 label {
   color: #344f50;
   display: grid;
@@ -938,6 +993,10 @@ button:disabled {
   .ghost-button {
     gap: 8px;
     padding: 10px;
+  }
+
+  .audit-search {
+    grid-column: auto;
   }
 }
 

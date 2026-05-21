@@ -1,5 +1,9 @@
 export type UserRole = "owner" | "admin" | "finance" | "branch_pic" | "staff";
 
+export type AuditAction = "create" | "update" | "delete" | "role_change" | "permission_change";
+
+export type AuditSnapshot = Record<string, unknown>;
+
 export type PaymentType = "cash" | "bank_transfer" | "card" | "panel" | "qr";
 
 export type ExpenseCategory =
@@ -230,6 +234,25 @@ export type CashBankIn = {
   updated_at?: string;
   branches?: Pick<Branch, "name" | "code"> | null;
   bank_accounts?: Pick<BankAccount, "name" | "bank_name" | "account_no"> | null;
+};
+
+export type AuditEvent = {
+  id: string;
+  actor_id?: string | null;
+  actor_email?: string | null;
+  action: AuditAction;
+  entity_name: string;
+  entity_id?: string | null;
+  branch_id?: string | null;
+  bank_account_id?: string | null;
+  before_data?: AuditSnapshot | null;
+  after_data?: AuditSnapshot | null;
+  changed_fields?: AuditSnapshot | null;
+  description?: string | null;
+  created_at: string;
+  branches?: Pick<Branch, "name" | "code"> | null;
+  bank_accounts?: Pick<BankAccount, "name" | "bank_name" | "account_no"> | null;
+  profiles?: Pick<Profile, "full_name"> | null;
 };
 
 export type DashboardData = {

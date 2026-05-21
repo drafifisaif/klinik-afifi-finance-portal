@@ -15,6 +15,17 @@ export function formatDate(value: string | null | undefined) {
   }).format(new Date(value));
 }
 
+export function formatDateTime(value: string | null | undefined) {
+  if (!value) return "-";
+  return new Intl.DateTimeFormat("en-MY", {
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    month: "short",
+    year: "numeric"
+  }).format(new Date(value));
+}
+
 export function labelize(value: string) {
   return value
     .split("_")
