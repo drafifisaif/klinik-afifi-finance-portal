@@ -3,6 +3,8 @@ export type ParsedCsv = {
   rows: Record<string, string>[];
 };
 
+export type CsvCell = boolean | number | string | null | undefined;
+
 export function normalizeHeader(header: string) {
   return header.trim().toLowerCase().replace(/[\s-]+/g, "_");
 }
@@ -62,4 +64,13 @@ export function parseCsv(input: string): ParsedCsv {
   );
 
   return { headers, rows };
+}
+
+function csvCell(value: CsvCell) {
+  const text = String(value ?? "");
+  return /[",\n\r]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
+}
+
+export function stringifyCsv(headers: string[], rows: CsvCell[][]) {
+  return [headers, ...rows].map((row) => row.map(csvCell).join(",")).join("\n");
 }

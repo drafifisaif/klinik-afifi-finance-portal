@@ -447,6 +447,27 @@ textarea {
   gap: 14px;
 }
 
+.export-csv-link {
+  width: fit-content;
+}
+
+.export-report-bar,
+.report-toolbar {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.export-report-bar {
+  justify-content: flex-end;
+  margin-bottom: 18px;
+}
+
+.report-toolbar h2 {
+  margin: 0;
+}
+
 .single-column {
   grid-template-columns: 1fr;
 }

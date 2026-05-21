@@ -6,6 +6,7 @@ import {
   upsertBankAccountPermission
 } from "@/app/actions";
 import { DataTable } from "@/components/data-table";
+import { ExportCsvLink } from "@/components/export-csv-link";
 import { MetricCard } from "@/components/metric-card";
 import { ModuleHeader } from "@/components/module-header";
 import { bankMoneyOutCategories, bankTransactionTypes } from "@/lib/constants";
@@ -412,6 +413,7 @@ export default async function BankPage({ searchParams }: { searchParams: Promise
         <button className="primary-button" type="submit">
           Apply
         </button>
+        <ExportCsvLink label="Export bank CSV" report="bank" searchParams={params} />
         <p className="selected-branches">
           Showing {range.label}: {formatDate(range.startDate)} to {formatDate(range.endDate)}
         </p>

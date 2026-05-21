@@ -1,5 +1,6 @@
 import { createDailySale } from "@/app/actions";
 import { DataTable } from "@/components/data-table";
+import { ExportCsvLink } from "@/components/export-csv-link";
 import { MetricCard } from "@/components/metric-card";
 import { ModuleHeader } from "@/components/module-header";
 import { getDashboardData, totalBy } from "@/lib/data";
@@ -31,19 +32,25 @@ export default async function SalesPage() {
       </section>
 
       <section className="section-grid">
-        <DataTable
-          columns={["Date", "Branch", "Cash", "Transfer", "Card", "Panel", "QR", "Total"]}
-          rows={data.sales.map((sale) => [
-            formatDate(sale.sale_date),
-            sale.branches?.name ?? "-",
-            formatCurrency(sale.cash_amount),
-            formatCurrency(sale.bank_transfer_amount),
-            formatCurrency(sale.card_amount),
-            formatCurrency(sale.panel_amount),
-            formatCurrency(sale.qr_amount),
-            formatCurrency(sale.total_amount)
-          ])}
-        />
+        <div className="table-section">
+          <div className="report-toolbar">
+            <h2>Daily sales report</h2>
+            <ExportCsvLink label="Export sales CSV" report="sales" />
+          </div>
+          <DataTable
+            columns={["Date", "Branch", "Cash", "Transfer", "Card", "Panel", "QR", "Total"]}
+            rows={data.sales.map((sale) => [
+              formatDate(sale.sale_date),
+              sale.branches?.name ?? "-",
+              formatCurrency(sale.cash_amount),
+              formatCurrency(sale.bank_transfer_amount),
+              formatCurrency(sale.card_amount),
+              formatCurrency(sale.panel_amount),
+              formatCurrency(sale.qr_amount),
+              formatCurrency(sale.total_amount)
+            ])}
+          />
+        </div>
 
         <form action={createDailySale} className="form-card">
           <h2>Record sales</h2>

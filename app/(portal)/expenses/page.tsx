@@ -1,5 +1,6 @@
 import { createExpense } from "@/app/actions";
 import { DataTable } from "@/components/data-table";
+import { ExportCsvLink } from "@/components/export-csv-link";
 import { MetricCard } from "@/components/metric-card";
 import { ModuleHeader } from "@/components/module-header";
 import { expenseCategories, paymentTypes } from "@/lib/constants";
@@ -37,18 +38,24 @@ export default async function ExpensesPage() {
       </section>
 
       <section className="section-grid">
-        <DataTable
-          columns={["Date", "Branch", "Category", "Vendor", "Description", "Payment", "Amount"]}
-          rows={data.expenses.map((expense) => [
-            formatDate(expense.expense_date),
-            expense.branches?.name ?? "-",
-            labelize(expense.category),
-            expense.vendor_name ?? "-",
-            expense.description,
-            labelize(expense.payment_type),
-            formatCurrency(expense.amount)
-          ])}
-        />
+        <div className="table-section">
+          <div className="report-toolbar">
+            <h2>Expenses report</h2>
+            <ExportCsvLink label="Export expenses CSV" report="expenses" />
+          </div>
+          <DataTable
+            columns={["Date", "Branch", "Category", "Vendor", "Description", "Payment", "Amount"]}
+            rows={data.expenses.map((expense) => [
+              formatDate(expense.expense_date),
+              expense.branches?.name ?? "-",
+              labelize(expense.category),
+              expense.vendor_name ?? "-",
+              expense.description,
+              labelize(expense.payment_type),
+              formatCurrency(expense.amount)
+            ])}
+          />
+        </div>
 
         <form action={createExpense} className="form-card">
           <h2>Record expense</h2>

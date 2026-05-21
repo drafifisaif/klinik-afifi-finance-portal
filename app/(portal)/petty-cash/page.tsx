@@ -1,5 +1,6 @@
 import { createPettyCashTransaction, updatePettyCashTransaction } from "@/app/actions";
 import { DataTable } from "@/components/data-table";
+import { ExportCsvLink } from "@/components/export-csv-link";
 import { MetricCard } from "@/components/metric-card";
 import { ModuleHeader } from "@/components/module-header";
 import { bankAccountLabel, branchLabel, buildPettyCashBalanceRows, pettyCashAmount } from "@/lib/bank-reporting";
@@ -142,7 +143,10 @@ export default async function PettyCashPage() {
       </section>
 
       <section className="table-section mt-section">
-        <h2>Petty cash ledger</h2>
+        <div className="report-toolbar">
+          <h2>Petty cash ledger</h2>
+          <ExportCsvLink label="Export ledger CSV" report="petty-cash" />
+        </div>
         <DataTable
           columns={["Date", "Branch", "Transaction type", "Category", "Amount", "Entered by", "Reference", "Notes", "Edit"]}
           rows={data.pettyCashTransactions.map((transaction) => [

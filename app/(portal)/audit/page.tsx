@@ -1,4 +1,5 @@
 import { DataTable } from "@/components/data-table";
+import { ExportCsvLink } from "@/components/export-csv-link";
 import { ModuleHeader } from "@/components/module-header";
 import { bankAccountLabel, branchLabel } from "@/lib/bank-reporting";
 import { getAuditEvents } from "@/lib/audit";
@@ -136,6 +137,7 @@ export default async function AuditPage({ searchParams }: { searchParams: Promis
         <button className="primary-button" type="submit">
           Apply
         </button>
+        <ExportCsvLink label="Export audit CSV" report="audit" searchParams={params} />
       </form>
 
       <section className="table-section">

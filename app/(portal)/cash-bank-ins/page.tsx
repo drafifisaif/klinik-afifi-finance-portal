@@ -1,5 +1,6 @@
 import { createCashBankIn } from "@/app/actions";
 import { DataTable } from "@/components/data-table";
+import { ExportCsvLink } from "@/components/export-csv-link";
 import { MetricCard } from "@/components/metric-card";
 import { ModuleHeader } from "@/components/module-header";
 import {
@@ -134,7 +135,10 @@ export default async function CashBankInsPage({ searchParams }: { searchParams: 
       </section>
 
       <section className="table-section mt-section">
-        <h2>Cash in hand report</h2>
+        <div className="report-toolbar">
+          <h2>Cash in hand report</h2>
+          <ExportCsvLink label="Export cash CSV" report="cash-in-hand" searchParams={params} />
+        </div>
         <DataTable
           columns={["Branch", "Total cash sales", "Total cash banked in", "Remaining cash in hand"]}
           rows={cashInHandRows.map((row) => [

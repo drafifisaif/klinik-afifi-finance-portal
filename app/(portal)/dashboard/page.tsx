@@ -1,4 +1,5 @@
 import { DataTable } from "@/components/data-table";
+import { ExportCsvLink } from "@/components/export-csv-link";
 import { MetricCard } from "@/components/metric-card";
 import { ModuleHeader } from "@/components/module-header";
 import {
@@ -333,6 +334,12 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
             : "Review clinic sales, profit estimate, physical cash, payables, receivables, and bank movement in one practical owner view."
         }
       />
+
+      {!isLimitedDashboard ? (
+        <div className="export-report-bar">
+          <ExportCsvLink label="Export summary CSV" report="dashboard" searchParams={params} />
+        </div>
+      ) : null}
 
       {!isLimitedDashboard ? (
         <form className="reporting-filter dashboard-filter" method="get">
