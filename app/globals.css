@@ -229,6 +229,14 @@ textarea {
   padding: 16px;
 }
 
+.dashboard-filter {
+  grid-template-columns: repeat(4, minmax(150px, 1fr));
+}
+
+.dashboard-filter fieldset {
+  grid-column: span 2;
+}
+
 .bank-filter {
   grid-template-columns: repeat(4, minmax(150px, 1fr));
 }
@@ -996,6 +1004,10 @@ button:disabled {
   }
 
   .audit-search {
+    grid-column: auto;
+  }
+
+  .dashboard-filter fieldset {
     grid-column: auto;
   }
 }
