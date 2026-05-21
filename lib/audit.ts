@@ -58,21 +58,23 @@ export async function logAuditEvent({
 }: LogAuditEventInput) {
   if (!hasSupabaseEnv()) return;
 
-  const supabase = await createClient();
-  const resolvedChangedFields = changedFields ?? getAuditChangedFields(beforeData, afterData);
-  const { error } = await supabase.rpc("log_audit_event", {
-    p_action: action,
-    p_after_data: afterData,
-    p_bank_account_id: bankAccountId,
-    p_before_data: beforeData,
-    p_branch_id: branchId,
-    p_changed_fields: Object.keys(resolvedChangedFields).length ? resolvedChangedFields : null,
-    p_description: description,
-    p_entity_id: entityId,
-    p_entity_name: entityName
-  });
-
-  if (error) throw error;
+  try {
+    const supabase = await createClient();
+    const resolvedChangedFields = changedFields ?? getAuditChangedFields(beforeData, afterData);
+    await supabase.rpc("log_audit_event", {
+      p_action: action,
+      p_after_data: afterData,
+      p_bank_account_id: bankAccountId,
+      p_before_data: beforeData,
+      p_branch_id: branchId,
+      p_changed_fields: Object.keys(resolvedChangedFields).length ? resolvedChangedFields : null,
+      p_description: description,
+      p_entity_id: entityId,
+      p_entity_name: entityName
+    });
+  } catch {
+    return;
+  }
 }
 
 function matchesKeyword(event: AuditEvent, keyword: string) {

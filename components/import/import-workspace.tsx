@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { importFinanceRows } from "@/app/actions";
 import { parseCsv, normalizeValue } from "@/lib/csv";
 import {
   importConfigs,
@@ -145,16 +146,8 @@ export function ImportWorkspace({ references }: ImportWorkspaceProps) {
     setIsWorking(true);
     setMessage("");
     try {
-      const supabase = createClient();
-      const { data } = await supabase.auth.getUser();
-      const enteredBy = data.user?.id ?? null;
-      const payloads = validRows.map((row) => ({
-        ...row.payload,
-        entered_by: enteredBy
-      }));
-
-      const { error } = await supabase.from(config.table).insert(payloads);
-      if (error) throw error;
+      const payloads = validRows.map((row) => row.payload as ImportPayload);
+      await importFinanceRows(importType, payloads);
       setMessage(`Imported ${payloads.length} ${config.label} rows successfully.`);
       setRows((currentRows) =>
         currentRows.map((row) =>

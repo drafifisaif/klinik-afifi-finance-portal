@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { getAuditChangedFields, logAuditEvent } from "@/lib/audit";
+import { importConfigs, type ImportType } from "@/lib/import-config";
 import { createClient, hasSupabaseEnv } from "@/lib/supabase-server";
 import {
   canEditBranch,
@@ -15,6 +16,8 @@ import {
   requirePermission
 } from "@/lib/permissions";
 import type { BankTransactionType, ExpenseCategory, PaymentType, PettyCashTransactionType, PurchaseCategory, UserRole } from "@/lib/types";
+
+type ImportPayload = Record<string, string | number | null>;
 
 function text(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -112,6 +115,100 @@ type PettyCashAuditRow = {
   transaction_type: string;
 };
 
+type BranchAuditRow = {
+  address: string | null;
+  code: string;
+  is_active: boolean;
+  name: string;
+  phone: string | null;
+};
+
+type BankAccountAuditRow = {
+  account_no: string | null;
+  bank_name: string | null;
+  is_active: boolean;
+  name: string;
+};
+
+type DailySaleAuditRow = {
+  bank_transfer_amount: number;
+  branch_id: string;
+  card_amount: number;
+  cash_amount: number;
+  notes: string | null;
+  panel_amount: number;
+  qr_amount: number;
+  sale_date: string;
+};
+
+type ExpenseAuditRow = {
+  amount: number;
+  branch_id: string;
+  category: string;
+  description: string;
+  expense_date: string;
+  payment_type: string;
+  receipt_path: string | null;
+  vendor_name: string | null;
+};
+
+type SupplierAuditRow = {
+  address?: string | null;
+  contact_person: string | null;
+  email: string | null;
+  is_active: boolean;
+  name: string;
+  payment_terms_days: number;
+  phone: string | null;
+};
+
+type SupplierPurchaseAuditRow = {
+  attachment_path: string | null;
+  branch_id: string;
+  category: string;
+  consumables_cost: number;
+  due_date: string | null;
+  invoice_no: string | null;
+  medicine_cost: number;
+  notes: string | null;
+  other_cost: number;
+  purchase_date: string;
+  supplier_id: string;
+};
+
+type SupplierPaymentAuditRow = {
+  amount: number;
+  branch_id: string | null;
+  notes: string | null;
+  payment_date: string;
+  payment_type: string;
+  purchase_id: string | null;
+  receipt_path: string | null;
+  reference_no: string | null;
+  supplier_id: string;
+};
+
+type PanelCompanyAuditRow = {
+  contact_person: string | null;
+  email: string | null;
+  is_active: boolean;
+  name: string;
+  payment_terms_days: number;
+  phone: string | null;
+};
+
+type PanelClaimAuditRow = {
+  amount: number;
+  branch_id: string;
+  claim_month: string;
+  claim_no: string | null;
+  due_date: string | null;
+  notes: string | null;
+  panel_company_id: string;
+  status: string;
+  submitted_date: string | null;
+};
+
 function userProfileAuditData(profile: UserProfileAuditRow) {
   return {
     branch_id: profile.branch_id,
@@ -173,8 +270,136 @@ function pettyCashAuditData(transaction: PettyCashAuditRow) {
   };
 }
 
+function branchAuditData(branch: BranchAuditRow) {
+  return {
+    address: branch.address,
+    code: branch.code,
+    is_active: branch.is_active,
+    name: branch.name,
+    phone: branch.phone
+  };
+}
+
+function bankAccountAuditData(account: BankAccountAuditRow) {
+  return {
+    account_no: account.account_no,
+    bank_name: account.bank_name,
+    is_active: account.is_active,
+    name: account.name
+  };
+}
+
+function dailySaleAuditData(sale: DailySaleAuditRow) {
+  return {
+    bank_transfer_amount: sale.bank_transfer_amount,
+    branch_id: sale.branch_id,
+    card_amount: sale.card_amount,
+    cash_amount: sale.cash_amount,
+    notes: sale.notes,
+    panel_amount: sale.panel_amount,
+    qr_amount: sale.qr_amount,
+    sale_date: sale.sale_date
+  };
+}
+
+function expenseAuditData(expense: ExpenseAuditRow) {
+  return {
+    amount: expense.amount,
+    branch_id: expense.branch_id,
+    category: expense.category,
+    description: expense.description,
+    expense_date: expense.expense_date,
+    payment_type: expense.payment_type,
+    receipt_path: expense.receipt_path,
+    vendor_name: expense.vendor_name
+  };
+}
+
+function supplierAuditData(supplier: SupplierAuditRow) {
+  return {
+    address: supplier.address ?? null,
+    contact_person: supplier.contact_person,
+    email: supplier.email,
+    is_active: supplier.is_active,
+    name: supplier.name,
+    payment_terms_days: supplier.payment_terms_days,
+    phone: supplier.phone
+  };
+}
+
+function supplierPurchaseAuditData(purchase: SupplierPurchaseAuditRow) {
+  return {
+    attachment_path: purchase.attachment_path,
+    branch_id: purchase.branch_id,
+    category: purchase.category,
+    consumables_cost: purchase.consumables_cost,
+    due_date: purchase.due_date,
+    invoice_no: purchase.invoice_no,
+    medicine_cost: purchase.medicine_cost,
+    notes: purchase.notes,
+    other_cost: purchase.other_cost,
+    purchase_date: purchase.purchase_date,
+    supplier_id: purchase.supplier_id
+  };
+}
+
+function supplierPaymentAuditData(payment: SupplierPaymentAuditRow) {
+  return {
+    amount: payment.amount,
+    branch_id: payment.branch_id,
+    notes: payment.notes,
+    payment_date: payment.payment_date,
+    payment_type: payment.payment_type,
+    purchase_id: payment.purchase_id,
+    receipt_path: payment.receipt_path,
+    reference_no: payment.reference_no,
+    supplier_id: payment.supplier_id
+  };
+}
+
+function panelCompanyAuditData(company: PanelCompanyAuditRow) {
+  return {
+    contact_person: company.contact_person,
+    email: company.email,
+    is_active: company.is_active,
+    name: company.name,
+    payment_terms_days: company.payment_terms_days,
+    phone: company.phone
+  };
+}
+
+function panelClaimAuditData(claim: PanelClaimAuditRow) {
+  return {
+    amount: claim.amount,
+    branch_id: claim.branch_id,
+    claim_month: claim.claim_month,
+    claim_no: claim.claim_no,
+    due_date: claim.due_date,
+    notes: claim.notes,
+    panel_company_id: claim.panel_company_id,
+    status: claim.status,
+    submitted_date: claim.submitted_date
+  };
+}
+
 function hasAuditChanges(beforeData: Record<string, unknown>, afterData: Record<string, unknown>) {
   return Object.keys(getAuditChangedFields(beforeData, afterData)).length > 0;
+}
+
+function importAuditData(type: ImportType, row: Record<string, unknown>) {
+  if (type === "daily_sales") return dailySaleAuditData(row as unknown as DailySaleAuditRow);
+  if (type === "expenses") return expenseAuditData(row as unknown as ExpenseAuditRow);
+  if (type === "supplier_purchases") return supplierPurchaseAuditData(row as unknown as SupplierPurchaseAuditRow);
+  if (type === "supplier_payments") return supplierPaymentAuditData(row as unknown as SupplierPaymentAuditRow);
+  return panelClaimAuditData(row as unknown as PanelClaimAuditRow);
+}
+
+function importRevalidationPaths(type: ImportType) {
+  if (type === "daily_sales") return ["/sales", "/dashboard"];
+  if (type === "expenses") return ["/expenses", "/dashboard"];
+  if (type === "supplier_purchases") return ["/purchases", "/dashboard"];
+  if (type === "supplier_payments") return ["/suppliers/payments", "/dashboard"];
+  return ["/panels", "/dashboard"];
 }
 
 async function getUserId() {
@@ -217,11 +442,21 @@ export async function createBranch(formData: FormData) {
   if (!hasSupabaseEnv()) return;
   await requirePermission("manage_branches");
   const supabase = await createClient();
-  await supabase.from("branches").insert({
+  const { data: branch, error } = await supabase.from("branches").insert({
     name: text(formData, "name"),
     code: text(formData, "code"),
     address: text(formData, "address"),
     phone: text(formData, "phone")
+  }).select("id, name, code, address, phone, is_active").single();
+
+  if (error || !branch) throw error ?? new Error("Branch could not be loaded after creation.");
+
+  await logAuditEvent({
+    action: "create",
+    afterData: branchAuditData(branch),
+    description: `Created branch ${branch.name}.`,
+    entityId: branch.id,
+    entityName: "branches"
   });
   revalidatePath("/branches");
 }
@@ -234,10 +469,21 @@ export async function createBankAccount(formData: FormData) {
   if (!name) throw new Error("Bank account name is required.");
 
   const supabase = await createClient();
-  await supabase.from("bank_accounts").insert({
+  const { data: account, error } = await supabase.from("bank_accounts").insert({
     name,
     bank_name: text(formData, "bank_name"),
     account_no: text(formData, "account_no")
+  }).select("id, name, bank_name, account_no, is_active").single();
+
+  if (error || !account) throw error ?? new Error("Bank account could not be loaded after creation.");
+
+  await logAuditEvent({
+    action: "create",
+    afterData: bankAccountAuditData(account),
+    bankAccountId: account.id,
+    description: `Created bank account ${account.name}.`,
+    entityId: account.id,
+    entityName: "bank_accounts"
   });
   revalidatePath("/bank");
   revalidatePath("/cash-bank-ins");
@@ -246,11 +492,21 @@ export async function createBankAccount(formData: FormData) {
 export async function createDailySale(formData: FormData) {
   if (!hasSupabaseEnv()) return;
   const branchId = text(formData, "branch_id");
+  const saleDate = text(formData, "sale_date");
   await requireEditableBranch(branchId);
   const supabase = await createClient();
-  await supabase.from("daily_sales").upsert({
+  const { data: existingSale, error: existingSaleError } = await supabase
+    .from("daily_sales")
+    .select("id, branch_id, sale_date, cash_amount, bank_transfer_amount, card_amount, panel_amount, qr_amount, notes")
+    .eq("branch_id", branchId)
+    .eq("sale_date", saleDate)
+    .maybeSingle();
+
+  if (existingSaleError) throw existingSaleError;
+
+  const { data: sale, error } = await supabase.from("daily_sales").upsert({
     branch_id: branchId,
-    sale_date: text(formData, "sale_date"),
+    sale_date: saleDate,
     cash_amount: number(formData, "cash_amount"),
     bank_transfer_amount: number(formData, "bank_transfer_amount"),
     card_amount: number(formData, "card_amount"),
@@ -258,7 +514,23 @@ export async function createDailySale(formData: FormData) {
     qr_amount: number(formData, "qr_amount"),
     notes: text(formData, "notes"),
     entered_by: await getUserId()
-  });
+  }).select("id, branch_id, sale_date, cash_amount, bank_transfer_amount, card_amount, panel_amount, qr_amount, notes").single();
+
+  if (error || !sale) throw error ?? new Error("Daily sale could not be loaded after save.");
+
+  const beforeData = existingSale ? dailySaleAuditData(existingSale) : null;
+  const afterData = dailySaleAuditData(sale);
+  if (!beforeData || hasAuditChanges(beforeData, afterData)) {
+    await logAuditEvent({
+      action: beforeData ? "update" : "create",
+      afterData,
+      beforeData,
+      branchId: sale.branch_id,
+      description: beforeData ? "Updated daily sales summary." : "Created daily sales summary.",
+      entityId: sale.id,
+      entityName: "daily_sales"
+    });
+  }
   revalidatePath("/sales");
   revalidatePath("/dashboard");
 }
@@ -667,7 +939,7 @@ export async function createExpense(formData: FormData) {
   const branchId = text(formData, "branch_id");
   await requireEditableBranch(branchId);
   const supabase = await createClient();
-  await supabase.from("expenses").insert({
+  const { data: expense, error } = await supabase.from("expenses").insert({
     branch_id: branchId,
     expense_date: text(formData, "expense_date"),
     category: text(formData, "category") as ExpenseCategory,
@@ -676,6 +948,17 @@ export async function createExpense(formData: FormData) {
     payment_type: text(formData, "payment_type") as PaymentType,
     amount: number(formData, "amount"),
     entered_by: await getUserId()
+  }).select("id, branch_id, expense_date, category, vendor_name, description, payment_type, amount, receipt_path").single();
+
+  if (error || !expense) throw error ?? new Error("Expense could not be loaded after creation.");
+
+  await logAuditEvent({
+    action: "create",
+    afterData: expenseAuditData(expense),
+    branchId: expense.branch_id,
+    description: "Created expense.",
+    entityId: expense.id,
+    entityName: "expenses"
   });
   revalidatePath("/expenses");
   revalidatePath("/dashboard");
@@ -685,12 +968,22 @@ export async function createSupplier(formData: FormData) {
   if (!hasSupabaseEnv()) return;
   await requirePermission("view_reports");
   const supabase = await createClient();
-  await supabase.from("suppliers").insert({
+  const { data: supplier, error } = await supabase.from("suppliers").insert({
     name: text(formData, "name"),
     contact_person: text(formData, "contact_person"),
     phone: text(formData, "phone"),
     email: text(formData, "email"),
     payment_terms_days: number(formData, "payment_terms_days") || 30
+  }).select("id, name, contact_person, phone, email, address, payment_terms_days, is_active").single();
+
+  if (error || !supplier) throw error ?? new Error("Supplier could not be loaded after creation.");
+
+  await logAuditEvent({
+    action: "create",
+    afterData: supplierAuditData(supplier),
+    description: `Created supplier ${supplier.name}.`,
+    entityId: supplier.id,
+    entityName: "suppliers"
   });
   revalidatePath("/purchases");
   revalidatePath("/suppliers/payments");
@@ -701,7 +994,7 @@ export async function createSupplierPurchase(formData: FormData) {
   const branchId = text(formData, "branch_id");
   await requireEditableBranch(branchId);
   const supabase = await createClient();
-  await supabase.from("supplier_purchases").insert({
+  const { data: purchase, error } = await supabase.from("supplier_purchases").insert({
     supplier_id: text(formData, "supplier_id"),
     branch_id: branchId,
     invoice_no: text(formData, "invoice_no"),
@@ -713,6 +1006,17 @@ export async function createSupplierPurchase(formData: FormData) {
     other_cost: number(formData, "other_cost"),
     notes: text(formData, "notes"),
     entered_by: await getUserId()
+  }).select("id, supplier_id, branch_id, invoice_no, purchase_date, due_date, category, medicine_cost, consumables_cost, other_cost, attachment_path, notes").single();
+
+  if (error || !purchase) throw error ?? new Error("Supplier purchase could not be loaded after creation.");
+
+  await logAuditEvent({
+    action: "create",
+    afterData: supplierPurchaseAuditData(purchase),
+    branchId: purchase.branch_id,
+    description: "Created supplier purchase.",
+    entityId: purchase.id,
+    entityName: "supplier_purchases"
   });
   revalidatePath("/purchases");
   revalidatePath("/dashboard");
@@ -742,7 +1046,7 @@ export async function createSupplierPayment(formData: FormData) {
     throw new Error("You do not have permission to record supplier payments for this branch.");
   }
 
-  await supabase.from("supplier_payments").insert({
+  const { data: payment, error } = await supabase.from("supplier_payments").insert({
     supplier_id: text(formData, "supplier_id"),
     purchase_id: purchaseId,
     branch_id: resolvedBranchId,
@@ -752,6 +1056,17 @@ export async function createSupplierPayment(formData: FormData) {
     reference_no: text(formData, "reference_no"),
     notes: text(formData, "notes"),
     entered_by: await getUserId()
+  }).select("id, supplier_id, purchase_id, branch_id, payment_date, payment_type, amount, reference_no, receipt_path, notes").single();
+
+  if (error || !payment) throw error ?? new Error("Supplier payment could not be loaded after creation.");
+
+  await logAuditEvent({
+    action: "create",
+    afterData: supplierPaymentAuditData(payment),
+    branchId: payment.branch_id,
+    description: "Created supplier payment.",
+    entityId: payment.id,
+    entityName: "supplier_payments"
   });
   revalidatePath("/suppliers/payments");
   revalidatePath("/dashboard");
@@ -761,12 +1076,22 @@ export async function createPanelCompany(formData: FormData) {
   if (!hasSupabaseEnv()) return;
   await requirePermission("view_reports");
   const supabase = await createClient();
-  await supabase.from("panel_companies").insert({
+  const { data: company, error } = await supabase.from("panel_companies").insert({
     name: text(formData, "name"),
     contact_person: text(formData, "contact_person"),
     phone: text(formData, "phone"),
     email: text(formData, "email"),
     payment_terms_days: number(formData, "payment_terms_days") || 30
+  }).select("id, name, contact_person, phone, email, payment_terms_days, is_active").single();
+
+  if (error || !company) throw error ?? new Error("Panel company could not be loaded after creation.");
+
+  await logAuditEvent({
+    action: "create",
+    afterData: panelCompanyAuditData(company),
+    description: `Created panel company ${company.name}.`,
+    entityId: company.id,
+    entityName: "panel_companies"
   });
   revalidatePath("/panels");
 }
@@ -776,7 +1101,7 @@ export async function createPanelClaim(formData: FormData) {
   const branchId = text(formData, "branch_id");
   await requireEditableBranch(branchId);
   const supabase = await createClient();
-  await supabase.from("panel_claims").insert({
+  const { data: claim, error } = await supabase.from("panel_claims").insert({
     panel_company_id: text(formData, "panel_company_id"),
     branch_id: branchId,
     claim_no: text(formData, "claim_no"),
@@ -787,9 +1112,51 @@ export async function createPanelClaim(formData: FormData) {
     status: text(formData, "status") ?? "unpaid",
     notes: text(formData, "notes"),
     entered_by: await getUserId()
+  }).select("id, panel_company_id, branch_id, claim_no, claim_month, submitted_date, due_date, amount, status, notes").single();
+
+  if (error || !claim) throw error ?? new Error("Panel claim could not be loaded after creation.");
+
+  await logAuditEvent({
+    action: "create",
+    afterData: panelClaimAuditData(claim),
+    branchId: claim.branch_id,
+    description: "Created panel claim.",
+    entityId: claim.id,
+    entityName: "panel_claims"
   });
   revalidatePath("/panels");
   revalidatePath("/dashboard");
+}
+
+export async function importFinanceRows(type: ImportType, payloads: ImportPayload[]) {
+  if (!hasSupabaseEnv() || !payloads.length) return;
+  await requirePermission("import_data");
+
+  const config = importConfigs[type];
+  if (!config) throw new Error("Select a valid import type.");
+
+  const enteredBy = await getUserId();
+  const rows = payloads.map((payload) => ({ ...payload, entered_by: enteredBy }));
+  const supabase = await createClient();
+  const { data, error } = await supabase.from(config.table).insert(rows).select("*");
+
+  if (error || !data) throw error ?? new Error("Imported rows could not be loaded.");
+
+  await Promise.all(data.map((row) => {
+    const record = row as Record<string, unknown> & { branch_id?: unknown; id?: unknown };
+    return logAuditEvent({
+      action: "create",
+      afterData: importAuditData(type, record),
+      branchId: typeof record.branch_id === "string" ? record.branch_id : null,
+      description: `Imported ${config.label} row.`,
+      entityId: typeof record.id === "string" ? record.id : null,
+      entityName: config.table
+    });
+  }));
+
+  for (const path of importRevalidationPaths(type)) {
+    revalidatePath(path);
+  }
 }
 
 export async function updateUserProfile(formData: FormData) {

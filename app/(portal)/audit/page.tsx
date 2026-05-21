@@ -21,6 +21,16 @@ type AuditSearchParams = {
 const auditActions = ["create", "update", "delete", "role_change", "permission_change"];
 
 const auditEntities = [
+  "branches",
+  "daily_sales",
+  "expenses",
+  "suppliers",
+  "supplier_purchases",
+  "supplier_payments",
+  "panel_companies",
+  "panel_claims",
+  "panel_payments",
+  "bank_accounts",
   "profiles",
   "bank_account_permissions",
   "bank_transactions",
