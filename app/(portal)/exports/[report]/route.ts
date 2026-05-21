@@ -14,22 +14,32 @@ type ExportRouteProps = {
   params: Promise<{ report: string }>;
 };
 
+const exportHandlers = {
+  audit: auditTrailCsv,
+  bank: bankMovementCsv,
+  "cash-in-hand": cashInHandCsv,
+  dashboard: dashboardSummaryCsv,
+  expenses: expensesCsv,
+  "petty-cash": pettyCashLedgerCsv,
+  sales: dailySalesCsv
+} as const;
+
+type ReportKey = keyof typeof exportHandlers;
+
+function isReportKey(report: string): report is ReportKey {
+  return Object.prototype.hasOwnProperty.call(exportHandlers, report);
+}
+
 export async function GET(request: Request, { params }: ExportRouteProps) {
   const { report } = await params;
   const searchParams = new URL(request.url).searchParams;
 
-  try {
-    const exportFile = await ({
-      audit: auditTrailCsv,
-      bank: bankMovementCsv,
-      "cash-in-hand": cashInHandCsv,
-      dashboard: dashboardSummaryCsv,
-      expenses: expensesCsv,
-      "petty-cash": pettyCashLedgerCsv,
-      sales: dailySalesCsv
-    }[report]?.(searchParams));
+  if (!isReportKey(report)) {
+    return new Response("Report export not found.", { status: 404 });
+  }
 
-    if (!exportFile) return new Response("Report export not found.", { status: 404 });
+  try {
+    const exportFile = await exportHandlers[report](searchParams);
 
     return new Response(stringifyCsv(exportFile.headers, exportFile.rows), {
       headers: {
