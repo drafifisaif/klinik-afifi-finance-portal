@@ -681,10 +681,10 @@ export default async function BankPage({ searchParams }: { searchParams: Promise
               formatCurrency(bankTransactionAmount(transaction)),
               transaction.description ?? "-",
               transaction.reference_no ?? "-",
-              <span className={`status-pill ${transaction.is_void ? "status-voided" : "status-paid"}`}>
+              <span className={`status-pill ${transaction.is_void ? "status-voided" : "status-paid"}`} key={`${transaction.id}-status`}>
                 {transaction.is_void ? "VOIDED" : "Active"}
               </span>,
-              <details className="manual-bank-editor">
+              <details className="manual-bank-editor" key={`${transaction.id}-details`}>
                 <summary>View details</summary>
                 <div className="record-detail-grid">
                   <div>
@@ -706,7 +706,7 @@ export default async function BankPage({ searchParams }: { searchParams: Promise
                 </div>
               </details>,
               canCorrectTransaction ? (
-                <details className="manual-bank-editor">
+                <details className="manual-bank-editor" key={`${transaction.id}-edit`}>
                   <summary>Edit</summary>
                   <form action={updateBankTransaction} className="manual-bank-edit-form">
                     <input name="transaction_id" type="hidden" value={transaction.id} />
@@ -759,7 +759,7 @@ export default async function BankPage({ searchParams }: { searchParams: Promise
                 "-"
               ),
               canCorrectTransaction ? (
-                <details className="manual-bank-editor">
+                <details className="manual-bank-editor" key={`${transaction.id}-void`}>
                   <summary>Void</summary>
                   <form action={voidBankTransaction} className="manual-bank-edit-form void-record-form">
                     <input name="transaction_id" type="hidden" value={transaction.id} />

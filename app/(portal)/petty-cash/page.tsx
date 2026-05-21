@@ -161,10 +161,10 @@ export default async function PettyCashPage() {
               transaction.profiles?.full_name ?? transaction.entered_by ?? "-",
               transaction.reference_no ?? "-",
               transaction.description ?? "-",
-              <span className={`status-pill ${transaction.is_void ? "status-voided" : "status-paid"}`}>
+              <span className={`status-pill ${transaction.is_void ? "status-voided" : "status-paid"}`} key={`${transaction.id}-status`}>
                 {transaction.is_void ? "VOIDED" : "Active"}
               </span>,
-              <details className="manual-bank-editor">
+              <details className="manual-bank-editor" key={`${transaction.id}-details`}>
                 <summary>View details</summary>
                 <div className="record-detail-grid">
                   <div>
@@ -186,7 +186,7 @@ export default async function PettyCashPage() {
                 </div>
               </details>,
               canCorrectTransaction ? (
-                <details className="manual-bank-editor">
+                <details className="manual-bank-editor" key={`${transaction.id}-edit`}>
                   <summary>Edit</summary>
                   <form action={updatePettyCashTransaction} className="manual-bank-edit-form">
                     <input name="transaction_id" type="hidden" value={transaction.id} />
@@ -228,7 +228,7 @@ export default async function PettyCashPage() {
                 "-"
               ),
               canCorrectTransaction ? (
-                <details className="manual-bank-editor">
+                <details className="manual-bank-editor" key={`${transaction.id}-void`}>
                   <summary>Void</summary>
                   <form action={voidPettyCashTransaction} className="manual-bank-edit-form void-record-form">
                     <input name="transaction_id" type="hidden" value={transaction.id} />

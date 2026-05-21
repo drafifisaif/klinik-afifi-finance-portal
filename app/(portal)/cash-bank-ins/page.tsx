@@ -166,10 +166,10 @@ export default async function CashBankInsPage({ searchParams }: { searchParams: 
               formatCurrency(bankInAmount(bankIn)),
               bankIn.reference_no ?? "-",
               bankIn.notes ?? "-",
-              <span className={`status-pill ${bankIn.is_void ? "status-voided" : "status-paid"}`}>
+              <span className={`status-pill ${bankIn.is_void ? "status-voided" : "status-paid"}`} key={`${bankIn.id}-status`}>
                 {bankIn.is_void ? "VOIDED" : "Active"}
               </span>,
-              <details className="manual-bank-editor">
+              <details className="manual-bank-editor" key={`${bankIn.id}-details`}>
                 <summary>View details</summary>
                 <div className="record-detail-grid">
                   <div>
@@ -191,7 +191,7 @@ export default async function CashBankInsPage({ searchParams }: { searchParams: 
                 </div>
               </details>,
               canCorrectBankIn ? (
-                <details className="manual-bank-editor">
+                <details className="manual-bank-editor" key={`${bankIn.id}-edit`}>
                   <summary>Edit</summary>
                   <form action={updateCashBankIn} className="manual-bank-edit-form">
                     <input name="bank_in_id" type="hidden" value={bankIn.id} />
@@ -220,7 +220,7 @@ export default async function CashBankInsPage({ searchParams }: { searchParams: 
                 "-"
               ),
               canCorrectBankIn ? (
-                <details className="manual-bank-editor">
+                <details className="manual-bank-editor" key={`${bankIn.id}-void`}>
                   <summary>Void</summary>
                   <form action={voidCashBankIn} className="manual-bank-edit-form void-record-form">
                     <input name="bank_in_id" type="hidden" value={bankIn.id} />

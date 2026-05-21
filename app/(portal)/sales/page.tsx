@@ -50,10 +50,10 @@ export default async function SalesPage() {
               formatCurrency(sale.panel_amount),
               formatCurrency(sale.qr_amount),
               formatCurrency(sale.total_amount),
-              <span className={`status-pill ${sale.is_void ? "status-voided" : "status-paid"}`}>
+              <span className={`status-pill ${sale.is_void ? "status-voided" : "status-paid"}`} key={`${sale.id}-status`}>
                 {sale.is_void ? "VOIDED" : "Active"}
               </span>,
-              <details className="manual-bank-editor">
+              <details className="manual-bank-editor" key={`${sale.id}-details`}>
                 <summary>View details</summary>
                 <div className="record-detail-grid">
                   <div>
@@ -75,7 +75,7 @@ export default async function SalesPage() {
                 </div>
               </details>,
               !sale.is_void ? (
-                <details className="manual-bank-editor">
+                <details className="manual-bank-editor" key={`${sale.id}-edit`}>
                   <summary>Edit</summary>
                   <form action={updateDailySale} className="manual-bank-edit-form">
                     <input name="sale_id" type="hidden" value={sale.id} />
@@ -112,7 +112,7 @@ export default async function SalesPage() {
                 "-"
               ),
               !sale.is_void ? (
-                <details className="manual-bank-editor">
+                <details className="manual-bank-editor" key={`${sale.id}-void`}>
                   <summary>Void</summary>
                   <form action={voidDailySale} className="manual-bank-edit-form void-record-form">
                     <input name="sale_id" type="hidden" value={sale.id} />
