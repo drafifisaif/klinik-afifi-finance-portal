@@ -112,6 +112,14 @@ export async function requireBankPositionAccess() {
     .eq("is_active", true);
 
   if (accountError) redirect("/unauthorized");
+  if (role === "admin" || role === "finance") {
+    console.info("[bank] access-check", {
+      role,
+      userId: profile.id,
+      permissionCount: eligiblePermissions.length,
+      activeAllowedBankCount: activeAccounts?.length ?? 0
+    });
+  }
   const hasAssignedActiveBankAccess = Boolean(activeAccounts?.length);
   if (!hasAssignedActiveBankAccess) redirect("/unauthorized");
   return profile;

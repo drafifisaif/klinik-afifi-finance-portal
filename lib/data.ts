@@ -565,7 +565,8 @@ export async function getBankingDataForScope(options: BankingDataOptions = {}): 
   if (!hasSupabaseEnv()) return filterBankingDataForProfile(demoBankingData, profile, options);
 
   const supabase = await createClient();
-  const [branchRows, openingBalanceRows, salesRows, bankRows, permissionRows, transactionRows, mappingRows, cashBankInRows, pettyCashRows, supplierPaymentRows, panelPaymentRows] = await Promise.all([
+  const role = normalizeRole(profile?.role);
+  const [branchRows, openingBalanceRows, salesRows, permissionRows, transactionRows, mappingRows, cashBankInRows, pettyCashRows, supplierPaymentRows, panelPaymentRows] = await Promise.all([
     fetchOrDemo(supabase.from("branches").select("*").eq("is_active", true).order("name"), demoBankingData.branches),
     fetchOrDemo(
       supabase
@@ -582,7 +583,6 @@ export async function getBankingDataForScope(options: BankingDataOptions = {}): 
         .limit(1000),
       demoBankingData.sales
     ),
-    fetchOrDemo(supabase.from("bank_accounts").select("*").eq("is_active", true).order("name"), demoBankingData.bankAccounts),
     fetchOrDemo<BankAccountPermission[]>(
       supabase
         .from("bank_account_permissions")
@@ -638,6 +638,43 @@ export async function getBankingDataForScope(options: BankingDataOptions = {}): 
     )
   ]);
 
+  const permissionRowsTyped = permissionRows as BankAccountPermission[];
+  const allowedPermissionRows = role === "owner"
+    ? permissionRowsTyped
+    : permissionRowsTyped.filter((permission) => permission.user_id === profile?.id && permissionHasVisibleAccount(permission));
+  const allowedBankAccountIds = Array.from(new Set(allowedPermissionRows.map((permission) => permission.bank_account_id)));
+
+  let bankRows: BankAccount[] = [];
+  if (role === "owner") {
+    bankRows = await fetchOrDemo(
+      supabase.from("bank_accounts").select("*").eq("is_active", true).order("name"),
+      demoBankingData.bankAccounts
+    ) as BankAccount[];
+  } else if (role === "admin" || role === "finance") {
+    bankRows = allowedBankAccountIds.length
+      ? await fetchOrDemo(
+          supabase
+            .from("bank_accounts")
+            .select("id, name, bank_name, account_no, is_active, created_at, updated_at")
+            .in("id", allowedBankAccountIds)
+            .eq("is_active", true)
+            .order("name"),
+          []
+        ) as BankAccount[]
+      : [];
+  } else {
+    bankRows = await fetchOrDemo(supabase.from("bank_accounts").select("*").eq("is_active", true).order("name"), demoBankingData.bankAccounts) as BankAccount[];
+  }
+
+  if (role === "admin" || role === "finance") {
+    console.info("[banking] scope", {
+      role,
+      userId: profile?.id ?? null,
+      permissionCount: allowedPermissionRows.length,
+      activeAllowedBankCount: bankRows.length
+    });
+  }
+
   const normalizedPanelPayments = (panelPaymentRows as PanelPayment[]).map((payment) => ({
     ...payment,
     branch_id: payment.branch_id ?? payment.panel_claims?.branch_id ?? null,
@@ -653,7 +690,7 @@ export async function getBankingDataForScope(options: BankingDataOptions = {}): 
       openingBalances: openingBalanceRows as OpeningBalance[],
       sales: salesRows as DailySale[],
       bankAccounts: bankRows as BankAccount[],
-      bankAccountPermissions: permissionRows as BankAccountPermission[],
+      bankAccountPermissions: permissionRowsTyped,
       bankTransactions: transactionRows as BankTransaction[],
       branchBankMappings: mappingRows as BranchBankMapping[],
       cashBankIns: cashBankInRows as CashBankIn[],
