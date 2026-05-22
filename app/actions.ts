@@ -212,6 +212,7 @@ type SupplierPurchaseAuditRow = {
 
 type SupplierPaymentAuditRow = {
   amount: number;
+  bank_account_id: string | null;
   branch_id: string | null;
   notes: string | null;
   payment_date: string;
@@ -220,6 +221,17 @@ type SupplierPaymentAuditRow = {
   receipt_path: string | null;
   reference_no: string | null;
   supplier_id: string;
+};
+
+type PanelPaymentAuditRow = {
+  amount: number;
+  bank_account_id: string | null;
+  branch_id: string | null;
+  notes: string | null;
+  panel_claim_id: string;
+  payment_date: string;
+  payment_type: string;
+  reference_no: string | null;
 };
 
 type PanelCompanyAuditRow = {
@@ -421,6 +433,7 @@ function supplierPurchaseAuditData(purchase: SupplierPurchaseAuditRow) {
 function supplierPaymentAuditData(payment: SupplierPaymentAuditRow) {
   return {
     amount: payment.amount,
+    bank_account_id: payment.bank_account_id,
     branch_id: payment.branch_id,
     notes: payment.notes,
     payment_date: payment.payment_date,
@@ -429,6 +442,19 @@ function supplierPaymentAuditData(payment: SupplierPaymentAuditRow) {
     receipt_path: payment.receipt_path,
     reference_no: payment.reference_no,
     supplier_id: payment.supplier_id
+  };
+}
+
+function panelPaymentAuditData(payment: PanelPaymentAuditRow) {
+  return {
+    amount: payment.amount,
+    bank_account_id: payment.bank_account_id,
+    branch_id: payment.branch_id,
+    notes: payment.notes,
+    panel_claim_id: payment.panel_claim_id,
+    payment_date: payment.payment_date,
+    payment_type: payment.payment_type,
+    reference_no: payment.reference_no
   };
 }
 
@@ -507,6 +533,15 @@ function importRevalidationPaths(type: ImportType) {
   if (type === "supplier_purchases") return ["/purchases", "/dashboard"];
   if (type === "supplier_payments") return ["/suppliers/payments", "/dashboard"];
   return ["/panels", "/dashboard"];
+}
+
+function paymentUsesBankAccount(paymentType: PaymentType) {
+  return paymentType === "bank_transfer" || paymentType === "card" || paymentType === "qr";
+}
+
+function firstRelation<T>(value: T | T[] | null | undefined): T | null {
+  if (Array.isArray(value)) return value[0] ?? null;
+  return value ?? null;
 }
 
 async function getUserId() {
@@ -1894,8 +1929,16 @@ export async function createSupplierPurchase(formData: FormData) {
 export async function createSupplierPayment(formData: FormData) {
   if (!hasSupabaseEnv()) return;
   const supabase = await createClient();
+  const supplierId = text(formData, "supplier_id");
   const purchaseId = text(formData, "purchase_id");
   const submittedBranchId = text(formData, "branch_id");
+  const paymentType = (text(formData, "payment_type") as PaymentType) ?? "bank_transfer";
+  const bankAccountId = text(formData, "bank_account_id");
+  const paymentDate = text(formData, "payment_date");
+  const amount = number(formData, "amount");
+  if (!supplierId) throw new Error("Supplier is required.");
+  if (!paymentDate) throw new Error("Payment date is required.");
+  if (amount <= 0) throw new Error("Amount must be greater than zero.");
   let resolvedBranchId = submittedBranchId;
 
   if (purchaseId) {
@@ -1914,30 +1957,49 @@ export async function createSupplierPayment(formData: FormData) {
   if (!canRecordPayment) {
     throw new Error("You do not have permission to record supplier payments for this branch.");
   }
+  if (paymentUsesBankAccount(paymentType) && !bankAccountId) {
+    throw new Error("Paid from bank account is required for bank-based supplier payments.");
+  }
+  if (bankAccountId) {
+    await requireBankAccountPermission(bankAccountId, "create_transaction");
+    const { data: bankAccount, error: bankError } = await supabase
+      .from("bank_accounts")
+      .select("id, name, is_active")
+      .eq("id", bankAccountId)
+      .eq("is_active", true)
+      .maybeSingle();
+    if (bankError || !bankAccount) throw new Error("Selected paid from bank account is not active or not available.");
+  }
 
   const { data: payment, error } = await supabase.from("supplier_payments").insert({
-    supplier_id: text(formData, "supplier_id"),
+    supplier_id: supplierId,
     purchase_id: purchaseId,
     branch_id: resolvedBranchId,
-    payment_date: text(formData, "payment_date"),
-    payment_type: text(formData, "payment_type") as PaymentType,
-    amount: number(formData, "amount"),
+    bank_account_id: bankAccountId,
+    payment_date: paymentDate,
+    payment_type: paymentType,
+    amount,
     reference_no: text(formData, "reference_no"),
     notes: text(formData, "notes"),
     entered_by: await getUserId()
-  }).select("id, supplier_id, purchase_id, branch_id, payment_date, payment_type, amount, reference_no, receipt_path, notes").single();
+  }).select("id, supplier_id, purchase_id, branch_id, bank_account_id, payment_date, payment_type, amount, reference_no, receipt_path, notes, bank_accounts(name)").single();
 
   if (error || !payment) throw error ?? new Error("Supplier payment could not be loaded after creation.");
 
+  const bankRelation = firstRelation(payment.bank_accounts as { name?: string } | { name?: string }[] | null | undefined);
+  const bankName = bankRelation?.name ?? "selected bank account";
   await logAuditEvent({
     action: "create",
     afterData: supplierPaymentAuditData(payment),
+    bankAccountId: payment.bank_account_id,
     branchId: payment.branch_id,
-    description: "Created supplier payment.",
+    description: `Supplier payment recorded from ${bankName}.`,
     entityId: payment.id,
     entityName: "supplier_payments"
   });
   revalidatePath("/suppliers/payments");
+  revalidatePath("/bank");
+  revalidatePath("/reports/cashflow");
   revalidatePath("/dashboard");
 }
 
@@ -2047,6 +2109,79 @@ export async function createPanelClaim(formData: FormData) {
     entityName: "panel_claims"
   });
   revalidatePath("/panels");
+  revalidatePath("/dashboard");
+}
+
+export async function createPanelPayment(formData: FormData) {
+  if (!hasSupabaseEnv()) return;
+  const panelClaimId = text(formData, "panel_claim_id");
+  const paymentType = (text(formData, "payment_type") as PaymentType) ?? "bank_transfer";
+  const bankAccountId = text(formData, "bank_account_id");
+  const paymentDate = text(formData, "payment_date");
+  const amount = number(formData, "amount");
+  if (!panelClaimId) throw new Error("Panel claim is required.");
+  if (!paymentDate) throw new Error("Payment date is required.");
+  if (amount <= 0) throw new Error("Amount must be greater than zero.");
+
+  const supabase = await createClient();
+  const { data: claim, error: claimError } = await supabase
+    .from("panel_claims")
+    .select("id, branch_id, panel_company_id")
+    .eq("id", panelClaimId)
+    .maybeSingle();
+  if (claimError || !claim) throw new Error("Selected panel claim was not found.");
+
+  await requireEditableBranch(claim.branch_id);
+  if (paymentUsesBankAccount(paymentType) && !bankAccountId) {
+    throw new Error("Received into bank account is required for bank-based panel payments.");
+  }
+  if (bankAccountId) {
+    await requireBankAccountPermission(bankAccountId, "create_transaction");
+    const { data: bankAccount, error: bankError } = await supabase
+      .from("bank_accounts")
+      .select("id, name, is_active")
+      .eq("id", bankAccountId)
+      .eq("is_active", true)
+      .maybeSingle();
+    if (bankError || !bankAccount) throw new Error("Selected received into bank account is not active or not available.");
+  }
+
+  const { data: payment, error } = await supabase.from("panel_payments").insert({
+    panel_claim_id: panelClaimId,
+    bank_account_id: bankAccountId,
+    payment_date: paymentDate,
+    amount,
+    payment_type: paymentType,
+    reference_no: text(formData, "reference_no"),
+    notes: text(formData, "notes"),
+    entered_by: await getUserId()
+  }).select("id, panel_claim_id, payment_date, amount, payment_type, reference_no, notes, bank_account_id, bank_accounts(name), panel_claims(branch_id)").single();
+  if (error || !payment) throw error ?? new Error("Panel payment could not be loaded after creation.");
+  const panelClaimRelation = firstRelation(payment.panel_claims as { branch_id?: string | null } | { branch_id?: string | null }[] | null | undefined);
+  const panelBankRelation = firstRelation(payment.bank_accounts as { name?: string } | { name?: string }[] | null | undefined);
+
+  await logAuditEvent({
+    action: "create",
+    afterData: panelPaymentAuditData({
+      amount: payment.amount,
+      bank_account_id: payment.bank_account_id,
+      branch_id: panelClaimRelation?.branch_id ?? null,
+      notes: payment.notes ?? null,
+      panel_claim_id: payment.panel_claim_id,
+      payment_date: payment.payment_date,
+      payment_type: payment.payment_type,
+      reference_no: payment.reference_no ?? null
+    }),
+    bankAccountId: payment.bank_account_id,
+    branchId: panelClaimRelation?.branch_id ?? null,
+    description: `Panel payment received into ${panelBankRelation?.name ?? "selected bank account"}.`,
+    entityId: payment.id,
+    entityName: "panel_payments"
+  });
+
+  revalidatePath("/panels");
+  revalidatePath("/bank");
+  revalidatePath("/reports/cashflow");
   revalidatePath("/dashboard");
 }
 

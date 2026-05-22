@@ -137,13 +137,25 @@ function bankExportScope(data: BankingData, searchParams: URLSearchParams) {
       && (selectedBankAccountId === "all" || transaction.bank_account_id === selectedBankAccountId)
       && (selectedBranchId === "all" || transaction.branch_id === selectedBranchId);
   });
+  const selectedSupplierPayments = data.supplierPayments.filter((payment) => {
+    return isWithinDateRange(payment.payment_date, range)
+      && (selectedBankAccountId === "all" || payment.bank_account_id === selectedBankAccountId)
+      && (selectedBranchId === "all" || payment.branch_id === selectedBranchId);
+  });
+  const selectedPanelPayments = data.panelPayments.filter((payment) => {
+    return isWithinDateRange(payment.payment_date, range)
+      && (selectedBankAccountId === "all" || payment.bank_account_id === selectedBankAccountId)
+      && (selectedBranchId === "all" || payment.branch_id === selectedBranchId);
+  });
 
   return {
     mappingByBranch,
     selectedBankLinkedPettyCash,
     selectedBankTransactions,
     selectedCashBankIns,
-    selectedSales
+    selectedSales,
+    selectedSupplierPayments,
+    selectedPanelPayments
   };
 }
 
@@ -205,6 +217,14 @@ export async function dashboardSummaryCsv(searchParams: URLSearchParams): Promis
   const ownerDrawing = totalBy(bankTransactions, (transaction) => transaction.transaction_type === "owner_drawing" ? bankTransactionAmount(transaction) : 0);
   const pettyCashIssued = totalBy(pettyCashTransactions, (transaction) => transaction.bank_account_id && transaction.transaction_type === "petty_cash_issued" ? pettyCashAmount(transaction) : 0);
   const pettyCashReturned = totalBy(pettyCashTransactions, (transaction) => transaction.bank_account_id && transaction.transaction_type === "petty_cash_returned" ? pettyCashAmount(transaction) : 0);
+  const supplierPaymentOutflow = totalBy(
+    bankingData.supplierPayments.filter((payment) => branchMatches(payment.branch_id, selectedBranchIdSet, includeUnassigned) && isWithinDateRange(payment.payment_date, range)),
+    (payment) => money(payment.amount)
+  );
+  const panelPaymentInflow = totalBy(
+    bankingData.panelPayments.filter((payment) => branchMatches(payment.branch_id, selectedBranchIdSet, includeUnassigned) && isWithinDateRange(payment.payment_date, range)),
+    (payment) => money(payment.amount)
+  );
   const totalSales = totalBy(sales, (sale) => money(sale.total_amount));
   const totalExpenses = totalBy(expenses, (expense) => money(expense.amount)) + totalBy(purchases, (purchase) => money(purchase.total_amount));
   const totalCashInHand = totalBy(cashInHandRows, (row) => row.remaining);
@@ -217,8 +237,8 @@ export async function dashboardSummaryCsv(searchParams: URLSearchParams): Promis
   );
   const panelOutstanding = outstandingOpeningBalanceTotal(dashboardData.openingBalances, "panel_outstanding", selectedBranchIdSet, range.endDate, includeUnassigned)
     + totalBy(panels.filter((panel) => panel.status !== "paid"), (panel) => money(panel.amount));
-  const bankInflow = directSalesInflow + totalCashBankIn + manualMoneyIn + transferIn + pettyCashReturned;
-  const bankOutflow = manualMoneyOut + ownerDrawing + transferOut + pettyCashIssued;
+  const bankInflow = directSalesInflow + totalCashBankIn + manualMoneyIn + transferIn + pettyCashReturned + panelPaymentInflow;
+  const bankOutflow = manualMoneyOut + ownerDrawing + transferOut + pettyCashIssued + supplierPaymentOutflow;
   const metadata = [range.label, range.startDate, range.endDate, labelBranches(branches.map((branch) => branch.name))];
 
   return {
@@ -245,7 +265,15 @@ export async function bankMovementCsv(searchParams: URLSearchParams): Promise<Cs
   const data = await getBankingDataForScope({ bankAccessOnly: true });
   const bankAccountById = getBankAccountById(data);
   const branchById = getBranchById(data);
-  const { mappingByBranch, selectedBankLinkedPettyCash, selectedBankTransactions, selectedCashBankIns, selectedSales } = bankExportScope(data, searchParams);
+  const {
+    mappingByBranch,
+    selectedBankLinkedPettyCash,
+    selectedBankTransactions,
+    selectedCashBankIns,
+    selectedSales,
+    selectedSupplierPayments,
+    selectedPanelPayments
+  } = bankExportScope(data, searchParams);
   const rows: CsvCell[][] = [];
 
   selectedSales.forEach((sale) => {
@@ -307,6 +335,36 @@ export async function bankMovementCsv(searchParams: URLSearchParams): Promise<Cs
       transaction.reference_no ?? "",
       transaction.description ?? "",
       transaction.profiles?.full_name ?? transaction.entered_by ?? ""
+    ]);
+  });
+  selectedSupplierPayments.forEach((payment) => {
+    if (!payment.bank_account_id) return;
+    rows.push([
+      payment.payment_date,
+      branchLabel(payment.branches ?? (payment.branch_id ? branchById.get(payment.branch_id) : null)),
+      bankAccountLabel(payment.bank_accounts ?? bankAccountById.get(payment.bank_account_id)),
+      "Supplier Payment",
+      "out",
+      "",
+      -Number(payment.amount ?? 0),
+      payment.reference_no ?? "",
+      payment.notes ?? "",
+      payment.entered_by ?? ""
+    ]);
+  });
+  selectedPanelPayments.forEach((payment) => {
+    if (!payment.bank_account_id) return;
+    rows.push([
+      payment.payment_date,
+      branchLabel(payment.branches ?? (payment.branch_id ? branchById.get(payment.branch_id) : null)),
+      bankAccountLabel(payment.bank_accounts ?? bankAccountById.get(payment.bank_account_id)),
+      "Panel Payment",
+      "in",
+      "",
+      Number(payment.amount ?? 0),
+      payment.reference_no ?? "",
+      payment.notes ?? "",
+      payment.entered_by ?? ""
     ]);
   });
   rows.sort((first, second) => String(second[0]).localeCompare(String(first[0])) || String(first[3]).localeCompare(String(second[3])));

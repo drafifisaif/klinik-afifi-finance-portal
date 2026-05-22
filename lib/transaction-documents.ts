@@ -163,18 +163,22 @@ export async function getTransactionDocumentContext(entityName: TransactionDocum
     const { data } = await supabase.from("petty_cash_transactions").select("id, branch_id, bank_account_id").eq("id", entityId).maybeSingle();
     return data ? { bankAccountId: data.bank_account_id, branchId: data.branch_id, entityId: data.id, entityName } : null;
   }
-  if (entityName === "expenses" || entityName === "supplier_purchases" || entityName === "supplier_payments" || entityName === "panel_claims") {
+  if (entityName === "supplier_payments") {
+    const { data } = await supabase.from("supplier_payments").select("id, branch_id, bank_account_id").eq("id", entityId).maybeSingle();
+    return data ? { bankAccountId: data.bank_account_id ?? null, branchId: data.branch_id, entityId: data.id, entityName } : null;
+  }
+  if (entityName === "expenses" || entityName === "supplier_purchases" || entityName === "panel_claims") {
     const { data } = await supabase.from(entityName).select("id, branch_id").eq("id", entityId).maybeSingle();
     return data ? { bankAccountId: null, branchId: data.branch_id, entityId: data.id, entityName } : null;
   }
 
   const { data } = await supabase
     .from("panel_payments")
-    .select("id, panel_claims(branch_id)")
+    .select("id, bank_account_id, panel_claims(branch_id)")
     .eq("id", entityId)
     .maybeSingle();
   const claim = normalizeRelation(data?.panel_claims as { branch_id: string | null } | { branch_id: string | null }[] | null | undefined);
-  return data ? { bankAccountId: null, branchId: claim?.branch_id ?? null, entityId: data.id, entityName } : null;
+  return data ? { bankAccountId: data.bank_account_id ?? null, branchId: claim?.branch_id ?? null, entityId: data.id, entityName } : null;
 }
 
 async function getPanelPaymentReportRows(branches: Branch[]): Promise<DocumentReportRow[]> {

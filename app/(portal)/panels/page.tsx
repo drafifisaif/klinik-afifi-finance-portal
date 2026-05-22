@@ -3,7 +3,8 @@ import { DataTable } from "@/components/data-table";
 import { DocumentManager } from "@/components/documents/document-manager";
 import { MetricCard } from "@/components/metric-card";
 import { ModuleHeader } from "@/components/module-header";
-import { getDashboardData, getPanelCompanies, totalBy } from "@/lib/data";
+import { PanelPaymentForm } from "@/components/panel-payment-form";
+import { getBankingDataForScope, getDashboardData, getPanelCompanies, totalBy } from "@/lib/data";
 import { formatCurrency, formatDate, labelize } from "@/lib/format";
 import { outstandingOpeningBalanceTotal } from "@/lib/opening-balances";
 import { hasPermission, normalizeRole, requirePermission } from "@/lib/permissions";
@@ -17,6 +18,7 @@ function StatusPill({ status }: { status: string }) {
 export default async function PanelsPage() {
   const profile = await requirePermission("view_panel_records");
   const data = await getDashboardData();
+  const bankingData = await getBankingDataForScope({ bankAccessOnly: true });
   const panelCompanies = await getPanelCompanies();
   const activePanelCompanies = panelCompanies.filter((company) => company.is_active);
   const claimDocuments = await getTransactionDocuments("panel_claims", data.panels.map((claim) => claim.id));
@@ -127,6 +129,32 @@ export default async function PanelsPage() {
               Save panel claim
             </button>
           </form>
+
+          <div className="table-section">
+            <div className="report-toolbar">
+              <h2>Panel payment records</h2>
+            </div>
+            <DataTable
+              columns={["Date", "Panel Company", "Claim", "Branch", "Method", "Received Into", "Reference", "Amount"]}
+              rows={data.panelPayments.map((payment) => [
+                formatDate(payment.payment_date),
+                payment.panel_companies?.name ?? "-",
+                payment.panel_claims?.claim_no ?? payment.panel_claim_id,
+                payment.branches?.name ?? "-",
+                labelize(payment.payment_type),
+                payment.bank_accounts?.name ?? "-",
+                payment.reference_no ?? "-",
+                formatCurrency(payment.amount)
+              ])}
+            />
+          </div>
+
+          <PanelPaymentForm
+            claims={data.panels}
+            panelCompanies={panelCompanies}
+            panelPayments={data.panelPayments}
+            bankAccounts={bankingData.bankAccounts}
+          />
 
           {canManageMasterData ? (
           <form action={createPanelCompany} className="form-card">

@@ -180,7 +180,8 @@ export function filterDashboardDataForProfile(data: DashboardData, profile: Prof
       expenses: [],
       purchases: [],
       supplierPayments: [],
-      panels: []
+      panels: [],
+      panelPayments: []
     };
   }
 
@@ -195,6 +196,7 @@ export function filterDashboardDataForProfile(data: DashboardData, profile: Prof
     expenses: data.expenses.filter((expense) => expense.branch_id === branchId),
     purchases: data.purchases.filter((purchase) => purchase.branch_id === branchId),
     supplierPayments: data.supplierPayments.filter((payment) => payment.branch_id === branchId),
-    panels: data.panels.filter((panel) => panel.branch_id === branchId)
+    panels: data.panels.filter((panel) => panel.branch_id === branchId),
+    panelPayments: data.panelPayments.filter((payment) => payment.branch_id === branchId)
   };
 }

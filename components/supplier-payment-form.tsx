@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { createSupplierPayment } from "@/app/actions";
 import { paymentTypes } from "@/lib/constants";
 import { formatCurrency, formatDate, labelize } from "@/lib/format";
-import type { Branch, PaymentType, Supplier, SupplierPayment, SupplierPurchase } from "@/lib/types";
+import type { BankAccount, Branch, PaymentType, Supplier, SupplierPayment, SupplierPurchase } from "@/lib/types";
 
 type OutstandingRow = SupplierPurchase & {
   paid_amount?: number;
@@ -17,6 +17,7 @@ type Props = {
   suppliers: Supplier[];
   purchases: OutstandingRow[];
   payments: SupplierPayment[];
+  bankAccounts: BankAccount[];
   canUseGeneralPayment: boolean;
 };
 
@@ -32,9 +33,10 @@ function getAgingStatus(dueDate?: string | null, outstandingAmount?: number) {
   return "Over 90 days overdue";
 }
 
-export function SupplierPaymentForm({ branches, suppliers, purchases, payments, canUseGeneralPayment }: Props) {
+export function SupplierPaymentForm({ branches, suppliers, purchases, payments, bankAccounts, canUseGeneralPayment }: Props) {
   const [supplierId, setSupplierId] = useState(suppliers[0]?.id ?? "");
   const [purchaseId, setPurchaseId] = useState("");
+  const [paymentType, setPaymentType] = useState<PaymentType>("bank_transfer");
   const filteredPurchases = purchases.filter((purchase) => purchase.supplier_id === supplierId);
   const selectedPurchase = filteredPurchases.find((purchase) => purchase.id === purchaseId);
   const fallbackPaidAmount = selectedPurchase
@@ -105,10 +107,21 @@ export function SupplierPaymentForm({ branches, suppliers, purchases, payments, 
       </label>
       <label>
         Payment type
-        <select name="payment_type" required>
+        <select name="payment_type" required value={paymentType} onChange={(event) => setPaymentType(event.target.value as PaymentType)}>
           {paymentTypes.map((type) => (
             <option key={type.value} value={type.value as PaymentType}>
               {type.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label>
+        Paid from bank account
+        <select name="bank_account_id" required={paymentType === "bank_transfer" || paymentType === "card" || paymentType === "qr"}>
+          <option value="">Select bank account</option>
+          {bankAccounts.map((account) => (
+            <option key={account.id} value={account.id}>
+              {account.name}
             </option>
           ))}
         </select>

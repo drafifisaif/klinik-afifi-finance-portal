@@ -3,7 +3,7 @@ import { DocumentManager } from "@/components/documents/document-manager";
 import { MetricCard } from "@/components/metric-card";
 import { ModuleHeader } from "@/components/module-header";
 import { SupplierPaymentForm } from "@/components/supplier-payment-form";
-import { getDashboardData, getSupplierOutstanding, getSuppliers, totalBy } from "@/lib/data";
+import { getBankingDataForScope, getDashboardData, getSupplierOutstanding, getSuppliers, totalBy } from "@/lib/data";
 import { formatCurrency, formatDate, labelize } from "@/lib/format";
 import { outstandingOpeningBalanceTotal } from "@/lib/opening-balances";
 import { canViewAllBranches, normalizeRole, requirePermission } from "@/lib/permissions";
@@ -13,6 +13,7 @@ import { BadgeCheck, Banknote, CircleDollarSign, Truck } from "lucide-react";
 export default async function SupplierPaymentsPage() {
   const profile = await requirePermission("view_supplier_payments");
   const data = await getDashboardData();
+  const bankingData = await getBankingDataForScope({ bankAccessOnly: true });
   const outstandingRows = await getSupplierOutstanding();
   const suppliers = await getSuppliers();
   const paymentDocuments = await getTransactionDocuments("supplier_payments", data.supplierPayments.map((payment) => payment.id));
@@ -40,12 +41,13 @@ export default async function SupplierPaymentsPage() {
 
       <section className="section-grid">
         <DataTable
-          columns={["Date", "Supplier", "Branch", "Method", "Reference", "Amount", "Documents"]}
+          columns={["Date", "Supplier", "Branch", "Method", "Paid From", "Reference", "Amount", "Documents"]}
           rows={data.supplierPayments.map((payment) => [
             formatDate(payment.payment_date),
             payment.suppliers?.name ?? "-",
             payment.branches?.name ?? "-",
             labelize(payment.payment_type),
+            payment.bank_accounts?.name ?? "-",
             payment.reference_no ?? "-",
             formatCurrency(payment.amount),
             <DocumentManager
@@ -63,6 +65,7 @@ export default async function SupplierPaymentsPage() {
           suppliers={suppliers}
           purchases={outstandingRows}
           payments={data.supplierPayments}
+          bankAccounts={bankingData.bankAccounts}
           canUseGeneralPayment={canUseGeneralPayment}
         />
       </section>

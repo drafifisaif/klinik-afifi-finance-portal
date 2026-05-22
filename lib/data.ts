@@ -13,6 +13,7 @@ import type {
   Expense,
   OpeningBalance,
   PanelClaim,
+  PanelPayment,
   PanelCompany,
   PettyCashTransaction,
   Supplier,
@@ -185,12 +186,14 @@ const supplierPayments: SupplierPayment[] = [
     supplier_id: "s2",
     purchase_id: "sp2",
     branch_id: "papar",
+    bank_account_id: "bank-agrobank",
     payment_date: "2026-05-18",
     payment_type: "bank_transfer",
     amount: 2500,
     reference_no: "BT-8591",
     suppliers: { name: "ClinicCare Consumables" },
-    branches: { name: "Papar", code: "PAP" }
+    branches: { name: "Papar", code: "PAP" },
+    bank_accounts: { name: "Agrobank", bank_name: "Agrobank", account_no: null }
   }
 ];
 
@@ -220,6 +223,25 @@ const panels: PanelClaim[] = [
     status: "partial",
     panel_companies: { name: "Borneo Corporate Health" },
     branches: { name: "Ranau", code: "RAN" }
+  }
+];
+
+const panelPayments: PanelPayment[] = [
+  {
+    id: "pp1",
+    panel_claim_id: "pc2",
+    panel_company_id: "p2",
+    branch_id: "ranau",
+    bank_account_id: "bank-cimb-ranau-panel",
+    payment_date: "2026-05-20",
+    amount: 1500,
+    payment_type: "bank_transfer",
+    reference_no: "PANEL-REF-2205",
+    notes: "First partial panel collection",
+    panel_claims: { claim_no: "BCH-APR-019", branch_id: "ranau" },
+    panel_companies: { name: "Borneo Corporate Health" },
+    branches: { name: "Ranau", code: "RAN" },
+    bank_accounts: { name: "CIMB Ranau Panel", bank_name: "CIMB", account_no: null }
   }
 ];
 
@@ -279,7 +301,8 @@ export const demoData: DashboardData = {
   expenses,
   purchases,
   supplierPayments,
-  panels
+  panels,
+  panelPayments
 };
 
 export const demoBankingData: BankingData = {
@@ -291,7 +314,9 @@ export const demoBankingData: BankingData = {
   bankTransactions,
   branchBankMappings,
   cashBankIns,
-  pettyCashTransactions
+  pettyCashTransactions,
+  supplierPayments,
+  panelPayments
 };
 
 async function fetchOrDemo<T>(query: PromiseLike<{ data: T | null; error: unknown }>, fallback: T) {
@@ -306,7 +331,7 @@ export async function getDashboardData(): Promise<DashboardData> {
 
   const supabase = await createClient();
 
-  const [branchRows, openingBalanceRows, salesRows, expenseRows, purchaseRows, paymentRows, panelRows] = await Promise.all([
+  const [branchRows, openingBalanceRows, salesRows, expenseRows, purchaseRows, paymentRows, panelRows, panelPaymentRows] = await Promise.all([
     fetchOrDemo(supabase.from("branches").select("*").order("name"), demoData.branches),
     fetchOrDemo(
       supabase
@@ -342,7 +367,7 @@ export async function getDashboardData(): Promise<DashboardData> {
     fetchOrDemo(
       supabase
         .from("supplier_payments")
-        .select("*, suppliers(name), branches(name, code)")
+        .select("*, suppliers(name), branches(name, code), bank_accounts(name, bank_name, account_no)")
         .order("payment_date", { ascending: false })
         .limit(50),
       demoData.supplierPayments
@@ -354,8 +379,25 @@ export async function getDashboardData(): Promise<DashboardData> {
         .order("claim_month", { ascending: false })
         .limit(50),
       demoData.panels
+    ),
+    fetchOrDemo(
+      supabase
+        .from("panel_payments")
+        .select("*, bank_accounts(name, bank_name, account_no), panel_claims(branch_id, claim_no, panel_company_id, branches(name, code), panel_companies(name))")
+        .order("payment_date", { ascending: false })
+        .limit(50),
+      demoData.panelPayments
     )
   ]);
+
+  const normalizedPanelPayments = (panelPaymentRows as PanelPayment[]).map((payment) => ({
+    ...payment,
+    branch_id: payment.branch_id ?? payment.panel_claims?.branch_id ?? null,
+    panel_company_id: payment.panel_company_id ?? payment.panel_claims?.panel_company_id ?? null,
+    panel_companies: payment.panel_companies ?? payment.panel_claims?.panel_companies ?? null,
+    branches: payment.branches ?? payment.panel_claims?.branches ?? null,
+    panel_claims: payment.panel_claims ?? null
+  }));
 
   return filterDashboardDataForProfile({
     branches: branchRows as Branch[],
@@ -364,7 +406,8 @@ export async function getDashboardData(): Promise<DashboardData> {
     expenses: expenseRows as Expense[],
     purchases: purchaseRows as SupplierPurchase[],
     supplierPayments: paymentRows as SupplierPayment[],
-    panels: panelRows as PanelClaim[]
+    panels: panelRows as PanelClaim[],
+    panelPayments: normalizedPanelPayments
   }, profile);
 }
 
@@ -412,6 +455,16 @@ function filterBankingDataForProfile(data: BankingData, profile: Awaited<ReturnT
   const filteredBankTransactions = data.bankTransactions.filter((transaction) => {
     return !permittedBankAccountIds || permittedBankAccountIds.has(transaction.bank_account_id);
   });
+  const filteredSupplierPayments = data.supplierPayments.filter((payment) => {
+    if (payment.branch_id && !branchIds.has(payment.branch_id)) return false;
+    if (payment.bank_account_id && permittedBankAccountIds) return permittedBankAccountIds.has(payment.bank_account_id);
+    return true;
+  });
+  const filteredPanelPayments = data.panelPayments.filter((payment) => {
+    if (payment.branch_id && !branchIds.has(payment.branch_id)) return false;
+    if (payment.bank_account_id && permittedBankAccountIds) return permittedBankAccountIds.has(payment.bank_account_id);
+    return true;
+  });
   const filteredPettyCashTransactions = data.pettyCashTransactions.filter((transaction) => {
     if (!branchIds.has(transaction.branch_id)) return false;
     return !options.bankAccessOnly
@@ -425,6 +478,12 @@ function filterBankingDataForProfile(data: BankingData, profile: Awaited<ReturnT
         ...filteredCashBankIns.map((bankIn) => bankIn.branch_id),
         ...filteredBankTransactions
           .map((transaction) => transaction.branch_id)
+          .filter((branchId): branchId is string => Boolean(branchId)),
+        ...filteredSupplierPayments
+          .map((payment) => payment.branch_id)
+          .filter((branchId): branchId is string => Boolean(branchId)),
+        ...filteredPanelPayments
+          .map((payment) => payment.branch_id)
           .filter((branchId): branchId is string => Boolean(branchId)),
         ...filteredPettyCashTransactions.map((transaction) => transaction.branch_id)
       ])
@@ -443,7 +502,9 @@ function filterBankingDataForProfile(data: BankingData, profile: Awaited<ReturnT
     bankTransactions: filteredBankTransactions,
     branchBankMappings: permittedMappings,
     cashBankIns: filteredCashBankIns,
-    pettyCashTransactions: filteredPettyCashTransactions
+    pettyCashTransactions: filteredPettyCashTransactions,
+    supplierPayments: filteredSupplierPayments,
+    panelPayments: filteredPanelPayments
   };
 }
 
@@ -504,7 +565,7 @@ export async function getBankingDataForScope(options: BankingDataOptions = {}): 
   if (!hasSupabaseEnv()) return filterBankingDataForProfile(demoBankingData, profile, options);
 
   const supabase = await createClient();
-  const [branchRows, openingBalanceRows, salesRows, bankRows, permissionRows, transactionRows, mappingRows, cashBankInRows, pettyCashRows] = await Promise.all([
+  const [branchRows, openingBalanceRows, salesRows, bankRows, permissionRows, transactionRows, mappingRows, cashBankInRows, pettyCashRows, supplierPaymentRows, panelPaymentRows] = await Promise.all([
     fetchOrDemo(supabase.from("branches").select("*").eq("is_active", true).order("name"), demoBankingData.branches),
     fetchOrDemo(
       supabase
@@ -558,8 +619,33 @@ export async function getBankingDataForScope(options: BankingDataOptions = {}): 
         .order("transaction_date", { ascending: false })
         .limit(2000),
       demoBankingData.pettyCashTransactions
+    ),
+    fetchOrDemo(
+      supabase
+        .from("supplier_payments")
+        .select("*, suppliers(name), branches(name, code), bank_accounts(name, bank_name, account_no)")
+        .order("payment_date", { ascending: false })
+        .limit(2000),
+      demoBankingData.supplierPayments
+    ),
+    fetchOrDemo(
+      supabase
+        .from("panel_payments")
+        .select("*, bank_accounts(name, bank_name, account_no), panel_claims(branch_id, claim_no, panel_company_id, branches(name, code), panel_companies(name))")
+        .order("payment_date", { ascending: false })
+        .limit(2000),
+      demoBankingData.panelPayments
     )
   ]);
+
+  const normalizedPanelPayments = (panelPaymentRows as PanelPayment[]).map((payment) => ({
+    ...payment,
+    branch_id: payment.branch_id ?? payment.panel_claims?.branch_id ?? null,
+    panel_company_id: payment.panel_company_id ?? payment.panel_claims?.panel_company_id ?? null,
+    panel_companies: payment.panel_companies ?? payment.panel_claims?.panel_companies ?? null,
+    branches: payment.branches ?? payment.panel_claims?.branches ?? null,
+    panel_claims: payment.panel_claims ?? null
+  }));
 
   return filterBankingDataForProfile(
     {
@@ -571,7 +657,9 @@ export async function getBankingDataForScope(options: BankingDataOptions = {}): 
       bankTransactions: transactionRows as BankTransaction[],
       branchBankMappings: mappingRows as BranchBankMapping[],
       cashBankIns: cashBankInRows as CashBankIn[],
-      pettyCashTransactions: pettyCashRows as PettyCashTransaction[]
+      pettyCashTransactions: pettyCashRows as PettyCashTransaction[],
+      supplierPayments: supplierPaymentRows as SupplierPayment[],
+      panelPayments: normalizedPanelPayments
     },
     profile,
     options

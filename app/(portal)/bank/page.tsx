@@ -75,7 +75,9 @@ type StatementRow = {
     | "Interbank Transfer"
     | "Owner Drawing"
     | "Petty Cash Issued"
-    | "Petty Cash Returned";
+    | "Petty Cash Returned"
+    | "Supplier Payment"
+    | "Panel Payment";
   transferInAmount: number;
   transferOutAmount: number;
 };
@@ -161,6 +163,16 @@ export default async function BankPage({ searchParams }: { searchParams: Promise
   const selectedCashBankIns = data.cashBankIns.filter((bankIn) => {
     return isActiveFinancialRecord(bankIn) && isWithinDateRange(bankIn.bank_in_date, range) && bankInMatchesScope(bankIn);
   });
+  const selectedSupplierPayments = data.supplierPayments.filter((payment) => {
+    return isWithinDateRange(payment.payment_date, range)
+      && (selectedBankAccountId === "all" || payment.bank_account_id === selectedBankAccountId)
+      && (selectedBranchId === "all" || payment.branch_id === selectedBranchId);
+  });
+  const selectedPanelPayments = data.panelPayments.filter((payment) => {
+    return isWithinDateRange(payment.payment_date, range)
+      && (selectedBankAccountId === "all" || payment.bank_account_id === selectedBankAccountId)
+      && (selectedBranchId === "all" || payment.branch_id === selectedBranchId);
+  });
   const bankTransactionHistory = data.bankTransactions.filter((transaction) => {
     return isWithinDateRange(transaction.transaction_date, range) && transactionMatchesScope(transaction);
   });
@@ -200,6 +212,8 @@ export default async function BankPage({ searchParams }: { searchParams: Promise
   const selectedMoneyOut = totalBy(selectedBankTransactions, (transaction) => {
     return transaction.transaction_type === "money_out" ? bankTransactionAmount(transaction) : 0;
   });
+  const selectedSupplierPaymentOut = totalBy(selectedSupplierPayments, (payment) => Number(payment.amount ?? 0));
+  const selectedPanelPaymentIn = totalBy(selectedPanelPayments, (payment) => Number(payment.amount ?? 0));
   const selectedOwnerDrawing = totalBy(selectedBankTransactions, (transaction) => {
     return transaction.transaction_type === "owner_drawing" ? bankTransactionAmount(transaction) : 0;
   });
@@ -221,8 +235,8 @@ export default async function BankPage({ searchParams }: { searchParams: Promise
   const monthPettyCashReturned = totalBy(monthBankLinkedPettyCash, (transaction) => {
     return transaction.transaction_type === "petty_cash_returned" ? pettyCashAmount(transaction) : 0;
   });
-  const selectedNetBankMovement = selectedDirectBankInflow + selectedCashBankIn + selectedManualMoneyIn
-    - selectedMoneyOut - selectedOwnerDrawing + selectedTransferIn - selectedTransferOut
+  const selectedNetBankMovement = selectedDirectBankInflow + selectedCashBankIn + selectedManualMoneyIn + selectedPanelPaymentIn
+    - selectedMoneyOut - selectedSupplierPaymentOut - selectedOwnerDrawing + selectedTransferIn - selectedTransferOut
     - selectedPettyCashIssued + selectedPettyCashReturned;
   const cashInHandRows = buildCashInHandRows(data, range);
   const pettyCashBalanceRows = buildPettyCashBalanceRows(data);
@@ -359,6 +373,62 @@ export default async function BankPage({ searchParams }: { searchParams: Promise
     });
   });
 
+  selectedSupplierPayments.forEach((payment) => {
+    if (!payment.bank_account_id) return;
+    const amount = Number(payment.amount ?? 0);
+    addToMap(bankMovements, payment.bank_account_id, -amount);
+    if (payment.branch_id && branchById.has(payment.branch_id)) addToMap(branchMovements, payment.branch_id, -amount);
+
+    statementRows.push({
+      bankAccount: bankAccountLabel(payment.bank_accounts ?? bankAccountById.get(payment.bank_account_id)),
+      bankTransferAmount: 0,
+      branch: branchLabel(payment.branches ?? (payment.branch_id ? branchById.get(payment.branch_id) : null)),
+      cardAmount: 0,
+      cashBankInAmount: 0,
+      date: payment.payment_date,
+      manualMoneyInAmount: 0,
+      moneyOutAmount: amount,
+      netMovement: -amount,
+      notes: payment.notes ?? "",
+      ownerDrawingAmount: 0,
+      pettyCashIssuedAmount: 0,
+      pettyCashReturnedAmount: 0,
+      qrAmount: 0,
+      referenceNo: payment.reference_no ?? "-",
+      sourceType: "Supplier Payment",
+      transferInAmount: 0,
+      transferOutAmount: 0
+    });
+  });
+
+  selectedPanelPayments.forEach((payment) => {
+    if (!payment.bank_account_id) return;
+    const amount = Number(payment.amount ?? 0);
+    addToMap(bankMovements, payment.bank_account_id, amount);
+    if (payment.branch_id && branchById.has(payment.branch_id)) addToMap(branchMovements, payment.branch_id, amount);
+
+    statementRows.push({
+      bankAccount: bankAccountLabel(payment.bank_accounts ?? bankAccountById.get(payment.bank_account_id)),
+      bankTransferAmount: amount,
+      branch: branchLabel(payment.branches ?? (payment.branch_id ? branchById.get(payment.branch_id) : null)),
+      cardAmount: 0,
+      cashBankInAmount: 0,
+      date: payment.payment_date,
+      manualMoneyInAmount: 0,
+      moneyOutAmount: 0,
+      netMovement: amount,
+      notes: payment.notes ?? "",
+      ownerDrawingAmount: 0,
+      pettyCashIssuedAmount: 0,
+      pettyCashReturnedAmount: 0,
+      qrAmount: 0,
+      referenceNo: payment.reference_no ?? "-",
+      sourceType: "Panel Payment",
+      transferInAmount: 0,
+      transferOutAmount: 0
+    });
+  });
+
   statementRows.sort((first, second) => second.date.localeCompare(first.date) || second.sourceType.localeCompare(first.sourceType));
 
   return (
@@ -366,7 +436,7 @@ export default async function BankPage({ searchParams }: { searchParams: Promise
       <ModuleHeader
         eyebrow="Banking"
         title="Bank Position"
-        description="View assigned bank account movements from direct bank inflow, cash bank-ins, and manual bank transactions."
+        description="View assigned bank account movements from direct inflow, panel collections, supplier settlements, cash bank-ins, and manual bank transactions."
       />
 
       <form className="reporting-filter bank-filter" method="get">
@@ -447,6 +517,8 @@ export default async function BankPage({ searchParams }: { searchParams: Promise
         <MetricCard icon={WalletCards} label="Cash bank-in this month" value={formatCurrency(totalBy(monthCashBankIns, bankInAmount))} detail="Not new sales" tone="teal" />
         <MetricCard icon={Landmark} label="Manual money in" value={formatCurrency(selectedManualMoneyIn)} detail={range.label} tone="teal" />
         <MetricCard icon={ReceiptText} label="Money out" value={formatCurrency(selectedMoneyOut)} detail="Manual outgoing payment" tone="rose" />
+        <MetricCard icon={ReceiptText} label="Supplier payments" value={formatCurrency(selectedSupplierPaymentOut)} detail="Bank settlement outflow" tone="rose" />
+        <MetricCard icon={Landmark} label="Panel payments" value={formatCurrency(selectedPanelPaymentIn)} detail="Panel collection inflow" tone="blue" />
         <MetricCard icon={WalletCards} label="Owner drawing" value={formatCurrency(selectedOwnerDrawing)} detail="Not clinic operating expense" tone="amber" />
         <MetricCard icon={Landmark} label="Interbank transfer in" value={formatCurrency(selectedTransferIn)} detail="Transfer movement only" tone="blue" />
         <MetricCard icon={Landmark} label="Interbank transfer out" value={formatCurrency(selectedTransferOut)} detail="Transfer movement only" tone="blue" />
@@ -588,6 +660,14 @@ export default async function BankPage({ searchParams }: { searchParams: Promise
             <div>
               <dt>Money out</dt>
               <dd>{formatCurrency(selectedMoneyOut)}</dd>
+            </div>
+            <div>
+              <dt>Supplier payments</dt>
+              <dd>{formatCurrency(selectedSupplierPaymentOut)}</dd>
+            </div>
+            <div>
+              <dt>Panel payments</dt>
+              <dd>{formatCurrency(selectedPanelPaymentIn)}</dd>
             </div>
             <div>
               <dt>Owner drawing</dt>

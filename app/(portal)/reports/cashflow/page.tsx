@@ -18,14 +18,16 @@ export default async function CashflowPage() {
     (claim) => claim.amount
   );
   const supplierPaid = totalBy(data.supplierPayments, (payment) => payment.amount);
+  const panelCollected = totalBy(data.panelPayments, (payment) => payment.amount);
   const expenseOut = totalBy(activeExpenses, (expense) => expense.amount) + supplierPaid;
-  const netCash = cashIn - expenseOut;
+  const netCash = cashIn + panelCollected - expenseOut;
 
   const months = Array.from(
     new Set([
       ...sales.map((sale) => monthKey(sale.sale_date)),
       ...activeExpenses.map((expense) => monthKey(expense.expense_date)),
-      ...data.supplierPayments.map((payment) => monthKey(payment.payment_date))
+      ...data.supplierPayments.map((payment) => monthKey(payment.payment_date)),
+      ...data.panelPayments.map((payment) => monthKey(payment.payment_date))
     ])
   );
 
@@ -39,14 +41,15 @@ export default async function CashflowPage() {
 
       <section className="dashboard-grid">
         <MetricCard icon={Banknote} label="Cash inflow" value={formatCurrency(cashIn)} />
+        <MetricCard icon={Banknote} label="Panel collections" value={formatCurrency(panelCollected)} tone="blue" />
         <MetricCard icon={Receipt} label="Cash outflow" value={formatCurrency(expenseOut)} tone="amber" />
         <MetricCard icon={CircleDollarSign} label="Net cash" value={formatCurrency(netCash)} tone={netCash >= 0 ? "teal" : "rose"} />
-        <MetricCard icon={WalletCards} label="Panel expected" value={formatCurrency(panelExpected)} tone="blue" />
+        <MetricCard icon={WalletCards} label="Panel expected" value={formatCurrency(panelExpected)} tone="rose" />
       </section>
 
       <section className="mt-section">
         <DataTable
-          columns={["Month", "Cash sales inflow", "Expenses paid", "Supplier paid", "Net cash movement"]}
+          columns={["Month", "Cash sales inflow", "Panel collections", "Expenses paid", "Supplier paid", "Net cash movement"]}
           rows={months.map((month) => {
             const monthCashIn = totalBy(
               sales.filter((sale) => monthKey(sale.sale_date) === month),
@@ -60,13 +63,18 @@ export default async function CashflowPage() {
               data.supplierPayments.filter((payment) => monthKey(payment.payment_date) === month),
               (payment) => payment.amount
             );
+            const monthPanelCollected = totalBy(
+              data.panelPayments.filter((payment) => monthKey(payment.payment_date) === month),
+              (payment) => payment.amount
+            );
 
             return [
               month,
               formatCurrency(monthCashIn),
+              formatCurrency(monthPanelCollected),
               formatCurrency(monthExpenses),
               formatCurrency(monthSupplierPaid),
-              formatCurrency(monthCashIn - monthExpenses - monthSupplierPaid)
+              formatCurrency(monthCashIn + monthPanelCollected - monthExpenses - monthSupplierPaid)
             ];
           })}
         />

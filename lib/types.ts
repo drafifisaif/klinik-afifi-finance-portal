@@ -129,12 +129,16 @@ export type SupplierPayment = {
   supplier_id: string;
   purchase_id?: string | null;
   branch_id?: string | null;
+  bank_account_id?: string | null;
   payment_date: string;
   payment_type: PaymentType;
   amount: number;
   reference_no?: string | null;
+  notes?: string | null;
+  entered_by?: string | null;
   suppliers?: Pick<Supplier, "name"> | null;
   branches?: Pick<Branch, "name" | "code"> | null;
+  bank_accounts?: Pick<BankAccount, "name" | "bank_name" | "account_no"> | null;
 };
 
 export type PanelCompany = {
@@ -162,6 +166,28 @@ export type PanelClaim = {
   notes?: string | null;
   panel_companies?: Pick<PanelCompany, "name"> | null;
   branches?: Pick<Branch, "name" | "code"> | null;
+};
+
+export type PanelPayment = {
+  id: string;
+  panel_claim_id: string;
+  panel_company_id?: string | null;
+  branch_id?: string | null;
+  bank_account_id?: string | null;
+  payment_date: string;
+  amount: number;
+  payment_type: PaymentType;
+  reference_no?: string | null;
+  notes?: string | null;
+  entered_by?: string | null;
+  panel_claims?: (Pick<PanelClaim, "claim_no" | "branch_id"> & {
+    panel_company_id?: string | null;
+    branches?: Pick<Branch, "name" | "code"> | null;
+    panel_companies?: Pick<PanelCompany, "name"> | null;
+  }) | null;
+  panel_companies?: Pick<PanelCompany, "name"> | null;
+  branches?: Pick<Branch, "name" | "code"> | null;
+  bank_accounts?: Pick<BankAccount, "name" | "bank_name" | "account_no"> | null;
 };
 
 export type BankAccount = {
@@ -369,6 +395,7 @@ export type DashboardData = {
   purchases: SupplierPurchase[];
   supplierPayments: SupplierPayment[];
   panels: PanelClaim[];
+  panelPayments: PanelPayment[];
 };
 
 export type BankingData = {
@@ -381,4 +408,6 @@ export type BankingData = {
   branchBankMappings: BranchBankMapping[];
   cashBankIns: CashBankIn[];
   pettyCashTransactions: PettyCashTransaction[];
+  supplierPayments: SupplierPayment[];
+  panelPayments: PanelPayment[];
 };
