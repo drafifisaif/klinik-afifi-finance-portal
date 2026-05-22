@@ -70,7 +70,7 @@ export function hasAnyBankAccountAccess(
   if (!profile?.is_active) return false;
   const role = normalizeRole(profile.role);
   if (role === "owner") return true;
-  if (role === "staff") return false;
+  if (role !== "admin" && role !== "finance") return false;
 
   return permissions.some((permission) => permission.user_id === profile.id && permissionAllows(permission, "view"));
 }
@@ -83,7 +83,7 @@ export async function getCurrentBankAccountPermissions(profile?: Pick<Profile, "
   const supabase = await createClient();
   const query = supabase
     .from("bank_account_permissions")
-    .select("id, user_id, bank_account_id, can_view, can_create_transaction, can_edit_transaction, can_manage_account, granted_by, created_at, updated_at");
+    .select("id, user_id, bank_account_id, can_view, can_create_transaction, can_edit_transaction, can_manage_account");
 
   const { data, error } = normalizeRole(currentProfile.role) === "owner" ? await query : await query.eq("user_id", currentProfile.id);
   if (error) return [];
@@ -102,18 +102,6 @@ export async function requireBankPositionAccess() {
   const permissions = await getCurrentBankAccountPermissions(profile);
   const eligiblePermissions = permissions.filter((permission) => permission.user_id === profile.id && permissionAllows(permission, "view"));
   if (!eligiblePermissions.length) redirect("/unauthorized");
-
-  const assignedBankAccountIds = eligiblePermissions.map((permission) => permission.bank_account_id);
-  const supabase = await createClient();
-  const { data: activeAccounts, error: accountError } = await supabase
-    .from("bank_accounts")
-    .select("id")
-    .in("id", assignedBankAccountIds)
-    .eq("is_active", true);
-
-  if (accountError) redirect("/unauthorized");
-  const hasAssignedActiveBankAccess = Boolean(activeAccounts?.length);
-  if (!hasAssignedActiveBankAccess) redirect("/unauthorized");
   return profile;
 }
 

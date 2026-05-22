@@ -586,7 +586,7 @@ export async function getBankingDataForScope(options: BankingDataOptions = {}): 
     fetchOrDemo<BankAccountPermission[]>(
       supabase
         .from("bank_account_permissions")
-        .select("id, user_id, bank_account_id, can_view, can_create_transaction, can_edit_transaction, can_manage_account, granted_by, created_at, updated_at"),
+        .select("id, user_id, bank_account_id, can_view, can_create_transaction, can_edit_transaction, can_manage_account"),
       demoBankingData.bankAccountPermissions
     ),
     fetchOrDemo(
@@ -655,7 +655,7 @@ export async function getBankingDataForScope(options: BankingDataOptions = {}): 
       ? await fetchOrDemo(
           supabase
             .from("bank_accounts")
-            .select("id, name, bank_name, account_no, is_active, created_at, updated_at")
+            .select("id, name, bank_name, is_active")
             .in("id", allowedBankAccountIds)
             .eq("is_active", true)
             .order("name"),
