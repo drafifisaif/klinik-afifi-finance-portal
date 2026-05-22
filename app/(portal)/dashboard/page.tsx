@@ -423,7 +423,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       ) : null}
 
       {!isLimitedDashboard && hasOpeningBalanceCaution ? (
-        <p className="import-message">
+        <p className="import-message opening-balance-warning">
           Some opening balances are estimated or pending review. Reports still include these starting values, so interpret totals with caution.
         </p>
       ) : null}

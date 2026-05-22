@@ -234,7 +234,7 @@ export default async function OpeningBalancesPage() {
       </datalist>
 
       {hasUnverifiedBalances ? (
-        <p className="import-message">
+        <p className="import-message opening-balance-warning">
           Some opening balances are estimated or pending review. Reports will still calculate using these values, but results should be interpreted with caution.
         </p>
       ) : null}

@@ -1160,6 +1160,15 @@ textarea {
   padding: 12px;
 }
 
+.opening-balance-warning {
+  background: #fff7e3;
+  border-color: #efc772;
+  color: #74480a;
+  line-height: 1.55;
+  margin-bottom: 24px;
+  padding: 16px 18px;
+}
+
 .message-success {
   background: #e0f4f1;
   color: var(--teal-deep);
