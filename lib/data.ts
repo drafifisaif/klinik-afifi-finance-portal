@@ -666,15 +666,6 @@ export async function getBankingDataForScope(options: BankingDataOptions = {}): 
     bankRows = await fetchOrDemo(supabase.from("bank_accounts").select("*").eq("is_active", true).order("name"), demoBankingData.bankAccounts) as BankAccount[];
   }
 
-  if (role === "admin" || role === "finance") {
-    console.info("[banking] scope", {
-      role,
-      userId: profile?.id ?? null,
-      permissionCount: allowedPermissionRows.length,
-      activeAllowedBankCount: bankRows.length
-    });
-  }
-
   const normalizedPanelPayments = (panelPaymentRows as PanelPayment[]).map((payment) => ({
     ...payment,
     branch_id: payment.branch_id ?? payment.panel_claims?.branch_id ?? null,
