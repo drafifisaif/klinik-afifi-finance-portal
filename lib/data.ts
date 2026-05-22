@@ -441,6 +441,54 @@ export async function getBankingData(): Promise<BankingData> {
   return getBankingDataForScope();
 }
 
+export type BranchPicCashBankInTarget = {
+  bankAccount: BankAccount | null;
+  branch: Branch | null;
+  mapping: BranchBankMapping | null;
+};
+
+export async function getBranchPicCashBankInTarget(branchId: string | null | undefined): Promise<BranchPicCashBankInTarget> {
+  if (!branchId) return { bankAccount: null, branch: null, mapping: null };
+
+  if (!hasSupabaseEnv()) {
+    const branch = branches.find((item) => item.id === branchId) ?? null;
+    const mapping = branchBankMappings.find((item) => item.branch_id === branchId && item.is_active) ?? null;
+    const bankAccount = mapping
+      ? bankAccounts.find((account) => account.id === mapping.bank_account_id && account.is_active) ?? null
+      : null;
+
+    return { bankAccount, branch, mapping };
+  }
+
+  const supabase = await createClient();
+  const [branchRow, mappingRow] = await Promise.all([
+    supabase.from("branches").select("*").eq("id", branchId).maybeSingle(),
+    supabase
+      .from("branch_bank_mappings")
+      .select("id, branch_id, bank_account_id, is_active")
+      .eq("branch_id", branchId)
+      .eq("is_active", true)
+      .maybeSingle()
+  ]);
+
+  const branch = branchRow.error || !branchRow.data ? null : branchRow.data as Branch;
+  const mapping = mappingRow.error || !mappingRow.data ? null : mappingRow.data as BranchBankMapping;
+  if (!mapping) return { bankAccount: null, branch, mapping: null };
+
+  const { data: bankAccountRow, error: bankAccountError } = await supabase
+    .from("bank_accounts")
+    .select("*")
+    .eq("id", mapping.bank_account_id)
+    .eq("is_active", true)
+    .maybeSingle();
+
+  return {
+    bankAccount: bankAccountError || !bankAccountRow ? null : bankAccountRow as BankAccount,
+    branch,
+    mapping
+  };
+}
+
 export async function getBankingDataForScope(options: BankingDataOptions = {}): Promise<BankingData> {
   const profile = await getCurrentProfile();
   if (!hasSupabaseEnv()) return filterBankingDataForProfile(demoBankingData, profile, options);

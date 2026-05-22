@@ -16,7 +16,7 @@ import {
   isWithinDateRange,
   resolveDateRange
 } from "@/lib/bank-reporting";
-import { getBankingData, totalBy } from "@/lib/data";
+import { getBankingData, getBranchPicCashBankInTarget, totalBy } from "@/lib/data";
 import { userDisplayLabel } from "@/lib/display";
 import { formatCurrency, formatDate } from "@/lib/format";
 import { hasBankAccountPermission, normalizeRole, requirePermission } from "@/lib/permissions";
@@ -38,8 +38,13 @@ export default async function CashBankInsPage({ searchParams }: { searchParams: 
   const profile = await requirePermission("record_cash_bank_in");
   const params = await searchParams;
   const range = resolveDateRange(params);
-  const data = await getBankingData();
   const role = normalizeRole(profile.role);
+  const [data, branchPicTarget] = await Promise.all([
+    getBankingData(),
+    role === "branch_pic"
+      ? getBranchPicCashBankInTarget(profile.branch_id)
+      : Promise.resolve({ bankAccount: null, branch: null, mapping: null })
+  ]);
   const creatableBankAccountIds = new Set(
     data.bankAccountPermissions
       .filter((permission) => permission.user_id === profile.id && (permission.can_create_transaction || permission.can_manage_account))
@@ -50,11 +55,9 @@ export default async function CashBankInsPage({ searchParams }: { searchParams: 
     : data.bankAccounts;
   const bankAccountById = getBankAccountById(data);
   const branchById = getBranchById(data);
-  const ownBranch = role === "branch_pic" && profile.branch_id ? branchById.get(profile.branch_id) : null;
-  const ownBranchMapping = role === "branch_pic" && profile.branch_id
-    ? data.branchBankMappings.find((mapping) => mapping.branch_id === profile.branch_id && mapping.is_active)
-    : null;
-  const ownBranchBankAccount = ownBranchMapping ? bankAccountById.get(ownBranchMapping.bank_account_id) : null;
+  const ownBranch = branchPicTarget.branch;
+  const ownBranchMapping = branchPicTarget.mapping;
+  const ownBranchBankAccount = branchPicTarget.bankAccount;
   const branchPicMissingBranch = role === "branch_pic" && !profile.branch_id;
   const branchPicMissingMapping = role === "branch_pic" && Boolean(profile.branch_id) && (!ownBranch || !ownBranchMapping || !ownBranchBankAccount);
   const canCreateCashBankIn = role === "branch_pic"
