@@ -31,7 +31,7 @@ const navigation: { href: string; label: string; icon: LucideIcon; permission: P
   { href: "/sales", label: "Daily Sales", icon: CreditCard, permission: "edit_finance" },
   { href: "/expenses", label: "Expenses", icon: ReceiptText, permission: "edit_finance" },
   { href: "/purchases", label: "Purchases", icon: ClipboardList, permission: "view_supplier_records" },
-  { href: "/suppliers/payments", label: "Supplier Payments", icon: Truck, permission: "view_supplier_records" },
+  { href: "/suppliers/payments", label: "Supplier Payments", icon: Truck, permission: "view_supplier_payments" },
   { href: "/panels", label: "Panel Outstanding", icon: ShieldCheck, permission: "view_panel_records" },
   { href: "/cash-bank-ins", label: "Cash Bank-In", icon: Banknote, permission: "record_cash_bank_in" },
   { href: "/petty-cash", label: "Petty Cash", icon: Coins, permission: "record_petty_cash" },

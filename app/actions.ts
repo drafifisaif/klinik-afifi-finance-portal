@@ -1671,7 +1671,7 @@ export async function createSupplierPayment(formData: FormData) {
     resolvedBranchId = submittedBranchId ?? purchase.branch_id;
   }
 
-  const profile = await requirePermission("view_supplier_records");
+  const profile = await requirePermission("view_supplier_payments");
   const canRecordPayment = resolvedBranchId ? canEditBranch(profile, resolvedBranchId) : canViewAllBranches(profile);
   if (!canRecordPayment) {
     throw new Error("You do not have permission to record supplier payments for this branch.");

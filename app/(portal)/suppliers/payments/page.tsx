@@ -12,7 +12,7 @@ import { getTransactionDocuments } from "@/lib/transaction-documents";
 import { BadgeCheck, Banknote, CircleDollarSign, Truck } from "lucide-react";
 
 export default async function SupplierPaymentsPage() {
-  const profile = await requirePermission("view_supplier_records");
+  const profile = await requirePermission("view_supplier_payments");
   const data = await getDashboardData();
   const suppliers = await getSuppliers();
   const paymentDocuments = await getTransactionDocuments("supplier_payments", data.supplierPayments.map((payment) => payment.id));
