@@ -67,27 +67,29 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
           </span>
         </Link>
 
-        <nav className="nav-list" aria-label="Main navigation">
-          {allowedNavigation.map((item) => {
-            const Icon = item.icon;
-            return (
-              <Link className="nav-item" href={item.href} key={item.href}>
-                <Icon size={18} />
-                <span>{item.label}</span>
-              </Link>
-            );
-          })}
-        </nav>
+        <div className="sidebar-menu">
+          <nav className="nav-list" aria-label="Main navigation">
+            {allowedNavigation.map((item) => {
+              const Icon = item.icon;
+              return (
+                <Link className="nav-item" href={item.href} key={item.href}>
+                  <Icon size={18} />
+                  <span>{item.label}</span>
+                </Link>
+              );
+            })}
+          </nav>
 
-        <nav className="branch-nav" aria-label="Branch navigation">
-          <span>Branches</span>
-          {branches.map((branch) => (
-            <Link className="branch-nav-item" href={`/dashboard?branch=${branch.id}`} key={branch.id}>
-              <Building2 size={15} />
-              <span>{branch.name}</span>
-            </Link>
-          ))}
-        </nav>
+          <nav className="branch-nav" aria-label="Branch navigation">
+            <span>Branches</span>
+            {branches.map((branch) => (
+              <Link className="branch-nav-item" href={`/dashboard?branch=${branch.id}`} key={branch.id}>
+                <Building2 size={15} />
+                <span>{branch.name}</span>
+              </Link>
+            ))}
+          </nav>
+        </div>
 
         <form action={signOut} className="sidebar-footer">
           <button className="ghost-button" type="submit">
