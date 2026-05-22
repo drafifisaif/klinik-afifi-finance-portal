@@ -175,6 +175,7 @@ export function filterDashboardDataForProfile(data: DashboardData, profile: Prof
   if (!profile?.is_active) {
     return {
       branches: [],
+      openingBalances: [],
       sales: [],
       expenses: [],
       purchases: [],
@@ -189,6 +190,7 @@ export function filterDashboardDataForProfile(data: DashboardData, profile: Prof
 
   return {
     branches: data.branches.filter((branch) => branch.id === branchId),
+    openingBalances: data.openingBalances.filter((balance) => balance.branch_id === branchId),
     sales: data.sales.filter((sale) => sale.branch_id === branchId),
     expenses: data.expenses.filter((expense) => expense.branch_id === branchId),
     purchases: data.purchases.filter((purchase) => purchase.branch_id === branchId),

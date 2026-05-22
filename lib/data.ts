@@ -11,6 +11,7 @@ import type {
   DailySale,
   DashboardData,
   Expense,
+  OpeningBalance,
   PanelClaim,
   PanelCompany,
   PettyCashTransaction,
@@ -259,9 +260,11 @@ const cashBankIns: CashBankIn[] = [];
 const bankAccountPermissions: BankAccountPermission[] = [];
 const bankTransactions: BankTransaction[] = [];
 const pettyCashTransactions: PettyCashTransaction[] = [];
+const openingBalances: OpeningBalance[] = [];
 
 export const demoData: DashboardData = {
   branches,
+  openingBalances,
   sales,
   expenses,
   purchases,
@@ -271,6 +274,7 @@ export const demoData: DashboardData = {
 
 export const demoBankingData: BankingData = {
   branches,
+  openingBalances,
   sales,
   bankAccounts,
   bankAccountPermissions,
@@ -292,8 +296,15 @@ export async function getDashboardData(): Promise<DashboardData> {
 
   const supabase = await createClient();
 
-  const [branchRows, salesRows, expenseRows, purchaseRows, paymentRows, panelRows] = await Promise.all([
+  const [branchRows, openingBalanceRows, salesRows, expenseRows, purchaseRows, paymentRows, panelRows] = await Promise.all([
     fetchOrDemo(supabase.from("branches").select("*").order("name"), demoData.branches),
+    fetchOrDemo(
+      supabase
+        .from("opening_balances")
+        .select("*, branches(name, code), bank_accounts(name, bank_name, account_no), suppliers(name), panel_companies(name)")
+        .order("balance_date", { ascending: false }),
+      demoData.openingBalances
+    ),
     fetchOrDemo(
       supabase
         .from("daily_sales")
@@ -338,6 +349,7 @@ export async function getDashboardData(): Promise<DashboardData> {
 
   return filterDashboardDataForProfile({
     branches: branchRows as Branch[],
+    openingBalances: openingBalanceRows as OpeningBalance[],
     sales: salesRows as DailySale[],
     expenses: expenseRows as Expense[],
     purchases: purchaseRows as SupplierPurchase[],
@@ -412,6 +424,11 @@ function filterBankingDataForProfile(data: BankingData, profile: Awaited<ReturnT
     branches: filteredBranches.filter((branch) => visibleBranchIds.has(branch.id)),
     sales: data.sales.filter((sale) => visibleBranchIds.has(sale.branch_id) && (!permittedBankAccountIds || mappedBranchIds.has(sale.branch_id))),
     bankAccounts: data.bankAccounts.filter((account) => account.is_active && (!permittedBankAccountIds || permittedBankAccountIds.has(account.id))),
+    openingBalances: data.openingBalances.filter((balance) => {
+      if (balance.branch_id && !visibleBranchIds.has(balance.branch_id)) return false;
+      if (balance.bank_account_id && permittedBankAccountIds && !permittedBankAccountIds.has(balance.bank_account_id)) return false;
+      return true;
+    }),
     bankAccountPermissions: data.bankAccountPermissions.filter((permission) => !profile || permission.user_id === profile.id),
     bankTransactions: filteredBankTransactions,
     branchBankMappings: permittedMappings,
@@ -429,8 +446,15 @@ export async function getBankingDataForScope(options: BankingDataOptions = {}): 
   if (!hasSupabaseEnv()) return filterBankingDataForProfile(demoBankingData, profile, options);
 
   const supabase = await createClient();
-  const [branchRows, salesRows, bankRows, permissionRows, transactionRows, mappingRows, cashBankInRows, pettyCashRows] = await Promise.all([
+  const [branchRows, openingBalanceRows, salesRows, bankRows, permissionRows, transactionRows, mappingRows, cashBankInRows, pettyCashRows] = await Promise.all([
     fetchOrDemo(supabase.from("branches").select("*").eq("is_active", true).order("name"), demoBankingData.branches),
+    fetchOrDemo(
+      supabase
+        .from("opening_balances")
+        .select("*, branches(name, code), bank_accounts(name, bank_name, account_no), suppliers(name), panel_companies(name)")
+        .order("balance_date", { ascending: false }),
+      demoBankingData.openingBalances
+    ),
     fetchOrDemo(
       supabase
         .from("daily_sales")
@@ -482,6 +506,7 @@ export async function getBankingDataForScope(options: BankingDataOptions = {}): 
   return filterBankingDataForProfile(
     {
       branches: branchRows as Branch[],
+      openingBalances: openingBalanceRows as OpeningBalance[],
       sales: salesRows as DailySale[],
       bankAccounts: bankRows as BankAccount[],
       bankAccountPermissions: permissionRows as BankAccountPermission[],

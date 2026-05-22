@@ -38,6 +38,7 @@ const auditEntities = [
   "bank_transactions",
   "cash_bank_ins",
   "petty_cash_transactions",
+  "opening_balances",
   "transaction_documents"
 ];
 
@@ -60,6 +61,7 @@ const auditEntityLabels: Record<string, string> = {
   cash_bank_ins: "Cash Bank-In",
   daily_sales: "Daily Sales",
   expenses: "Expense",
+  opening_balances: "Opening Balance",
   panel_claims: "Panel Claim",
   panel_companies: "Panel Company",
   panel_payments: "Panel Payment",
@@ -78,6 +80,8 @@ const auditFieldLabels: Record<string, string> = {
   bank_in_date: "Bank-in date",
   bank_name: "Bank name",
   bank_transfer_amount: "Bank transfer amount",
+  balance_date: "Balance date",
+  balance_type: "Balance type",
   branch_id: "Branch",
   can_create_transaction: "Can create transaction",
   can_edit_transaction: "Can edit transaction",
@@ -95,11 +99,13 @@ const auditFieldLabels: Record<string, string> = {
   is_active: "Status",
   is_void: "Status",
   payment_date: "Payment date",
+  panel_company_id: "Panel company",
   purchase_date: "Purchase date",
   qr_amount: "QR amount",
   reference_no: "Reference",
   related_bank_account_id: "Related bank account",
   sale_date: "Sale date",
+  supplier_id: "Supplier",
   transaction_date: "Transaction date",
   transaction_type: "Transaction type",
   transfer_group_id: "Transfer group",
@@ -140,7 +146,7 @@ function isMoneyField(field: string) {
 }
 
 function isUserField(field: string) {
-  return ["actor_id", "deleted_by", "entered_by", "granted_by", "uploaded_by", "user_id", "voided_by"].includes(field);
+  return ["actor_id", "created_by", "deleted_by", "entered_by", "granted_by", "updated_by", "uploaded_by", "user_id", "voided_by"].includes(field);
 }
 
 function formatAuditValue(field: string, value: unknown, references: AuditReferences) {
@@ -207,6 +213,7 @@ function auditRecordSummary(event: AuditEvent, references: AuditReferences) {
         ?? snapshotValue(event, "expense_date")
         ?? snapshotValue(event, "purchase_date")
         ?? snapshotValue(event, "payment_date")
+        ?? snapshotValue(event, "balance_date")
         ?? snapshotValue(event, "claim_month"),
       references
     ),

@@ -19,6 +19,7 @@ import { resolveSelectedBranchIds } from "@/lib/branch-reporting";
 import { bankTransactionTypes } from "@/lib/constants";
 import type { CsvCell } from "@/lib/csv";
 import { getBankingData, getBankingDataForScope, getDashboardData, totalBy } from "@/lib/data";
+import { outstandingOpeningBalanceTotal } from "@/lib/opening-balances";
 import { canViewAllBranches, normalizeRole, requireBankPositionAccess, requirePermission } from "@/lib/permissions";
 import type { BankTransactionType, BankingData, Profile } from "@/lib/types";
 
@@ -186,8 +187,8 @@ export async function dashboardSummaryCsv(searchParams: URLSearchParams): Promis
       && bankBranchIds.has(transaction.branch_id)
       && isWithinDateRange(transaction.transaction_date, range);
   });
-  const cashInHandRows = buildCashInHandRows({ branches: bankBranches, cashBankIns, sales: bankSales }, range);
-  const pettyCashRows = buildPettyCashBalanceRows({ branches: bankBranches, pettyCashTransactions }, range);
+  const cashInHandRows = buildCashInHandRows({ branches: bankBranches, cashBankIns, openingBalances: bankingData.openingBalances, sales: bankSales }, range);
+  const pettyCashRows = buildPettyCashBalanceRows({ branches: bankBranches, openingBalances: bankingData.openingBalances, pettyCashTransactions }, range);
   const mappedBankIds = new Set(bankingData.bankAccounts.map((account) => account.id));
   const mappingByBranch = getMappingByBranch(bankingData);
   const directSalesInflow = totalBy(bankSales, (sale) => {
@@ -206,8 +207,14 @@ export async function dashboardSummaryCsv(searchParams: URLSearchParams): Promis
   const totalExpenses = totalBy(expenses, (expense) => money(expense.amount)) + totalBy(purchases, (purchase) => money(purchase.total_amount));
   const totalCashInHand = totalBy(cashInHandRows, (row) => row.remaining);
   const totalPettyCash = totalBy(pettyCashRows, (row) => row.balance);
-  const supplierOutstanding = Math.max(0, totalBy(purchases, (purchase) => money(purchase.total_amount)) - totalBy(supplierPayments, (payment) => money(payment.amount)));
-  const panelOutstanding = totalBy(panels.filter((panel) => panel.status !== "paid"), (panel) => money(panel.amount));
+  const supplierOutstanding = Math.max(
+    0,
+    outstandingOpeningBalanceTotal(dashboardData.openingBalances, "supplier_outstanding", selectedBranchIdSet, range.endDate, includeUnassigned)
+      + totalBy(purchases, (purchase) => money(purchase.total_amount))
+      - totalBy(supplierPayments, (payment) => money(payment.amount))
+  );
+  const panelOutstanding = outstandingOpeningBalanceTotal(dashboardData.openingBalances, "panel_outstanding", selectedBranchIdSet, range.endDate, includeUnassigned)
+    + totalBy(panels.filter((panel) => panel.status !== "paid"), (panel) => money(panel.amount));
   const bankInflow = directSalesInflow + totalCashBankIn + manualMoneyIn + transferIn + pettyCashReturned;
   const bankOutflow = manualMoneyOut + ownerDrawing + transferOut + pettyCashIssued;
   const metadata = [range.label, range.startDate, range.endDate, labelBranches(branches.map((branch) => branch.name))];
@@ -353,11 +360,12 @@ export async function cashInHandCsv(searchParams: URLSearchParams): Promise<CsvE
 
   return {
     filename: "cash-in-hand-report.csv",
-    headers: ["Start Date", "End Date", "Branch", "Cash Sales", "Cash Banked In", "Cash In Hand"],
+    headers: ["Start Date", "End Date", "Branch", "Opening Balance", "Cash Sales", "Cash Banked In", "Cash In Hand"],
     rows: buildCashInHandRows(data, range).map((row) => [
       range.startDate,
       range.endDate,
       row.branch.name,
+      row.openingBalance,
       row.cashSales,
       row.bankedIn,
       row.remaining

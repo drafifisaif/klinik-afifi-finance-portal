@@ -175,6 +175,33 @@ export type BankAccountPermission = {
   profiles?: Pick<Profile, "full_name" | "role"> | null;
 };
 
+export type OpeningBalanceType =
+  | "bank_account"
+  | "cash_in_hand"
+  | "petty_cash"
+  | "supplier_outstanding"
+  | "panel_outstanding";
+
+export type OpeningBalance = {
+  id: string;
+  balance_date: string;
+  balance_type: OpeningBalanceType;
+  branch_id?: string | null;
+  bank_account_id?: string | null;
+  supplier_id?: string | null;
+  panel_company_id?: string | null;
+  amount: number;
+  notes?: string | null;
+  created_by?: string | null;
+  updated_by?: string | null;
+  created_at?: string;
+  updated_at?: string;
+  branches?: Pick<Branch, "name" | "code"> | null;
+  bank_accounts?: Pick<BankAccount, "name" | "bank_name" | "account_no"> | null;
+  suppliers?: Pick<Supplier, "name"> | null;
+  panel_companies?: Pick<PanelCompany, "name"> | null;
+};
+
 export type BankTransactionType = "money_in" | "money_out" | "interbank_transfer" | "owner_drawing";
 
 export type BankTransactionDirection = "in" | "out";
@@ -315,6 +342,7 @@ export type TransactionDocument = {
 
 export type DashboardData = {
   branches: Branch[];
+  openingBalances: OpeningBalance[];
   sales: DailySale[];
   expenses: Expense[];
   purchases: SupplierPurchase[];
@@ -324,6 +352,7 @@ export type DashboardData = {
 
 export type BankingData = {
   branches: Branch[];
+  openingBalances: OpeningBalance[];
   sales: DailySale[];
   bankAccounts: BankAccount[];
   bankAccountPermissions: BankAccountPermission[];

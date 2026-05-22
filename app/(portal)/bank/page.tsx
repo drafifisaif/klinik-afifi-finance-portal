@@ -34,6 +34,7 @@ import {
 import { getBankingDataForScope, totalBy } from "@/lib/data";
 import { userDisplayLabel } from "@/lib/display";
 import { formatCurrency, formatDate } from "@/lib/format";
+import { bankOpeningBalanceTotal } from "@/lib/opening-balances";
 import { canManageBankPermissions, hasBankAccountPermission, normalizeRole, requireBankPositionAccess } from "@/lib/permissions";
 import { getTransactionDocuments } from "@/lib/transaction-documents";
 import { getUserManagementData, getVisibleProfilesById } from "@/lib/users";
@@ -232,6 +233,10 @@ export default async function BankPage({ searchParams }: { searchParams: Promise
   });
 
   const bankMovements = new Map(data.bankAccounts.map((account) => [account.id, 0]));
+  const bankOpeningBalances = new Map(data.bankAccounts.map((account) => [
+    account.id,
+    bankOpeningBalanceTotal(data.openingBalances, account.id, range.endDate)
+  ]));
   const branchMovements = new Map(data.branches.map((branch) => [branch.id, 0]));
   const statementRows: StatementRow[] = [];
 
@@ -461,9 +466,10 @@ export default async function BankPage({ searchParams }: { searchParams: Promise
           <div className="table-section">
             <h2>Petty cash balance by branch</h2>
             <DataTable
-              columns={["Branch", "Total issued", "Total spent", "Total returned", "Adjustments", "Current petty cash balance"]}
+              columns={["Branch", "Opening balance", "Total issued", "Total spent", "Total returned", "Adjustments", "Current petty cash balance"]}
               rows={pettyCashBalanceRows.map((row) => [
                 row.branch.name,
+                formatCurrency(row.openingBalance),
                 formatCurrency(row.issued),
                 formatCurrency(row.spent),
                 formatCurrency(row.returned),
@@ -599,9 +605,10 @@ export default async function BankPage({ searchParams }: { searchParams: Promise
         <div className="table-section">
           <h2>Cash in hand by branch</h2>
           <DataTable
-            columns={["Branch", "Total cash sales", "Total cash banked in", "Remaining cash in hand"]}
+            columns={["Branch", "Opening balance", "Total cash sales", "Total cash banked in", "Remaining cash in hand"]}
             rows={cashInHandRows.map((row) => [
               row.branch.name,
+              formatCurrency(row.openingBalance),
               formatCurrency(row.cashSales),
               formatCurrency(row.bankedIn),
               formatCurrency(row.remaining)
@@ -615,7 +622,7 @@ export default async function BankPage({ searchParams }: { searchParams: Promise
             {data.bankAccounts.map((account) => (
               <div key={account.id}>
                 <dt>{bankAccountLabel(account)}</dt>
-                <dd>{formatCurrency(bankMovements.get(account.id) ?? 0)}</dd>
+                <dd>{formatCurrency((bankOpeningBalances.get(account.id) ?? 0) + (bankMovements.get(account.id) ?? 0))}</dd>
               </div>
             ))}
           </dl>
@@ -624,10 +631,19 @@ export default async function BankPage({ searchParams }: { searchParams: Promise
 
       <section className="section-grid">
         <div className="table-section">
-          <h2>Net bank movement by bank account</h2>
+          <h2>Bank position by bank account</h2>
           <DataTable
-            columns={["Bank account", "Net movement"]}
-            rows={data.bankAccounts.map((account) => [bankAccountLabel(account), formatCurrency(bankMovements.get(account.id) ?? 0)])}
+            columns={["Bank account", "Opening balance", "Selected net movement", "Opening plus selected movement"]}
+            rows={data.bankAccounts.map((account) => {
+              const openingBalance = bankOpeningBalances.get(account.id) ?? 0;
+              const movement = bankMovements.get(account.id) ?? 0;
+              return [
+                bankAccountLabel(account),
+                formatCurrency(openingBalance),
+                formatCurrency(movement),
+                formatCurrency(openingBalance + movement)
+              ];
+            })}
           />
         </div>
 

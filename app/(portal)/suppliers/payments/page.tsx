@@ -6,6 +6,7 @@ import { ModuleHeader } from "@/components/module-header";
 import { paymentTypes } from "@/lib/constants";
 import { getDashboardData, getSuppliers, totalBy } from "@/lib/data";
 import { formatCurrency, formatDate, labelize } from "@/lib/format";
+import { outstandingOpeningBalanceTotal } from "@/lib/opening-balances";
 import { canViewAllBranches, normalizeRole, requirePermission } from "@/lib/permissions";
 import { getTransactionDocuments } from "@/lib/transaction-documents";
 import { BadgeCheck, Banknote, CircleDollarSign, Truck } from "lucide-react";
@@ -19,7 +20,8 @@ export default async function SupplierPaymentsPage() {
   const canDeleteDocuments = normalizeRole(profile.role) !== "branch_pic";
   const purchased = totalBy(data.purchases, (purchase) => purchase.total_amount);
   const paid = totalBy(data.supplierPayments, (payment) => payment.amount);
-  const outstanding = purchased - paid;
+  const openingOutstanding = outstandingOpeningBalanceTotal(data.openingBalances, "supplier_outstanding");
+  const outstanding = openingOutstanding + purchased - paid;
 
   return (
     <>
@@ -32,7 +34,7 @@ export default async function SupplierPaymentsPage() {
       <section className="dashboard-grid">
         <MetricCard icon={Truck} label="Purchase invoices" value={formatCurrency(purchased)} />
         <MetricCard icon={BadgeCheck} label="Supplier paid" value={formatCurrency(paid)} tone="blue" />
-        <MetricCard icon={CircleDollarSign} label="Outstanding" value={formatCurrency(outstanding)} tone="amber" />
+        <MetricCard icon={CircleDollarSign} label="Outstanding" value={formatCurrency(outstanding)} detail="Opening balance plus purchases less payments" tone="amber" />
         <MetricCard icon={Banknote} label="Payment records" value={String(data.supplierPayments.length)} tone="rose" />
       </section>
 

@@ -18,6 +18,7 @@ import {
 import { branchGroups, getBranchGroup, resolveSelectedBranchIds, toParamArray } from "@/lib/branch-reporting";
 import { getBankingData, getDashboardData, totalBy } from "@/lib/data";
 import { formatCurrency, formatDate, monthKey } from "@/lib/format";
+import { bankOpeningBalanceTotal, outstandingOpeningBalanceTotal } from "@/lib/opening-balances";
 import { canViewAllBranches, requirePermission } from "@/lib/permissions";
 import type { BankAccount, BankTransaction, PettyCashTransaction } from "@/lib/types";
 import {
@@ -54,6 +55,7 @@ type BankAccountSummary = {
   inflow: number;
   manualMoneyIn: number;
   manualMoneyOut: number;
+  openingBalance: number;
   outflow: number;
   ownerDrawing: number;
   pettyCashIssued: number;
@@ -88,6 +90,7 @@ function createBankAccountSummary(account: BankAccount): BankAccountSummary {
     inflow: 0,
     manualMoneyIn: 0,
     manualMoneyOut: 0,
+    openingBalance: 0,
     outflow: 0,
     ownerDrawing: 0,
     pettyCashIssued: 0,
@@ -201,11 +204,25 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const purchaseCost = totalBy(purchases, (purchase) => money(purchase.total_amount));
   const totalExpenses = operatingExpenses + purchaseCost;
   const profit = totalSales - totalExpenses;
-  const panelOutstanding = totalBy(
+  const panelOpeningOutstanding = outstandingOpeningBalanceTotal(
+    data.openingBalances,
+    "panel_outstanding",
+    selectedBranchIdSet,
+    range.endDate,
+    isAllSelectedBranches
+  );
+  const supplierOpeningOutstanding = outstandingOpeningBalanceTotal(
+    data.openingBalances,
+    "supplier_outstanding",
+    selectedBranchIdSet,
+    range.endDate,
+    isAllSelectedBranches
+  );
+  const panelOutstanding = panelOpeningOutstanding + totalBy(
     panels.filter((panel) => panel.status !== "paid"),
     (panel) => money(panel.amount)
   );
-  const supplierOutstanding = Math.max(0, purchaseCost - totalBy(supplierPayments, (payment) => money(payment.amount)));
+  const supplierOutstanding = Math.max(0, supplierOpeningOutstanding + purchaseCost - totalBy(supplierPayments, (payment) => money(payment.amount)));
   const selectedBranchLabel = selectedBranches.length > 0 ? selectedBranches.map((branch) => branch.name).join(", ") : "No branches selected";
 
   const selectedBankBranches = bankingData?.branches.filter((branch) => selectedBranchIdSet.has(branch.id)) ?? [];
@@ -233,12 +250,14 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     ? buildCashInHandRows({
         branches: selectedBankBranches,
         cashBankIns: selectedCashBankIns,
+        openingBalances: bankingData.openingBalances,
         sales: selectedBankSales
       }, range)
     : [];
   const pettyCashRows = bankingData
     ? buildPettyCashBalanceRows({
         branches: selectedBankBranches,
+        openingBalances: bankingData.openingBalances,
         pettyCashTransactions: selectedPettyCashTransactions
       }, range)
     : [];
@@ -249,6 +268,9 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const totalPhysicalCash = totalCashInHand + totalPettyCash;
 
   const bankAccountSummaries = new Map((bankingData?.bankAccounts ?? []).map((account) => [account.id, createBankAccountSummary(account)]));
+  bankAccountSummaries.forEach((summary) => {
+    summary.openingBalance = bankOpeningBalanceTotal(bankingData?.openingBalances ?? [], summary.account.id, range.endDate);
+  });
   const mappingByBranch = bankingData ? getMappingByBranch(bankingData) : new Map();
   selectedBankSales.forEach((sale) => {
     const mapping = mappingByBranch.get(sale.branch_id);
@@ -506,9 +528,11 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           <section className="table-section mt-section">
             <h2>Bank summary by account</h2>
             <DataTable
-              columns={["Bank account", "Inflow", "Outflow", "Direct sales inflow", "Cash bank-in", "Manual money in", "Manual money out", "Transfer in", "Transfer out", "Petty cash issued", "Petty cash returned", "Owner drawing"]}
+              columns={["Bank account", "Opening balance", "Opening plus movement", "Inflow", "Outflow", "Direct sales inflow", "Cash bank-in", "Manual money in", "Manual money out", "Transfer in", "Transfer out", "Petty cash issued", "Petty cash returned", "Owner drawing"]}
               rows={bankSummaryRows.map((row) => [
                 bankAccountLabel(row.account),
+                formatCurrency(row.openingBalance),
+                formatCurrency(row.openingBalance + row.inflow - row.outflow),
                 formatCurrency(row.inflow),
                 formatCurrency(row.outflow),
                 formatCurrency(row.directSalesInflow),

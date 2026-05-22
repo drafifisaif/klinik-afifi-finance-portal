@@ -15,7 +15,7 @@ import {
   requireBankAccountPermission,
   requirePermission
 } from "@/lib/permissions";
-import type { BankTransactionType, ExpenseCategory, PaymentType, PettyCashTransactionType, PurchaseCategory, UserRole } from "@/lib/types";
+import type { BankTransactionType, ExpenseCategory, OpeningBalanceType, PaymentType, PettyCashTransactionType, PurchaseCategory, UserRole } from "@/lib/types";
 
 type ImportPayload = Record<string, string | number | null>;
 
@@ -225,6 +225,19 @@ type PanelClaimAuditRow = {
   submitted_date: string | null;
 };
 
+type OpeningBalanceAuditRow = {
+  amount: number;
+  balance_date: string;
+  balance_type: OpeningBalanceType;
+  bank_account_id: string | null;
+  branch_id: string | null;
+  created_by: string | null;
+  notes: string | null;
+  panel_company_id: string | null;
+  supplier_id: string | null;
+  updated_by: string | null;
+};
+
 function userProfileAuditData(profile: UserProfileAuditRow) {
   return {
     branch_id: profile.branch_id,
@@ -414,6 +427,21 @@ function panelClaimAuditData(claim: PanelClaimAuditRow) {
   };
 }
 
+function openingBalanceAuditData(balance: OpeningBalanceAuditRow) {
+  return {
+    amount: balance.amount,
+    balance_date: balance.balance_date,
+    balance_type: balance.balance_type,
+    bank_account_id: balance.bank_account_id,
+    branch_id: balance.branch_id,
+    created_by: balance.created_by,
+    notes: balance.notes,
+    panel_company_id: balance.panel_company_id,
+    supplier_id: balance.supplier_id,
+    updated_by: balance.updated_by
+  };
+}
+
 function hasAuditChanges(beforeData: Record<string, unknown>, afterData: Record<string, unknown>) {
   return Object.keys(getAuditChangedFields(beforeData, afterData)).length > 0;
 }
@@ -446,6 +474,107 @@ async function requireEditableBranch(branchId: string | null) {
     throw new Error("You do not have permission to edit records for this branch.");
   }
   return profile;
+}
+
+async function requireOpeningBalanceOwner() {
+  const profile = await requirePermission("view_settings");
+  if (normalizeRole(profile.role) !== "owner") {
+    throw new Error("Only Owner can manage opening balances.");
+  }
+  return profile;
+}
+
+function openingBalanceType(formData: FormData): OpeningBalanceType {
+  const value = text(formData, "balance_type");
+  if (
+    value === "bank_account"
+    || value === "cash_in_hand"
+    || value === "petty_cash"
+    || value === "supplier_outstanding"
+    || value === "panel_outstanding"
+  ) {
+    return value;
+  }
+  throw new Error("Select a valid opening balance type.");
+}
+
+function openingBalanceInput(formData: FormData) {
+  const balanceDate = text(formData, "balance_date");
+  const balanceType = openingBalanceType(formData);
+  const amount = number(formData, "amount");
+  const branchId = text(formData, "branch_id");
+  const bankAccountId = text(formData, "bank_account_id");
+  const supplierId = text(formData, "supplier_id");
+  const panelCompanyId = text(formData, "panel_company_id");
+
+  if (!balanceDate) throw new Error("Opening balance date is required.");
+  if (amount < 0) throw new Error("Opening balance amount cannot be negative.");
+
+  if (balanceType === "bank_account") {
+    if (!bankAccountId) throw new Error("Select the bank account for this opening balance.");
+    return {
+      amount,
+      balance_date: balanceDate,
+      balance_type: balanceType,
+      bank_account_id: bankAccountId,
+      branch_id: null,
+      notes: text(formData, "notes"),
+      panel_company_id: null,
+      supplier_id: null
+    };
+  }
+
+  if (balanceType === "cash_in_hand" || balanceType === "petty_cash") {
+    if (!branchId) throw new Error("Select the branch for this opening balance.");
+    return {
+      amount,
+      balance_date: balanceDate,
+      balance_type: balanceType,
+      bank_account_id: null,
+      branch_id: branchId,
+      notes: text(formData, "notes"),
+      panel_company_id: null,
+      supplier_id: null
+    };
+  }
+
+  if (balanceType === "supplier_outstanding") {
+    if (!supplierId) throw new Error("Select the supplier for this opening balance.");
+    return {
+      amount,
+      balance_date: balanceDate,
+      balance_type: balanceType,
+      bank_account_id: null,
+      branch_id: branchId,
+      notes: text(formData, "notes"),
+      panel_company_id: null,
+      supplier_id: supplierId
+    };
+  }
+
+  if (!panelCompanyId) throw new Error("Select the panel company for this opening balance.");
+  return {
+    amount,
+    balance_date: balanceDate,
+    balance_type: balanceType,
+    bank_account_id: null,
+    branch_id: branchId,
+    notes: text(formData, "notes"),
+    panel_company_id: panelCompanyId,
+    supplier_id: null
+  };
+}
+
+function revalidateOpeningBalanceReports() {
+  [
+    "/opening-balances",
+    "/dashboard",
+    "/bank",
+    "/cash-bank-ins",
+    "/petty-cash",
+    "/suppliers/payments",
+    "/panels"
+  ].forEach((path) => revalidatePath(path));
 }
 
 function requiredVoidReason(formData: FormData) {
@@ -534,6 +663,85 @@ export async function createBankAccount(formData: FormData) {
   });
   revalidatePath("/bank");
   revalidatePath("/cash-bank-ins");
+}
+
+export async function createOpeningBalance(formData: FormData) {
+  if (!hasSupabaseEnv()) return;
+  await requireOpeningBalanceOwner();
+  const input = openingBalanceInput(formData);
+  const userId = await getUserId();
+  const supabase = await createClient();
+  const { data: balance, error } = await supabase
+    .from("opening_balances")
+    .insert({
+      ...input,
+      created_by: userId,
+      updated_by: userId
+    })
+    .select("id, amount, balance_date, balance_type, bank_account_id, branch_id, created_by, notes, panel_company_id, supplier_id, updated_by")
+    .single();
+
+  if (error || !balance) throw error ?? new Error("Opening balance could not be loaded after creation.");
+
+  await logAuditEvent({
+    action: "create",
+    afterData: openingBalanceAuditData(balance as OpeningBalanceAuditRow),
+    bankAccountId: balance.bank_account_id,
+    branchId: balance.branch_id,
+    description: "Created opening balance.",
+    entityId: balance.id,
+    entityName: "opening_balances"
+  });
+  revalidateOpeningBalanceReports();
+}
+
+export async function updateOpeningBalance(formData: FormData) {
+  if (!hasSupabaseEnv()) return;
+  await requireOpeningBalanceOwner();
+  const balanceId = text(formData, "balance_id");
+  if (!balanceId) throw new Error("Opening balance is required.");
+
+  const supabase = await createClient();
+  const { data: currentBalance, error: currentError } = await supabase
+    .from("opening_balances")
+    .select("id, amount, balance_date, balance_type, bank_account_id, branch_id, created_by, notes, panel_company_id, supplier_id, updated_by")
+    .eq("id", balanceId)
+    .maybeSingle();
+
+  if (currentError || !currentBalance) throw new Error("Opening balance not found.");
+  const input = openingBalanceInput(formData);
+  if (currentBalance.balance_type !== input.balance_type) {
+    throw new Error("Opening balance type cannot change during edit.");
+  }
+
+  const { data: updatedBalance, error } = await supabase
+    .from("opening_balances")
+    .update({
+      ...input,
+      updated_by: await getUserId()
+    })
+    .eq("id", currentBalance.id)
+    .select("id, amount, balance_date, balance_type, bank_account_id, branch_id, created_by, notes, panel_company_id, supplier_id, updated_by")
+    .single();
+
+  if (error || !updatedBalance) throw error ?? new Error("Updated opening balance could not be loaded.");
+
+  const beforeData = openingBalanceAuditData(currentBalance as OpeningBalanceAuditRow);
+  const afterData = openingBalanceAuditData(updatedBalance as OpeningBalanceAuditRow);
+  if (hasAuditChanges(beforeData, afterData)) {
+    await logAuditEvent({
+      action: "update",
+      afterData,
+      bankAccountId: updatedBalance.bank_account_id,
+      beforeData,
+      branchId: updatedBalance.branch_id,
+      description: "Updated opening balance.",
+      entityId: updatedBalance.id,
+      entityName: "opening_balances"
+    });
+  }
+
+  revalidateOpeningBalanceReports();
 }
 
 export async function createDailySale(formData: FormData) {

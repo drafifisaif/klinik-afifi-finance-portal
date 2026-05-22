@@ -1,3 +1,4 @@
+import { branchOpeningBalanceTotal } from "@/lib/opening-balances";
 import type { BankAccount, BankTransaction, BankingData, Branch, CashBankIn, DailySale, PettyCashTransaction } from "@/lib/types";
 
 export type DatePeriod = "today" | "this_month" | "last_month" | "custom";
@@ -13,6 +14,7 @@ export type CashInHandRow = {
   bankedIn: number;
   branch: Branch;
   cashSales: number;
+  openingBalance: number;
   remaining: number;
 };
 
@@ -21,6 +23,7 @@ export type PettyCashBalanceRow = {
   balance: number;
   branch: Branch;
   issued: number;
+  openingBalance: number;
   returned: number;
   spent: number;
 };
@@ -137,8 +140,12 @@ export function getBranchById(data: Pick<BankingData, "branches">) {
   return new Map(data.branches.map((branch) => [branch.id, branch]));
 }
 
-export function buildCashInHandRows(data: Pick<BankingData, "branches" | "cashBankIns" | "sales">, range: DateRange): CashInHandRow[] {
+export function buildCashInHandRows(
+  data: Pick<BankingData, "branches" | "cashBankIns" | "openingBalances" | "sales">,
+  range: DateRange
+): CashInHandRow[] {
   return data.branches.map((branch) => {
+    const openingBalance = branchOpeningBalanceTotal(data.openingBalances, "cash_in_hand", branch.id, range.endDate);
     const cashSales = data.sales
       .filter((sale) => isActiveFinancialRecord(sale) && sale.branch_id === branch.id && isWithinDateRange(sale.sale_date, range))
       .reduce((sum, sale) => sum + cashSalesAmount(sale), 0);
@@ -150,16 +157,18 @@ export function buildCashInHandRows(data: Pick<BankingData, "branches" | "cashBa
       bankedIn,
       branch,
       cashSales,
-      remaining: cashSales - bankedIn
+      openingBalance,
+      remaining: openingBalance + cashSales - bankedIn
     };
   });
 }
 
 export function buildPettyCashBalanceRows(
-  data: Pick<BankingData, "branches" | "pettyCashTransactions">,
+  data: Pick<BankingData, "branches" | "openingBalances" | "pettyCashTransactions">,
   range?: DateRange
 ): PettyCashBalanceRow[] {
   return data.branches.map((branch) => {
+    const openingBalance = branchOpeningBalanceTotal(data.openingBalances, "petty_cash", branch.id, range?.endDate);
     const transactions = data.pettyCashTransactions.filter((transaction) => {
       return isActiveFinancialRecord(transaction)
         && transaction.branch_id === branch.id
@@ -180,9 +189,10 @@ export function buildPettyCashBalanceRows(
 
     return {
       adjustments,
-      balance: issued - spent - returned + adjustments,
+      balance: openingBalance + issued - spent - returned + adjustments,
       branch,
       issued,
+      openingBalance,
       returned,
       spent
     };

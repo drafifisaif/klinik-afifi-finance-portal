@@ -5,6 +5,7 @@ import { MetricCard } from "@/components/metric-card";
 import { ModuleHeader } from "@/components/module-header";
 import { getDashboardData, getPanelCompanies, totalBy } from "@/lib/data";
 import { formatCurrency, formatDate, labelize } from "@/lib/format";
+import { outstandingOpeningBalanceTotal } from "@/lib/opening-balances";
 import { hasPermission, normalizeRole, requirePermission } from "@/lib/permissions";
 import { getTransactionDocuments } from "@/lib/transaction-documents";
 import { Building, CalendarClock, FileClock, ShieldCheck } from "lucide-react";
@@ -21,7 +22,8 @@ export default async function PanelsPage() {
   const canManageMasterData = hasPermission(profile, "view_reports");
   const canDeleteDocuments = normalizeRole(profile.role) !== "branch_pic";
   const totalClaims = totalBy(data.panels, (claim) => claim.amount);
-  const outstanding = totalBy(
+  const openingOutstanding = outstandingOpeningBalanceTotal(data.openingBalances, "panel_outstanding");
+  const outstanding = openingOutstanding + totalBy(
     data.panels.filter((claim) => claim.status !== "paid"),
     (claim) => claim.amount
   );
@@ -37,7 +39,7 @@ export default async function PanelsPage() {
 
       <section className="dashboard-grid">
         <MetricCard icon={ShieldCheck} label="Total claims" value={formatCurrency(totalClaims)} />
-        <MetricCard icon={FileClock} label="Outstanding" value={formatCurrency(outstanding)} tone="blue" />
+        <MetricCard icon={FileClock} label="Outstanding" value={formatCurrency(outstanding)} detail="Opening balance plus unpaid claims" tone="blue" />
         <MetricCard icon={CalendarClock} label="Unpaid claims" value={String(unpaid)} tone="amber" />
         <MetricCard icon={Building} label="Panel companies" value={String(panelCompanies.length)} tone="rose" />
       </section>

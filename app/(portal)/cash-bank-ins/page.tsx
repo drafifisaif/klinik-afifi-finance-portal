@@ -148,9 +148,10 @@ export default async function CashBankInsPage({ searchParams }: { searchParams: 
           <ExportCsvLink label="Export cash CSV" report="cash-in-hand" searchParams={params} />
         </div>
         <DataTable
-          columns={["Branch", "Total cash sales", "Total cash banked in", "Remaining cash in hand"]}
+          columns={["Branch", "Opening balance", "Total cash sales", "Total cash banked in", "Remaining cash in hand"]}
           rows={cashInHandRows.map((row) => [
             row.branch.name,
+            formatCurrency(row.openingBalance),
             formatCurrency(row.cashSales),
             formatCurrency(row.bankedIn),
             formatCurrency(row.remaining)

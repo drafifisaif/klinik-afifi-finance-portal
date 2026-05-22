@@ -137,9 +137,10 @@ export default async function PettyCashPage() {
         <div className="table-section">
           <h2>Petty cash balance by branch</h2>
           <DataTable
-            columns={["Branch", "Total issued", "Total spent", "Total returned", "Adjustments", "Current petty cash balance"]}
+            columns={["Branch", "Opening balance", "Total issued", "Total spent", "Total returned", "Adjustments", "Current petty cash balance"]}
             rows={balanceRows.map((row) => [
               row.branch.name,
+              formatCurrency(row.openingBalance),
               formatCurrency(row.issued),
               formatCurrency(row.spent),
               formatCurrency(row.returned),
