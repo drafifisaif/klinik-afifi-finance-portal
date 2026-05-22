@@ -15,7 +15,7 @@ import {
   requireBankAccountPermission,
   requirePermission
 } from "@/lib/permissions";
-import type { BankTransactionType, ExpenseCategory, OpeningBalanceType, PaymentType, PettyCashTransactionType, PurchaseCategory, UserRole } from "@/lib/types";
+import type { BankTransactionType, ExpenseCategory, OpeningBalanceType, OpeningBalanceVerificationStatus, PaymentType, PettyCashTransactionType, PurchaseCategory, UserRole } from "@/lib/types";
 
 type ImportPayload = Record<string, string | number | null>;
 
@@ -234,8 +234,13 @@ type OpeningBalanceAuditRow = {
   created_by: string | null;
   notes: string | null;
   panel_company_id: string | null;
+  reviewed_at: string | null;
+  reviewed_by: string | null;
+  source_notes: string | null;
+  source_reference: string | null;
   supplier_id: string | null;
   updated_by: string | null;
+  verification_status: OpeningBalanceVerificationStatus;
 };
 
 function userProfileAuditData(profile: UserProfileAuditRow) {
@@ -437,8 +442,13 @@ function openingBalanceAuditData(balance: OpeningBalanceAuditRow) {
     created_by: balance.created_by,
     notes: balance.notes,
     panel_company_id: balance.panel_company_id,
+    reviewed_at: balance.reviewed_at,
+    reviewed_by: balance.reviewed_by,
+    source_notes: balance.source_notes,
+    source_reference: balance.source_reference,
     supplier_id: balance.supplier_id,
-    updated_by: balance.updated_by
+    updated_by: balance.updated_by,
+    verification_status: balance.verification_status
   };
 }
 
@@ -449,6 +459,7 @@ function hasAuditChanges(beforeData: Record<string, unknown>, afterData: Record<
 function importAuditData(type: ImportType, row: Record<string, unknown>) {
   if (type === "daily_sales") return dailySaleAuditData(row as unknown as DailySaleAuditRow);
   if (type === "expenses") return expenseAuditData(row as unknown as ExpenseAuditRow);
+  if (type === "opening_balances") return openingBalanceAuditData(row as unknown as OpeningBalanceAuditRow);
   if (type === "supplier_purchases") return supplierPurchaseAuditData(row as unknown as SupplierPurchaseAuditRow);
   if (type === "supplier_payments") return supplierPaymentAuditData(row as unknown as SupplierPaymentAuditRow);
   return panelClaimAuditData(row as unknown as PanelClaimAuditRow);
@@ -457,6 +468,15 @@ function importAuditData(type: ImportType, row: Record<string, unknown>) {
 function importRevalidationPaths(type: ImportType) {
   if (type === "daily_sales") return ["/sales", "/dashboard"];
   if (type === "expenses") return ["/expenses", "/dashboard"];
+  if (type === "opening_balances") return [
+    "/opening-balances",
+    "/dashboard",
+    "/bank",
+    "/cash-bank-ins",
+    "/petty-cash",
+    "/suppliers/payments",
+    "/panels"
+  ];
   if (type === "supplier_purchases") return ["/purchases", "/dashboard"];
   if (type === "supplier_payments") return ["/suppliers/payments", "/dashboard"];
   return ["/panels", "/dashboard"];
@@ -498,6 +518,11 @@ function openingBalanceType(formData: FormData): OpeningBalanceType {
   throw new Error("Select a valid opening balance type.");
 }
 
+function openingBalanceVerificationStatus(value: string | null): OpeningBalanceVerificationStatus {
+  if (value === "confirmed" || value === "estimated" || value === "pending_review") return value;
+  return "pending_review";
+}
+
 function openingBalanceInput(formData: FormData) {
   const balanceDate = text(formData, "balance_date");
   const balanceType = openingBalanceType(formData);
@@ -506,6 +531,15 @@ function openingBalanceInput(formData: FormData) {
   const bankAccountId = text(formData, "bank_account_id");
   const supplierId = text(formData, "supplier_id");
   const panelCompanyId = text(formData, "panel_company_id");
+  const verificationStatus = openingBalanceVerificationStatus(text(formData, "verification_status"));
+  const sourceReference = text(formData, "source_reference");
+  const sourceNotes = text(formData, "source_notes");
+  const commonInput = {
+    notes: text(formData, "notes"),
+    source_notes: sourceNotes,
+    source_reference: sourceReference,
+    verification_status: verificationStatus
+  };
 
   if (!balanceDate) throw new Error("Opening balance date is required.");
   if (amount < 0) throw new Error("Opening balance amount cannot be negative.");
@@ -518,7 +552,7 @@ function openingBalanceInput(formData: FormData) {
       balance_type: balanceType,
       bank_account_id: bankAccountId,
       branch_id: null,
-      notes: text(formData, "notes"),
+      ...commonInput,
       panel_company_id: null,
       supplier_id: null
     };
@@ -532,7 +566,7 @@ function openingBalanceInput(formData: FormData) {
       balance_type: balanceType,
       bank_account_id: null,
       branch_id: branchId,
-      notes: text(formData, "notes"),
+      ...commonInput,
       panel_company_id: null,
       supplier_id: null
     };
@@ -546,7 +580,7 @@ function openingBalanceInput(formData: FormData) {
       balance_type: balanceType,
       bank_account_id: null,
       branch_id: branchId,
-      notes: text(formData, "notes"),
+      ...commonInput,
       panel_company_id: null,
       supplier_id: supplierId
     };
@@ -559,7 +593,7 @@ function openingBalanceInput(formData: FormData) {
     balance_type: balanceType,
     bank_account_id: null,
     branch_id: branchId,
-    notes: text(formData, "notes"),
+    ...commonInput,
     panel_company_id: panelCompanyId,
     supplier_id: null
   };
@@ -670,15 +704,19 @@ export async function createOpeningBalance(formData: FormData) {
   await requireOpeningBalanceOwner();
   const input = openingBalanceInput(formData);
   const userId = await getUserId();
+  const reviewedFields = input.verification_status === "confirmed"
+    ? { reviewed_at: new Date().toISOString(), reviewed_by: userId }
+    : {};
   const supabase = await createClient();
   const { data: balance, error } = await supabase
     .from("opening_balances")
     .insert({
       ...input,
       created_by: userId,
+      ...reviewedFields,
       updated_by: userId
     })
-    .select("id, amount, balance_date, balance_type, bank_account_id, branch_id, created_by, notes, panel_company_id, supplier_id, updated_by")
+    .select("id, amount, balance_date, balance_type, bank_account_id, branch_id, created_by, notes, panel_company_id, reviewed_at, reviewed_by, source_notes, source_reference, supplier_id, updated_by, verification_status")
     .single();
 
   if (error || !balance) throw error ?? new Error("Opening balance could not be loaded after creation.");
@@ -704,7 +742,7 @@ export async function updateOpeningBalance(formData: FormData) {
   const supabase = await createClient();
   const { data: currentBalance, error: currentError } = await supabase
     .from("opening_balances")
-    .select("id, amount, balance_date, balance_type, bank_account_id, branch_id, created_by, notes, panel_company_id, supplier_id, updated_by")
+    .select("id, amount, balance_date, balance_type, bank_account_id, branch_id, created_by, notes, panel_company_id, reviewed_at, reviewed_by, source_notes, source_reference, supplier_id, updated_by, verification_status")
     .eq("id", balanceId)
     .maybeSingle();
 
@@ -713,15 +751,19 @@ export async function updateOpeningBalance(formData: FormData) {
   if (currentBalance.balance_type !== input.balance_type) {
     throw new Error("Opening balance type cannot change during edit.");
   }
+  const userId = await getUserId();
 
   const { data: updatedBalance, error } = await supabase
     .from("opening_balances")
     .update({
       ...input,
-      updated_by: await getUserId()
+      ...(currentBalance.verification_status !== input.verification_status
+        ? { reviewed_at: new Date().toISOString(), reviewed_by: userId }
+        : {}),
+      updated_by: userId
     })
     .eq("id", currentBalance.id)
-    .select("id, amount, balance_date, balance_type, bank_account_id, branch_id, created_by, notes, panel_company_id, supplier_id, updated_by")
+    .select("id, amount, balance_date, balance_type, bank_account_id, branch_id, created_by, notes, panel_company_id, reviewed_at, reviewed_by, source_notes, source_reference, supplier_id, updated_by, verification_status")
     .single();
 
   if (error || !updatedBalance) throw error ?? new Error("Updated opening balance could not be loaded.");
@@ -1761,25 +1803,39 @@ export async function createPanelClaim(formData: FormData) {
 
 export async function importFinanceRows(type: ImportType, payloads: ImportPayload[]) {
   if (!hasSupabaseEnv() || !payloads.length) return;
-  await requirePermission("import_data");
+  if (type === "opening_balances") {
+    await requireOpeningBalanceOwner();
+  } else {
+    await requirePermission("import_data");
+  }
 
   const config = importConfigs[type];
   if (!config) throw new Error("Select a valid import type.");
 
   const enteredBy = await getUserId();
-  const rows = payloads.map((payload) => ({ ...payload, entered_by: enteredBy }));
+  const rows = type === "opening_balances"
+    ? payloads.map((payload) => ({
+        ...payload,
+        created_by: enteredBy,
+        ...(payload.verification_status === "confirmed"
+          ? { reviewed_at: new Date().toISOString(), reviewed_by: enteredBy }
+          : {}),
+        updated_by: enteredBy
+      }))
+    : payloads.map((payload) => ({ ...payload, entered_by: enteredBy }));
   const supabase = await createClient();
   const { data, error } = await supabase.from(config.table).insert(rows).select("*");
 
   if (error || !data) throw error ?? new Error("Imported rows could not be loaded.");
 
   await Promise.all(data.map((row) => {
-    const record = row as Record<string, unknown> & { branch_id?: unknown; id?: unknown };
+    const record = row as Record<string, unknown> & { bank_account_id?: unknown; branch_id?: unknown; id?: unknown };
     return logAuditEvent({
       action: "create",
       afterData: importAuditData(type, record),
+      bankAccountId: typeof record.bank_account_id === "string" ? record.bank_account_id : null,
       branchId: typeof record.branch_id === "string" ? record.branch_id : null,
-      description: `Imported ${config.label} row.`,
+      description: type === "opening_balances" ? "Imported opening balance." : `Imported ${config.label} row.`,
       entityId: typeof record.id === "string" ? record.id : null,
       entityName: config.table
     });

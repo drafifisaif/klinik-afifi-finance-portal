@@ -1,10 +1,10 @@
 import { ImportWorkspace } from "@/components/import/import-workspace";
 import { ModuleHeader } from "@/components/module-header";
 import { getImportReferenceData } from "@/lib/data";
-import { requirePermission } from "@/lib/permissions";
+import { normalizeRole, requirePermission } from "@/lib/permissions";
 
 export default async function ImportPage() {
-  await requirePermission("import_data");
+  const profile = await requirePermission("import_data");
   const references = await getImportReferenceData();
 
   return (
@@ -15,7 +15,7 @@ export default async function ImportPage() {
         description="Upload CSV files, validate rows, detect duplicates, preview issues, and import only clean finance records into Supabase."
       />
 
-      <ImportWorkspace references={references} />
+      <ImportWorkspace allowOpeningBalanceImports={normalizeRole(profile.role) === "owner"} references={references} />
     </>
   );
 }

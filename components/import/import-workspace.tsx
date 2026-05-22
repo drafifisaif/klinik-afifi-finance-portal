@@ -8,16 +8,19 @@ import {
   importTypeOptions,
   templateCsvFor,
   validExpenseCategories,
+  validOpeningBalanceTypes,
+  validOpeningBalanceVerificationStatuses,
   validPaymentStatuses,
   validPaymentTypes,
   validPurchaseCategories,
   type ImportType
 } from "@/lib/import-config";
 import { createClient } from "@/lib/supabase-client";
-import type { Branch, PanelCompany, Supplier, SupplierPurchase } from "@/lib/types";
+import type { BankAccount, Branch, PanelCompany, Supplier, SupplierPurchase } from "@/lib/types";
 import { CheckCircle2, Download, UploadCloud } from "lucide-react";
 
 type ImportReferenceData = {
+  bankAccounts: BankAccount[];
   branches: Branch[];
   suppliers: Supplier[];
   panelCompanies: PanelCompany[];
@@ -34,17 +37,19 @@ type ReviewedRow = {
 };
 
 type ImportWorkspaceProps = {
+  allowOpeningBalanceImports: boolean;
   references: ImportReferenceData;
 };
 
 type LookupMaps = {
+  bankAccounts: Map<string, BankAccount>;
   branches: Map<string, Branch>;
   suppliers: Map<string, Supplier>;
   panels: Map<string, PanelCompany>;
   purchases: Map<string, SupplierPurchase>;
 };
 
-export function ImportWorkspace({ references }: ImportWorkspaceProps) {
+export function ImportWorkspace({ allowOpeningBalanceImports, references }: ImportWorkspaceProps) {
   const [importType, setImportType] = useState<ImportType>("daily_sales");
   const [fileName, setFileName] = useState("");
   const [rawCsv, setRawCsv] = useState("");
@@ -54,6 +59,7 @@ export function ImportWorkspace({ references }: ImportWorkspaceProps) {
   const [isWorking, setIsWorking] = useState(false);
 
   const config = importConfigs[importType];
+  const allowedImportTypeOptions = importTypeOptions.filter((option) => allowOpeningBalanceImports || option.value !== "opening_balances");
   const validRows = rows.filter((row) => row.payload && row.errors.length === 0);
   const invalidRows = rows.length - validRows.length;
 
@@ -61,6 +67,11 @@ export function ImportWorkspace({ references }: ImportWorkspaceProps) {
     const branchMap = new Map<string, Branch>();
     references.branches.forEach((branch) => {
       [branch.id, branch.name, branch.code].forEach((value) => branchMap.set(normalizeValue(value), branch));
+    });
+
+    const bankAccountMap = new Map<string, BankAccount>();
+    references.bankAccounts.forEach((account) => {
+      [account.id, account.name].forEach((value) => bankAccountMap.set(normalizeValue(value), account));
     });
 
     const supplierMap = new Map<string, Supplier>();
@@ -83,6 +94,7 @@ export function ImportWorkspace({ references }: ImportWorkspaceProps) {
 
     return {
       branches: branchMap,
+      bankAccounts: bankAccountMap,
       suppliers: supplierMap,
       panels: panelMap,
       purchases: purchaseMap
@@ -119,7 +131,11 @@ export function ImportWorkspace({ references }: ImportWorkspaceProps) {
     try {
       const parsed = parseCsv(csv);
       const missingColumns = importConfigs[type].requiredColumns.filter((column) => !parsed.headers.includes(column));
-      const reviewed = parsed.rows.map((row, index) => validateRow(type, row, index + 2, lookups));
+      const reviewed = parsed.rows
+        .map((row, index) => validateRow(type, row, index + 2, lookups))
+        .map((row) => missingColumns.length
+          ? { ...row, errors: [...row.errors, `Missing CSV columns: ${missingColumns.join(", ")}`] }
+          : row);
       const withCsvDuplicates = markCsvDuplicates(type, reviewed);
       const withDatabaseDuplicates = await markDatabaseDuplicates(type, withCsvDuplicates);
 
@@ -183,7 +199,7 @@ export function ImportWorkspace({ references }: ImportWorkspaceProps) {
           <label>
             Import type
             <select value={importType} onChange={(event) => handleTypeChange(event.target.value as ImportType)}>
-              {importTypeOptions.map((option) => (
+              {allowedImportTypeOptions.map((option) => (
                 <option key={option.value} value={option.value}>
                   {option.label}
                 </option>
@@ -198,7 +214,7 @@ export function ImportWorkspace({ references }: ImportWorkspaceProps) {
         </div>
 
         <div className="import-template-grid">
-          {importTypeOptions.map((option) => (
+          {allowedImportTypeOptions.map((option) => (
             <button className="ghost-button" key={option.value} onClick={() => downloadTemplate(option.value)} type="button">
               <Download size={16} />
               <span>{option.label}</span>
@@ -281,17 +297,21 @@ function previewHeaders(headers: string[], fallback: string[]) {
 
 function validateRow(type: ImportType, source: Record<string, string>, rowNumber: number, lookups: LookupMaps): ReviewedRow {
   const errors: string[] = [];
-  const required = importConfigs[type].requiredColumns;
+  const required = type === "opening_balances"
+    ? ["balance_date", "balance_type", "amount"]
+    : importConfigs[type].requiredColumns;
 
   required.forEach((column) => {
     if (!source[column]?.trim()) errors.push(`Missing ${column}`);
   });
 
   const branch = source.branch ? lookups.branches.get(normalizeValue(source.branch)) : undefined;
+  const bankAccount = source.bank_account ? lookups.bankAccounts.get(normalizeValue(source.bank_account)) : undefined;
   const supplier = source.supplier ? lookups.suppliers.get(normalizeValue(source.supplier)) : undefined;
   const panel = source.panel_company ? lookups.panels.get(normalizeValue(source.panel_company)) : undefined;
 
   if (source.branch && !branch) errors.push(`Unknown branch: ${source.branch}`);
+  if (source.bank_account && !bankAccount) errors.push(`Unknown bank account: ${source.bank_account}`);
   if (source.supplier && !supplier) errors.push(`Unknown supplier: ${source.supplier}`);
   if (source.panel_company && !panel) errors.push(`Unknown panel company: ${source.panel_company}`);
 
@@ -328,6 +348,48 @@ function validateRow(type: ImportType, source: Record<string, string>, rowNumber
       description: source.description?.trim() ?? "",
       payment_type: paymentType,
       amount: readMoney(source.amount, "amount", errors)
+    } : null;
+    return { ...common, payload };
+  }
+
+  if (type === "opening_balances") {
+    const balanceDate = readDate(source.balance_date, "balance_date", errors);
+    const balanceType = enumValue(source.balance_type, validOpeningBalanceTypes, "balance_type", errors);
+    const verificationStatus = source.verification_status?.trim()
+      ? enumValue(source.verification_status, validOpeningBalanceVerificationStatuses, "verification_status", errors)
+      : "pending_review";
+
+    if (balanceType === "bank_account" && !source.bank_account?.trim()) errors.push("Missing bank_account for bank_account balance");
+    if ((balanceType === "cash_in_hand" || balanceType === "petty_cash") && !source.branch?.trim()) {
+      errors.push(`Missing branch for ${balanceType} balance`);
+    }
+    if (balanceType === "supplier_outstanding" && !source.supplier?.trim()) {
+      errors.push("Missing supplier for supplier_outstanding balance");
+    }
+    if (balanceType === "panel_outstanding" && !source.panel_company?.trim()) {
+      errors.push("Missing panel_company for panel_outstanding balance");
+    }
+
+    const hasTarget = Boolean(
+      (balanceType === "bank_account" && bankAccount)
+      || ((balanceType === "cash_in_hand" || balanceType === "petty_cash") && branch)
+      || (balanceType === "supplier_outstanding" && supplier)
+      || (balanceType === "panel_outstanding" && panel)
+    );
+    const payload = balanceDate && balanceType && verificationStatus && hasTarget ? {
+      amount: readMoney(source.amount, "amount", errors),
+      balance_date: balanceDate,
+      balance_type: balanceType,
+      bank_account_id: balanceType === "bank_account" ? bankAccount?.id ?? null : null,
+      branch_id: balanceType === "cash_in_hand" || balanceType === "petty_cash" || balanceType === "supplier_outstanding" || balanceType === "panel_outstanding"
+        ? branch?.id ?? null
+        : null,
+      notes: emptyToNull(source.notes),
+      panel_company_id: balanceType === "panel_outstanding" ? panel?.id ?? null : null,
+      source_notes: emptyToNull(source.source_notes),
+      source_reference: emptyToNull(source.source_reference),
+      supplier_id: balanceType === "supplier_outstanding" ? supplier?.id ?? null : null,
+      verification_status: verificationStatus
     } : null;
     return { ...common, payload };
   }
@@ -489,6 +551,16 @@ async function markDatabaseDuplicates(type: ImportType, rows: ReviewedRow[]) {
     data?.forEach((row) => duplicateKeys.add(`${row.panel_company_id}|${normalizeValue(row.claim_no ?? "")}|${row.claim_month}`));
   }
 
+  if (type === "opening_balances") {
+    const dates = uniqueStrings(validPayloads.map((payload) => payload.balance_date));
+    const { data, error } = await supabase
+      .from("opening_balances")
+      .select("balance_date, balance_type, bank_account_id, branch_id, supplier_id, panel_company_id")
+      .in("balance_date", dates);
+    if (error) throw error;
+    data?.forEach((row) => duplicateKeys.add(openingBalanceDuplicateKey(row)));
+  }
+
   return rows.map((row) => {
     const key = duplicateKey(type, row.payload);
     if (key && duplicateKeys.has(key)) {
@@ -513,7 +585,26 @@ function duplicateKey(type: ImportType, payload: ImportPayload | null) {
   if (type === "panel_claims") {
     return `${payload.panel_company_id}|${normalizeValue(String(payload.claim_no ?? ""))}|${payload.claim_month}`;
   }
+  if (type === "opening_balances") return openingBalanceDuplicateKey(payload);
   return null;
+}
+
+function openingBalanceDuplicateKey(payload: {
+  balance_date?: unknown;
+  balance_type?: unknown;
+  bank_account_id?: unknown;
+  branch_id?: unknown;
+  panel_company_id?: unknown;
+  supplier_id?: unknown;
+}) {
+  const targetId = payload.balance_type === "bank_account"
+    ? payload.bank_account_id
+    : payload.balance_type === "cash_in_hand" || payload.balance_type === "petty_cash"
+      ? payload.branch_id
+      : payload.balance_type === "supplier_outstanding"
+        ? `${payload.supplier_id}|${payload.branch_id ?? ""}`
+        : `${payload.panel_company_id}|${payload.branch_id ?? ""}`;
+  return `${payload.balance_type}|${payload.balance_date}|${targetId ?? ""}`;
 }
 
 function uniqueStrings(values: unknown[]) {

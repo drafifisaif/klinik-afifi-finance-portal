@@ -104,12 +104,17 @@ const auditFieldLabels: Record<string, string> = {
   qr_amount: "QR amount",
   reference_no: "Reference",
   related_bank_account_id: "Related bank account",
+  reviewed_at: "Reviewed at",
+  reviewed_by: "Reviewed by",
   sale_date: "Sale date",
+  source_notes: "Source notes",
+  source_reference: "Source reference",
   supplier_id: "Supplier",
   transaction_date: "Transaction date",
   transaction_type: "Transaction type",
   transfer_group_id: "Transfer group",
   user_id: "User",
+  verification_status: "Verification status",
   void_reason: "Void reason",
   voided_at: "Voided at",
   voided_by: "Voided by"
@@ -146,7 +151,7 @@ function isMoneyField(field: string) {
 }
 
 function isUserField(field: string) {
-  return ["actor_id", "created_by", "deleted_by", "entered_by", "granted_by", "updated_by", "uploaded_by", "user_id", "voided_by"].includes(field);
+  return ["actor_id", "created_by", "deleted_by", "entered_by", "granted_by", "reviewed_by", "updated_by", "uploaded_by", "user_id", "voided_by"].includes(field);
 }
 
 function formatAuditValue(field: string, value: unknown, references: AuditReferences) {
@@ -174,7 +179,15 @@ function formatAuditValue(field: string, value: unknown, references: AuditRefere
   }
   if (field.endsWith("_at") && typeof value === "string") return formatDateTime(value);
   if ((field.endsWith("_date") || field === "claim_month") && typeof value === "string") return formatDate(value);
-  if ((field.endsWith("_type") || field === "category" || field === "document_type" || field === "direction") && typeof value === "string") {
+  if (
+    (field.endsWith("_type")
+      || field === "category"
+      || field === "document_type"
+      || field === "direction"
+      || field === "source_reference"
+      || field === "verification_status")
+    && typeof value === "string"
+  ) {
     return labelize(value);
   }
   if (typeof value === "string" && field.endsWith("_id")) return shortId(value);

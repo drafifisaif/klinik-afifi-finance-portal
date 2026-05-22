@@ -2,11 +2,15 @@ import { createOpeningBalance, updateOpeningBalance } from "@/app/actions";
 import { DataTable } from "@/components/data-table";
 import { ModuleHeader } from "@/components/module-header";
 import { bankAccountLabel, branchLabel } from "@/lib/bank-reporting";
-import { formatCurrency, formatDate } from "@/lib/format";
+import { formatCurrency, formatDate, labelize } from "@/lib/format";
 import {
   getOpeningBalanceSetupReferences,
+  needsOpeningBalanceCaution,
+  openingBalanceSourceReferences,
   openingBalanceTypeLabel,
   openingBalanceTypes,
+  openingBalanceVerificationLabel,
+  openingBalanceVerificationStatuses,
   type OpeningBalanceSetupReferences
 } from "@/lib/opening-balances";
 import { requirePermission } from "@/lib/permissions";
@@ -35,6 +39,60 @@ function targetLabel(balance: OpeningBalance) {
 function branchAllocationLabel(balance: OpeningBalance) {
   if (balance.balance_type === "cash_in_hand" || balance.balance_type === "petty_cash") return "-";
   return branchLabel(balance.branches);
+}
+
+function verificationTone(balance: OpeningBalance) {
+  if (balance.verification_status === "confirmed") return "status-paid";
+  if (balance.verification_status === "estimated") return "status-unpaid";
+  return "status-partial";
+}
+
+function VerificationStatus({ balance }: { balance: OpeningBalance }) {
+  return (
+    <span className={`status-pill ${verificationTone(balance)}`}>
+      {openingBalanceVerificationLabel(balance.verification_status)}
+    </span>
+  );
+}
+
+function VerificationFields({ balance }: { balance?: OpeningBalance }) {
+  return (
+    <>
+      <label>
+        Verification status
+        <select name="verification_status" defaultValue={balance?.verification_status ?? "pending_review"}>
+          {openingBalanceVerificationStatuses.map((status) => (
+            <option key={status.value} value={status.value}>
+              {status.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label>
+        Source reference
+        <input
+          name="source_reference"
+          defaultValue={balance?.source_reference ?? ""}
+          list="opening-balance-sources"
+          placeholder="bank_statement or other source"
+        />
+      </label>
+      <label className="full-span">
+        Source notes
+        <textarea name="source_notes" defaultValue={balance?.source_notes ?? ""} placeholder="Statement date, estimate owner, or follow-up note" />
+      </label>
+    </>
+  );
+}
+
+function sourceLabel(balance: OpeningBalance) {
+  if (!balance.source_reference && !balance.source_notes) return "-";
+  return (
+    <span>
+      {balance.source_reference ? labelize(balance.source_reference) : "-"}
+      {balance.source_notes ? <span className="table-subtext">{balance.source_notes}</span> : null}
+    </span>
+  );
 }
 
 function TargetEditFields({
@@ -145,6 +203,7 @@ function OpeningBalanceEdit({ balance, references }: { balance: OpeningBalance; 
           Amount
           <input min="0" name="amount" step="0.01" type="number" defaultValue={balance.amount} required />
         </label>
+        <VerificationFields balance={balance} />
         <label>
           Notes
           <textarea name="notes" defaultValue={balance.notes ?? ""} />
@@ -160,6 +219,7 @@ function OpeningBalanceEdit({ balance, references }: { balance: OpeningBalance; 
 export default async function OpeningBalancesPage() {
   await requirePermission("view_settings");
   const references = await getOpeningBalanceSetupReferences();
+  const hasUnverifiedBalances = references.balances.some(needsOpeningBalanceCaution);
 
   return (
     <>
@@ -168,6 +228,16 @@ export default async function OpeningBalancesPage() {
         title="Opening Balances"
         description="Set the starting finance position before real 2026 portal records begin."
       />
+
+      <datalist id="opening-balance-sources">
+        {openingBalanceSourceReferences.map((source) => <option key={source} value={source} />)}
+      </datalist>
+
+      {hasUnverifiedBalances ? (
+        <p className="import-message">
+          Some opening balances are estimated or pending review. Reports will still calculate using these values, but results should be interpreted with caution.
+        </p>
+      ) : null}
 
       <section className="section-grid">
         <form action={createOpeningBalance} className="form-card">
@@ -236,6 +306,7 @@ export default async function OpeningBalancesPage() {
               Amount
               <input min="0" name="amount" step="0.01" type="number" required />
             </label>
+            <VerificationFields />
             <label className="full-span">
               Notes
               <textarea name="notes" />
@@ -265,6 +336,18 @@ export default async function OpeningBalancesPage() {
               <dt>Panel outstanding</dt>
               <dd>Select the panel company and optionally allocate a branch.</dd>
             </div>
+            <div>
+              <dt>Confirmed</dt>
+              <dd>Verified from a reliable record.</dd>
+            </div>
+            <div>
+              <dt>Estimated</dt>
+              <dd>Best estimate available for the starting position.</dd>
+            </div>
+            <div>
+              <dt>Pending Review</dt>
+              <dd>Needs follow-up before it can be confirmed.</dd>
+            </div>
           </dl>
         </aside>
       </section>
@@ -276,13 +359,15 @@ export default async function OpeningBalancesPage() {
           <section className="table-section mt-section" key={group.type}>
             <h2>{group.label}</h2>
             <DataTable
-              columns={["Date", "Type", "Target", "Branch allocation", "Amount", "Notes", "Updated", "Edit"]}
+              columns={["Date", "Type", "Target", "Branch allocation", "Amount", "Verification", "Source", "Notes", "Updated", "Edit"]}
               rows={rows.map((balance) => [
                 formatDate(balance.balance_date),
                 openingBalanceTypeLabel(balance.balance_type),
                 targetLabel(balance),
                 branchAllocationLabel(balance),
                 formatCurrency(balance.amount),
+                <VerificationStatus balance={balance} key={`${balance.id}-verification`} />,
+                <span key={`${balance.id}-source`}>{sourceLabel(balance)}</span>,
                 balance.notes ?? "-",
                 formatDate(balance.updated_at),
                 <OpeningBalanceEdit balance={balance} key={`${balance.id}-edit`} references={references} />

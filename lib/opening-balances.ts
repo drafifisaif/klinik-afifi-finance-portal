@@ -1,6 +1,6 @@
 import { getCurrentProfile, normalizeRole } from "@/lib/permissions";
 import { createClient, hasSupabaseEnv } from "@/lib/supabase-server";
-import type { BankAccount, Branch, OpeningBalance, OpeningBalanceType, PanelCompany, Supplier } from "@/lib/types";
+import type { BankAccount, Branch, OpeningBalance, OpeningBalanceType, OpeningBalanceVerificationStatus, PanelCompany, Supplier } from "@/lib/types";
 
 export const openingBalanceTypes: { label: string; value: OpeningBalanceType }[] = [
   { label: "Bank account", value: "bank_account" },
@@ -12,6 +12,29 @@ export const openingBalanceTypes: { label: string; value: OpeningBalanceType }[]
 
 export function openingBalanceTypeLabel(type: OpeningBalanceType) {
   return openingBalanceTypes.find((option) => option.value === type)?.label ?? type;
+}
+
+export const openingBalanceVerificationStatuses: { label: string; value: OpeningBalanceVerificationStatus }[] = [
+  { label: "Pending Review", value: "pending_review" },
+  { label: "Confirmed", value: "confirmed" },
+  { label: "Estimated", value: "estimated" }
+];
+
+export const openingBalanceSourceReferences = [
+  "bank_statement",
+  "staff_estimate",
+  "invoice_record",
+  "panel_statement",
+  "owner_record",
+  "other"
+] as const;
+
+export function openingBalanceVerificationLabel(status: OpeningBalanceVerificationStatus | null | undefined) {
+  return openingBalanceVerificationStatuses.find((option) => option.value === status)?.label ?? "Pending Review";
+}
+
+export function needsOpeningBalanceCaution(balance: OpeningBalance) {
+  return (balance.verification_status ?? "pending_review") !== "confirmed";
 }
 
 export function openingBalanceApplies(balance: OpeningBalance, endDate?: string) {

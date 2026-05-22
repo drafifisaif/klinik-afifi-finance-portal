@@ -182,6 +182,8 @@ export type OpeningBalanceType =
   | "supplier_outstanding"
   | "panel_outstanding";
 
+export type OpeningBalanceVerificationStatus = "confirmed" | "estimated" | "pending_review";
+
 export type OpeningBalance = {
   id: string;
   balance_date: string;
@@ -192,6 +194,11 @@ export type OpeningBalance = {
   panel_company_id?: string | null;
   amount: number;
   notes?: string | null;
+  verification_status?: OpeningBalanceVerificationStatus;
+  source_reference?: string | null;
+  source_notes?: string | null;
+  reviewed_at?: string | null;
+  reviewed_by?: string | null;
   created_by?: string | null;
   updated_by?: string | null;
   created_at?: string;

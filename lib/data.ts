@@ -602,6 +602,7 @@ export async function getImportReferenceData() {
   if (!hasSupabaseEnv()) {
     return {
       branches: filterBranchesForProfile(branches, profile),
+      bankAccounts,
       suppliers,
       panelCompanies,
       purchases
@@ -609,8 +610,9 @@ export async function getImportReferenceData() {
   }
 
   const supabase = await createClient();
-  const [branchRows, supplierRows, panelRows, purchaseRows] = await Promise.all([
+  const [branchRows, bankRows, supplierRows, panelRows, purchaseRows] = await Promise.all([
     fetchOrDemo(supabase.from("branches").select("*").eq("is_active", true).order("name"), branches),
+    fetchOrDemo(supabase.from("bank_accounts").select("*").eq("is_active", true).order("name"), bankAccounts),
     fetchOrDemo(supabase.from("suppliers").select("*").eq("is_active", true).order("name"), suppliers),
     fetchOrDemo(supabase.from("panel_companies").select("*").eq("is_active", true).order("name"), panelCompanies),
     fetchOrDemo(
@@ -625,6 +627,7 @@ export async function getImportReferenceData() {
 
   return {
     branches: filterBranchesForProfile(branchRows as Branch[], profile),
+    bankAccounts: bankRows as BankAccount[],
     suppliers: supplierRows as Supplier[],
     panelCompanies: panelRows as PanelCompany[],
     purchases: purchaseRows as SupplierPurchase[]

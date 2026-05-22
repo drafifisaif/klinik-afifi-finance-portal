@@ -18,7 +18,7 @@ import {
 import { branchGroups, getBranchGroup, resolveSelectedBranchIds, toParamArray } from "@/lib/branch-reporting";
 import { getBankingData, getDashboardData, totalBy } from "@/lib/data";
 import { formatCurrency, formatDate, monthKey } from "@/lib/format";
-import { bankOpeningBalanceTotal, outstandingOpeningBalanceTotal } from "@/lib/opening-balances";
+import { bankOpeningBalanceTotal, needsOpeningBalanceCaution, outstandingOpeningBalanceTotal } from "@/lib/opening-balances";
 import { canViewAllBranches, requirePermission } from "@/lib/permissions";
 import type { BankAccount, BankTransaction, PettyCashTransaction } from "@/lib/types";
 import {
@@ -227,6 +227,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
 
   const selectedBankBranches = bankingData?.branches.filter((branch) => selectedBranchIdSet.has(branch.id)) ?? [];
   const selectedBankBranchIds = new Set(selectedBankBranches.map((branch) => branch.id));
+  const hasOpeningBalanceCaution = [...data.openingBalances, ...(bankingData?.openingBalances ?? [])].some(needsOpeningBalanceCaution);
   const selectedBankSales = bankingData?.sales.filter((sale) => {
     return isActiveFinancialRecord(sale) && selectedBankBranchIds.has(sale.branch_id) && isWithinDateRange(sale.sale_date, range);
   }) ?? [];
@@ -419,6 +420,12 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
             Showing {range.label}: {formatDate(range.startDate)} to {formatDate(range.endDate)}. Reporting group: {selectedGroup.label}. Branches: {selectedBranchLabel}
           </p>
         </form>
+      ) : null}
+
+      {!isLimitedDashboard && hasOpeningBalanceCaution ? (
+        <p className="import-message">
+          Some opening balances are estimated or pending review. Reports still include these starting values, so interpret totals with caution.
+        </p>
       ) : null}
 
       <section className="dashboard-grid" aria-label="Finance metrics">

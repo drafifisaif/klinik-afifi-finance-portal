@@ -1,8 +1,9 @@
-import type { ExpenseCategory, PaymentStatus, PaymentType, PurchaseCategory } from "@/lib/types";
+import type { ExpenseCategory, OpeningBalanceType, OpeningBalanceVerificationStatus, PaymentStatus, PaymentType, PurchaseCategory } from "@/lib/types";
 
 export type ImportType =
   | "daily_sales"
   | "expenses"
+  | "opening_balances"
   | "supplier_purchases"
   | "supplier_payments"
   | "panel_claims";
@@ -59,6 +60,92 @@ export const importConfigs: Record<ImportType, ImportConfig> = {
         payment_type: "bank_transfer",
         amount: "350",
         vendor_name: "SESB"
+      }
+    ]
+  },
+  opening_balances: {
+    label: "Opening Balances",
+    table: "opening_balances",
+    description: "Owner-only starting bank, cash, petty cash, supplier, and panel positions.",
+    requiredColumns: [
+      "balance_date",
+      "balance_type",
+      "branch",
+      "bank_account",
+      "supplier",
+      "panel_company",
+      "amount",
+      "verification_status",
+      "source_reference",
+      "source_notes",
+      "notes"
+    ],
+    optionalColumns: [],
+    templateRows: [
+      {
+        balance_date: "2026-01-01",
+        balance_type: "bank_account",
+        branch: "",
+        bank_account: "CIMB Ranau Operation",
+        supplier: "",
+        panel_company: "",
+        amount: "15000",
+        verification_status: "confirmed",
+        source_reference: "bank_statement",
+        source_notes: "Statement as of 1 Jan 2026",
+        notes: "Opening bank balance"
+      },
+      {
+        balance_date: "2026-01-01",
+        balance_type: "cash_in_hand",
+        branch: "Ranau",
+        bank_account: "",
+        supplier: "",
+        panel_company: "",
+        amount: "1200",
+        verification_status: "estimated",
+        source_reference: "staff_estimate",
+        source_notes: "Estimated by branch PIC",
+        notes: "Opening branch cash"
+      },
+      {
+        balance_date: "2026-01-01",
+        balance_type: "petty_cash",
+        branch: "Ranau",
+        bank_account: "",
+        supplier: "",
+        panel_company: "",
+        amount: "500",
+        verification_status: "pending_review",
+        source_reference: "staff_estimate",
+        source_notes: "To verify later",
+        notes: "Opening petty cash"
+      },
+      {
+        balance_date: "2026-01-01",
+        balance_type: "supplier_outstanding",
+        branch: "Ranau",
+        bank_account: "",
+        supplier: "ABC Supplier",
+        panel_company: "",
+        amount: "3200",
+        verification_status: "confirmed",
+        source_reference: "invoice_record",
+        source_notes: "Invoice outstanding before 2026",
+        notes: "Opening supplier outstanding"
+      },
+      {
+        balance_date: "2026-01-01",
+        balance_type: "panel_outstanding",
+        branch: "Ranau",
+        bank_account: "",
+        supplier: "",
+        panel_company: "Panel A",
+        amount: "4500",
+        verification_status: "pending_review",
+        source_reference: "panel_statement",
+        source_notes: "Need panel confirmation",
+        notes: "Opening panel outstanding"
       }
     ]
   },
@@ -157,6 +244,20 @@ export const validExpenseCategories: ExpenseCategory[] = [
 export const validPurchaseCategories: PurchaseCategory[] = ["medicine", "consumables", "other"];
 
 export const validPaymentStatuses: PaymentStatus[] = ["unpaid", "partial", "paid", "overdue"];
+
+export const validOpeningBalanceTypes: OpeningBalanceType[] = [
+  "bank_account",
+  "cash_in_hand",
+  "petty_cash",
+  "supplier_outstanding",
+  "panel_outstanding"
+];
+
+export const validOpeningBalanceVerificationStatuses: OpeningBalanceVerificationStatus[] = [
+  "confirmed",
+  "estimated",
+  "pending_review"
+];
 
 export function templateCsvFor(type: ImportType) {
   const config = importConfigs[type];
