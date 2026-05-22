@@ -99,15 +99,20 @@ export async function requireBankPositionAccess() {
   if (role !== "admin" && role !== "finance") redirect("/unauthorized");
   if (!hasSupabaseEnv()) return profile;
 
-  const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("bank_account_permissions")
-    .select("bank_account_id, can_view, can_create_transaction, can_edit_transaction, can_manage_account, bank_accounts!inner(is_active)")
-    .eq("user_id", profile.id)
-    .eq("bank_accounts.is_active", true);
+  const permissions = await getCurrentBankAccountPermissions(profile);
+  const eligiblePermissions = permissions.filter((permission) => permission.user_id === profile.id && permissionAllows(permission, "view"));
+  if (!eligiblePermissions.length) redirect("/unauthorized");
 
-  if (error) redirect("/unauthorized");
-  const hasAssignedActiveBankAccess = (data ?? []).some((permission) => permissionAllows(permission, "view"));
+  const assignedBankAccountIds = eligiblePermissions.map((permission) => permission.bank_account_id);
+  const supabase = await createClient();
+  const { data: activeAccounts, error: accountError } = await supabase
+    .from("bank_accounts")
+    .select("id")
+    .in("id", assignedBankAccountIds)
+    .eq("is_active", true);
+
+  if (accountError) redirect("/unauthorized");
+  const hasAssignedActiveBankAccess = Boolean(activeAccounts?.length);
   if (!hasAssignedActiveBankAccess) redirect("/unauthorized");
   return profile;
 }
