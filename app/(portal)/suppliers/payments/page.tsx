@@ -75,7 +75,7 @@ export default async function SupplierPaymentsPage() {
             .filter((row) => row.outstanding_amount > 0)
             .map((row) => [
               row.supplier_name ?? row.suppliers?.name ?? "-",
-              row.invoice_no ?? row.purchase_id ?? row.id,
+              row.invoice_no ?? row.id,
               row.branch_name ?? row.branches?.name ?? "-",
               formatDate(row.invoice_date ?? row.purchase_date),
               row.due_date ? formatDate(row.due_date) : "-",
