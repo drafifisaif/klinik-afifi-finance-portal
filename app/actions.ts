@@ -1813,18 +1813,17 @@ export async function importFinanceRows(type: ImportType, payloads: ImportPayloa
   if (!config) throw new Error("Select a valid import type.");
 
   const enteredBy = await getUserId();
-  const rows = type === "opening_balances"
-    ? payloads.map((payload) => ({
+  const supabase = await createClient();
+  const { data, error } = type === "opening_balances"
+    ? await supabase.from("opening_balances").insert(payloads.map((payload) => ({
         ...payload,
         created_by: enteredBy,
         ...(payload.verification_status === "confirmed"
           ? { reviewed_at: new Date().toISOString(), reviewed_by: enteredBy }
           : {}),
         updated_by: enteredBy
-      }))
-    : payloads.map((payload) => ({ ...payload, entered_by: enteredBy }));
-  const supabase = await createClient();
-  const { data, error } = await supabase.from(config.table).insert(rows).select("*");
+      }))).select("*")
+    : await supabase.from(type).insert(payloads.map((payload) => ({ ...payload, entered_by: enteredBy }))).select("*");
 
   if (error || !data) throw error ?? new Error("Imported rows could not be loaded.");
 
