@@ -885,25 +885,51 @@ export async function voidDailySale(formData: FormData) {
 
 export async function createCashBankIn(formData: FormData) {
   if (!hasSupabaseEnv()) return;
-  await requirePermission("record_cash_bank_in");
+  const profile = await requirePermission("record_cash_bank_in");
   const branchId = text(formData, "branch_id");
   const bankAccountId = text(formData, "bank_account_id");
   const bankInDate = text(formData, "bank_in_date");
   const amount = number(formData, "amount");
+  const role = normalizeRole(profile.role);
+
+  if (role === "branch_pic" && !profile.branch_id) {
+    throw new Error("Your user account is not assigned to a branch. Please contact Owner/Admin.");
+  }
 
   if (!branchId || !bankAccountId || !bankInDate || amount <= 0) {
     throw new Error("Date, branch, destination bank account, and amount are required.");
   }
 
-  const profile = await requireEditableBranch(branchId);
+  await requireEditableBranch(branchId);
   if (!canEditBranch(profile, branchId)) {
     throw new Error("You do not have permission to bank in cash for this branch.");
   }
-  if (normalizeRole(profile.role) === "admin" || normalizeRole(profile.role) === "finance") {
+  const supabase = await createClient();
+
+  if (role === "branch_pic") {
+    if (branchId !== profile.branch_id) {
+      throw new Error("Branch PIC can only bank in cash for their assigned branch.");
+    }
+
+    const { data: mapping, error: mappingError } = await supabase
+      .from("branch_bank_mappings")
+      .select("bank_account_id")
+      .eq("branch_id", profile.branch_id)
+      .eq("is_active", true)
+      .maybeSingle();
+
+    if (mappingError || !mapping) {
+      throw new Error("No destination bank account is mapped for your branch. Please contact Owner/Admin.");
+    }
+    if (bankAccountId !== mapping.bank_account_id) {
+      await requireBankAccountPermission(bankAccountId, "create_transaction");
+    }
+  }
+
+  if (role === "admin" || role === "finance") {
     await requireBankAccountPermission(bankAccountId, "create_transaction");
   }
 
-  const supabase = await createClient();
   const { data: bankIn, error } = await supabase.from("cash_bank_ins").insert({
     branch_id: branchId,
     bank_account_id: bankAccountId,

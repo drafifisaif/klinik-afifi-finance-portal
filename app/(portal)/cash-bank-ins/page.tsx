@@ -1,4 +1,5 @@
 import { createCashBankIn, updateCashBankIn, voidCashBankIn } from "@/app/actions";
+import { CashBankInTargetFields } from "@/components/cash-bank-in-target-fields";
 import { DataTable } from "@/components/data-table";
 import { DocumentManager } from "@/components/documents/document-manager";
 import { ExportCsvLink } from "@/components/export-csv-link";
@@ -49,6 +50,16 @@ export default async function CashBankInsPage({ searchParams }: { searchParams: 
     : data.bankAccounts;
   const bankAccountById = getBankAccountById(data);
   const branchById = getBranchById(data);
+  const ownBranch = role === "branch_pic" && profile.branch_id ? branchById.get(profile.branch_id) : null;
+  const ownBranchMapping = role === "branch_pic" && profile.branch_id
+    ? data.branchBankMappings.find((mapping) => mapping.branch_id === profile.branch_id && mapping.is_active)
+    : null;
+  const ownBranchBankAccount = ownBranchMapping ? bankAccountById.get(ownBranchMapping.bank_account_id) : null;
+  const branchPicMissingBranch = role === "branch_pic" && !profile.branch_id;
+  const branchPicMissingMapping = role === "branch_pic" && Boolean(profile.branch_id) && (!ownBranch || !ownBranchMapping || !ownBranchBankAccount);
+  const canCreateCashBankIn = role === "branch_pic"
+    ? !branchPicMissingBranch && !branchPicMissingMapping
+    : Boolean(data.branches.length && destinationBankAccounts.length);
   const selectedBankIns = data.cashBankIns.filter((bankIn) => isWithinDateRange(bankIn.bank_in_date, range));
   const visibleUsers = await getVisibleProfilesById(selectedBankIns.flatMap((bankIn) => [bankIn.entered_by, bankIn.voided_by]));
   const userById = new Map(visibleUsers.map((user) => [user.id, user]));
@@ -79,26 +90,26 @@ export default async function CashBankInsPage({ searchParams }: { searchParams: 
             Bank-in date
             <input name="bank_in_date" type="date" defaultValue={todayInput()} required />
           </label>
-          <label>
-            Branch
-            <select name="branch_id" required>
-              {data.branches.map((branch) => (
-                <option key={branch.id} value={branch.id}>
-                  {branch.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Destination bank account
-            <select name="bank_account_id" required>
-              {destinationBankAccounts.map((account) => (
-                <option key={account.id} value={account.id}>
-                  {bankAccountLabel(account)}
-                </option>
-              ))}
-            </select>
-          </label>
+          {role === "branch_pic" ? (
+            <>
+              <label>
+                Branch
+                <input readOnly value={ownBranch?.name ?? "-"} />
+                {profile.branch_id ? <input name="branch_id" type="hidden" value={profile.branch_id} /> : null}
+              </label>
+              <label>
+                Destination bank account
+                <input readOnly value={bankAccountLabel(ownBranchBankAccount)} />
+                {ownBranchMapping ? <input name="bank_account_id" type="hidden" value={ownBranchMapping.bank_account_id} /> : null}
+              </label>
+            </>
+          ) : (
+            <CashBankInTargetFields
+              bankAccounts={destinationBankAccounts}
+              branches={data.branches}
+              mappings={data.branchBankMappings}
+            />
+          )}
           <label>
             Amount
             <input min="0.01" name="amount" step="0.01" type="number" required />
@@ -111,10 +122,12 @@ export default async function CashBankInsPage({ searchParams }: { searchParams: 
             Notes
             <textarea name="notes" placeholder="Optional cash bank-in notes" />
           </label>
-          <button className="primary-button" disabled={!destinationBankAccounts.length} type="submit">
+          <button className="primary-button" disabled={!canCreateCashBankIn} type="submit">
             Save cash bank-in
           </button>
-          {!destinationBankAccounts.length ? <p className="muted-copy">No editable bank accounts are assigned to your user.</p> : null}
+          {branchPicMissingBranch ? <p className="muted-copy">Your user account is not assigned to a branch. Please contact Owner/Admin.</p> : null}
+          {branchPicMissingMapping ? <p className="muted-copy">No destination bank account is mapped for your branch. Please contact Owner/Admin.</p> : null}
+          {role !== "branch_pic" && !destinationBankAccounts.length ? <p className="muted-copy">No editable bank accounts are assigned to your user.</p> : null}
         </form>
 
         <form className="form-card" method="get">
