@@ -388,6 +388,13 @@ textarea {
   margin-top: 18px;
 }
 
+.section-grid > *,
+.cards-grid > *,
+.form-card > *,
+.form-grid > * {
+  min-width: 0;
+}
+
 .mt-section {
   margin-top: 18px;
 }
@@ -710,7 +717,7 @@ tr:last-child td {
 .form-grid {
   display: grid;
   gap: 14px;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
 }
 
 .manual-bank-editor {
@@ -1024,7 +1031,14 @@ textarea {
   border-radius: 8px;
   color: var(--ink);
   min-height: 42px;
+  min-width: 0;
   padding: 10px 12px;
+  width: 100%;
+}
+
+input[type="checkbox"],
+input[type="radio"] {
+  width: auto;
 }
 
 textarea {
