@@ -188,7 +188,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const sales = data.sales.filter((sale) => {
     return isActiveFinancialRecord(sale) && selectedBranchIdSet.has(sale.branch_id) && isWithinDateRange(sale.sale_date, range);
   });
-  const expenses = data.expenses.filter((expense) => selectedBranchIdSet.has(expense.branch_id) && isWithinDateRange(expense.expense_date, range));
+  const expenses = data.expenses.filter((expense) => isActiveFinancialRecord(expense) && selectedBranchIdSet.has(expense.branch_id) && isWithinDateRange(expense.expense_date, range));
   const purchases = data.purchases.filter((purchase) => selectedBranchIdSet.has(purchase.branch_id) && isWithinDateRange(purchase.purchase_date, range));
   const supplierPayments = data.supplierPayments.filter((payment) => {
     const matchesBranch = payment.branch_id ? selectedBranchIdSet.has(payment.branch_id) : isAllSelectedBranches;

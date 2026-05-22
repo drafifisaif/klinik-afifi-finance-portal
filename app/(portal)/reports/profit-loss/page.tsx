@@ -11,15 +11,16 @@ export default async function ProfitLossPage() {
   await requirePermission("view_reports");
   const data = await getDashboardData();
   const sales = data.sales.filter(isActiveFinancialRecord);
+  const activeExpenses = data.expenses.filter(isActiveFinancialRecord);
   const revenue = totalBy(sales, (sale) => sale.total_amount);
-  const expenses = totalBy(data.expenses, (expense) => expense.amount);
+  const expenses = totalBy(activeExpenses, (expense) => expense.amount);
   const purchases = totalBy(data.purchases, (purchase) => purchase.total_amount);
   const profit = revenue - expenses - purchases;
 
   const months = Array.from(
     new Set([
       ...sales.map((sale) => monthKey(sale.sale_date)),
-      ...data.expenses.map((expense) => monthKey(expense.expense_date)),
+      ...activeExpenses.map((expense) => monthKey(expense.expense_date)),
       ...data.purchases.map((purchase) => monthKey(purchase.purchase_date))
     ])
   );
@@ -48,7 +49,7 @@ export default async function ProfitLossPage() {
               (sale) => sale.total_amount
             );
             const monthExpenses = totalBy(
-              data.expenses.filter((expense) => monthKey(expense.expense_date) === month),
+              activeExpenses.filter((expense) => monthKey(expense.expense_date) === month),
               (expense) => expense.amount
             );
             const monthPurchases = totalBy(

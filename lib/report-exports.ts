@@ -163,7 +163,9 @@ export async function dashboardSummaryCsv(searchParams: URLSearchParams): Promis
   const sales = dashboardData.sales.filter((sale) => {
     return isActiveFinancialRecord(sale) && branchIds.has(sale.branch_id) && isWithinDateRange(sale.sale_date, range);
   });
-  const expenses = dashboardData.expenses.filter((expense) => branchIds.has(expense.branch_id) && isWithinDateRange(expense.expense_date, range));
+  const expenses = dashboardData.expenses.filter((expense) => {
+    return isActiveFinancialRecord(expense) && branchIds.has(expense.branch_id) && isWithinDateRange(expense.expense_date, range);
+  });
   const purchases = dashboardData.purchases.filter((purchase) => branchIds.has(purchase.branch_id) && isWithinDateRange(purchase.purchase_date, range));
   const supplierPayments = dashboardData.supplierPayments.filter((payment) => {
     return branchMatches(payment.branch_id, selectedBranchIdSet, includeUnassigned) && isWithinDateRange(payment.payment_date, range);
@@ -443,7 +445,8 @@ export async function expensesCsv(searchParams: URLSearchParams): Promise<CsvExp
     filename: "expenses-report.csv",
     headers: ["Date", "Branch", "Category", "Vendor", "Payment Type", "Amount", "Description"],
     rows: data.expenses.filter((expense) => {
-      return matchesOptionalDate(expense.expense_date, searchParams)
+      return isActiveFinancialRecord(expense)
+        && matchesOptionalDate(expense.expense_date, searchParams)
         && (selectedBranchId === "all" || expense.branch_id === selectedBranchId);
     }).map((expense) => [
       expense.expense_date,

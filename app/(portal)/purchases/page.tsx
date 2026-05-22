@@ -1,4 +1,4 @@
-import { createSupplier, createSupplierPurchase } from "@/app/actions";
+import { createSupplier, createSupplierPurchase, updateSupplier } from "@/app/actions";
 import { DataTable } from "@/components/data-table";
 import { DocumentManager } from "@/components/documents/document-manager";
 import { MetricCard } from "@/components/metric-card";
@@ -14,9 +14,11 @@ export default async function PurchasesPage() {
   const profile = await requirePermission("view_supplier_records");
   const data = await getDashboardData();
   const suppliers = await getSuppliers();
+  const activeSuppliers = suppliers.filter((supplier) => supplier.is_active);
   const purchaseDocuments = await getTransactionDocuments("supplier_purchases", data.purchases.map((purchase) => purchase.id));
-  const canManageMasterData = hasPermission(profile, "view_reports");
-  const canDeleteDocuments = normalizeRole(profile.role) !== "branch_pic";
+  const role = normalizeRole(profile.role);
+  const canManageMasterData = hasPermission(profile, "edit_finance") && role !== "branch_pic";
+  const canDeleteDocuments = role !== "branch_pic";
   const totalPurchases = totalBy(data.purchases, (purchase) => purchase.total_amount);
   const medicine = totalBy(data.purchases, (purchase) => purchase.medicine_cost);
   const consumables = totalBy(data.purchases, (purchase) => purchase.consumables_cost);
@@ -65,7 +67,7 @@ export default async function PurchasesPage() {
             <label>
               Supplier
               <select name="supplier_id" required>
-                {suppliers.map((supplier) => (
+                {activeSuppliers.map((supplier) => (
                   <option key={supplier.id} value={supplier.id}>
                     {supplier.name}
                   </option>
@@ -129,7 +131,7 @@ export default async function PurchasesPage() {
 
           {canManageMasterData ? (
           <form action={createSupplier} className="form-card">
-            <h2>New supplier</h2>
+            <h2>Supplier management</h2>
             <label>
               Supplier name
               <input name="name" required />
@@ -147,14 +149,87 @@ export default async function PurchasesPage() {
               <input name="email" type="email" />
             </label>
             <label>
-              Terms days
-              <input min="0" name="payment_terms_days" type="number" defaultValue={30} />
+              Address
+              <textarea name="address" />
+            </label>
+            <label>
+              Notes
+              <textarea name="notes" />
+            </label>
+            <label>
+              Status
+              <select name="is_active" defaultValue="true">
+                <option value="true">Active</option>
+                <option value="false">Inactive</option>
+              </select>
             </label>
             <button className="primary-button" type="submit">
-              Add supplier
+              Add Supplier
             </button>
           </form>
           ) : null}
+
+          <div className="table-section">
+            <div className="report-toolbar">
+              <h2>Supplier directory</h2>
+            </div>
+            <DataTable
+              columns={["Supplier", "Contact", "Phone", "Email", "Status", "Edit"]}
+              rows={suppliers.map((supplier) => [
+                supplier.name,
+                supplier.contact_person ?? "-",
+                supplier.phone ?? "-",
+                supplier.email ?? "-",
+                <span className={`status-pill ${supplier.is_active ? "status-paid" : "status-overdue"}`} key={`${supplier.id}-status`}>
+                  {supplier.is_active ? "Active" : "Inactive"}
+                </span>,
+                canManageMasterData ? (
+                  <details className="manual-bank-editor" key={`${supplier.id}-edit`}>
+                    <summary>Edit</summary>
+                    <form action={updateSupplier} className="manual-bank-edit-form">
+                      <input name="supplier_id" type="hidden" value={supplier.id} />
+                      <label>
+                        Supplier name
+                        <input defaultValue={supplier.name} name="name" required />
+                      </label>
+                      <label>
+                        Contact person
+                        <input defaultValue={supplier.contact_person ?? ""} name="contact_person" />
+                      </label>
+                      <label>
+                        Phone
+                        <input defaultValue={supplier.phone ?? ""} name="phone" />
+                      </label>
+                      <label>
+                        Email
+                        <input defaultValue={supplier.email ?? ""} name="email" type="email" />
+                      </label>
+                      <label>
+                        Address
+                        <textarea defaultValue={supplier.address ?? ""} name="address" />
+                      </label>
+                      <label>
+                        Notes
+                        <textarea defaultValue={supplier.notes ?? ""} name="notes" />
+                      </label>
+                      <label>
+                        Status
+                        <select defaultValue={supplier.is_active ? "true" : "false"} name="is_active">
+                          <option value="true">Active</option>
+                          <option value="false">Inactive</option>
+                        </select>
+                      </label>
+                      <button className="primary-button compact-button" type="submit">
+                        Save
+                      </button>
+                    </form>
+                  </details>
+                ) : (
+                  "-"
+                )
+              ])}
+            />
+          </div>
         </div>
       </section>
     </>

@@ -28,13 +28,13 @@ const branches: Branch[] = [
 ];
 
 const suppliers: Supplier[] = [
-  { id: "s1", name: "Medisupply Sabah", payment_terms_days: 30, is_active: true, phone: "088-100 200" },
-  { id: "s2", name: "ClinicCare Consumables", payment_terms_days: 14, is_active: true, phone: "088-300 400" }
+  { id: "s1", name: "Medisupply Sabah", payment_terms_days: 30, is_active: true, phone: "088-100 200", address: "Kota Kinabalu", notes: null },
+  { id: "s2", name: "ClinicCare Consumables", payment_terms_days: 14, is_active: true, phone: "088-300 400", address: "Papar", notes: null }
 ];
 
 const panelCompanies: PanelCompany[] = [
-  { id: "p1", name: "SabahCare Panel", payment_terms_days: 30, is_active: true },
-  { id: "p2", name: "Borneo Corporate Health", payment_terms_days: 45, is_active: true }
+  { id: "p1", name: "SabahCare Panel", payment_terms_days: 30, is_active: true, address: "Kota Kinabalu", notes: null },
+  { id: "p2", name: "Borneo Corporate Health", payment_terms_days: 45, is_active: true, address: "Sandakan", notes: null }
 ];
 
 const sales: DailySale[] = [

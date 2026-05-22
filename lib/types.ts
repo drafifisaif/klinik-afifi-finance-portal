@@ -82,6 +82,12 @@ export type Expense = {
   description: string;
   payment_type: PaymentType;
   amount: number;
+  receipt_path?: string | null;
+  entered_by?: string | null;
+  is_void?: boolean;
+  voided_at?: string | null;
+  voided_by?: string | null;
+  void_reason?: string | null;
   branches?: Pick<Branch, "name" | "code"> | null;
 };
 
@@ -91,6 +97,8 @@ export type Supplier = {
   contact_person?: string | null;
   phone?: string | null;
   email?: string | null;
+  address?: string | null;
+  notes?: string | null;
   payment_terms_days: number;
   is_active: boolean;
 };
@@ -131,6 +139,8 @@ export type PanelCompany = {
   contact_person?: string | null;
   phone?: string | null;
   email?: string | null;
+  address?: string | null;
+  notes?: string | null;
   payment_terms_days: number;
   is_active: boolean;
 };

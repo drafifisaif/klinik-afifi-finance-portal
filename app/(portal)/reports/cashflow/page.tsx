@@ -11,19 +11,20 @@ export default async function CashflowPage() {
   await requirePermission("view_reports");
   const data = await getDashboardData();
   const sales = data.sales.filter(isActiveFinancialRecord);
+  const activeExpenses = data.expenses.filter(isActiveFinancialRecord);
   const cashIn = totalBy(sales, (sale) => sale.cash_amount + sale.bank_transfer_amount + sale.card_amount + sale.qr_amount);
   const panelExpected = totalBy(
     data.panels.filter((claim) => claim.status !== "paid"),
     (claim) => claim.amount
   );
   const supplierPaid = totalBy(data.supplierPayments, (payment) => payment.amount);
-  const expenseOut = totalBy(data.expenses, (expense) => expense.amount) + supplierPaid;
+  const expenseOut = totalBy(activeExpenses, (expense) => expense.amount) + supplierPaid;
   const netCash = cashIn - expenseOut;
 
   const months = Array.from(
     new Set([
       ...sales.map((sale) => monthKey(sale.sale_date)),
-      ...data.expenses.map((expense) => monthKey(expense.expense_date)),
+      ...activeExpenses.map((expense) => monthKey(expense.expense_date)),
       ...data.supplierPayments.map((payment) => monthKey(payment.payment_date))
     ])
   );
@@ -52,7 +53,7 @@ export default async function CashflowPage() {
               (sale) => sale.cash_amount + sale.bank_transfer_amount + sale.card_amount + sale.qr_amount
             );
             const monthExpenses = totalBy(
-              data.expenses.filter((expense) => monthKey(expense.expense_date) === month),
+              activeExpenses.filter((expense) => monthKey(expense.expense_date) === month),
               (expense) => expense.amount
             );
             const monthSupplierPaid = totalBy(

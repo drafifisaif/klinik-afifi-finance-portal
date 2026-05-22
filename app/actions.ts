@@ -33,6 +33,13 @@ function checked(formData: FormData, key: string) {
   return formData.get(key) === "true";
 }
 
+function booleanText(formData: FormData, key: string, fallback = true) {
+  const value = text(formData, key);
+  if (value === "true") return true;
+  if (value === "false") return false;
+  return fallback;
+}
+
 function bankTransactionType(formData: FormData) {
   const value = text(formData, "transaction_type");
   if (value === "money_in" || value === "money_out" || value === "interbank_transfer" || value === "owner_drawing") {
@@ -166,6 +173,10 @@ type ExpenseAuditRow = {
   payment_type: string;
   receipt_path: string | null;
   vendor_name: string | null;
+  is_void?: boolean;
+  void_reason?: string | null;
+  voided_at?: string | null;
+  voided_by?: string | null;
 };
 
 type SupplierAuditRow = {
@@ -174,6 +185,7 @@ type SupplierAuditRow = {
   email: string | null;
   is_active: boolean;
   name: string;
+  notes?: string | null;
   payment_terms_days: number;
   phone: string | null;
 };
@@ -205,10 +217,12 @@ type SupplierPaymentAuditRow = {
 };
 
 type PanelCompanyAuditRow = {
+  address?: string | null;
   contact_person: string | null;
   email: string | null;
   is_active: boolean;
   name: string;
+  notes?: string | null;
   payment_terms_days: number;
   phone: string | null;
 };
@@ -361,7 +375,11 @@ function expenseAuditData(expense: ExpenseAuditRow) {
     expense_date: expense.expense_date,
     payment_type: expense.payment_type,
     receipt_path: expense.receipt_path,
-    vendor_name: expense.vendor_name
+    vendor_name: expense.vendor_name,
+    is_void: expense.is_void ?? false,
+    void_reason: expense.void_reason ?? null,
+    voided_at: expense.voided_at ?? null,
+    voided_by: expense.voided_by ?? null
   };
 }
 
@@ -372,6 +390,7 @@ function supplierAuditData(supplier: SupplierAuditRow) {
     email: supplier.email,
     is_active: supplier.is_active,
     name: supplier.name,
+    notes: supplier.notes ?? null,
     payment_terms_days: supplier.payment_terms_days,
     phone: supplier.phone
   };
@@ -409,10 +428,12 @@ function supplierPaymentAuditData(payment: SupplierPaymentAuditRow) {
 
 function panelCompanyAuditData(company: PanelCompanyAuditRow) {
   return {
+    address: company.address ?? null,
     contact_person: company.contact_person,
     email: company.email,
     is_active: company.is_active,
     name: company.name,
+    notes: company.notes ?? null,
     payment_terms_days: company.payment_terms_days,
     phone: company.phone
   };
@@ -609,6 +630,19 @@ function revalidateOpeningBalanceReports() {
     "/suppliers/payments",
     "/panels"
   ].forEach((path) => revalidatePath(path));
+}
+
+function revalidateExpenseReports() {
+  ["/expenses", "/dashboard", "/reports/profit-loss", "/reports/cashflow"].forEach((path) => revalidatePath(path));
+}
+
+async function requireMasterDataManager() {
+  const profile = await requirePermission("edit_finance");
+  const role = normalizeRole(profile.role);
+  if (role !== "owner" && role !== "admin" && role !== "finance") {
+    throw new Error("You do not have permission to manage supplier or panel company records.");
+  }
+  return profile;
 }
 
 function requiredVoidReason(formData: FormData) {
@@ -1621,7 +1655,7 @@ export async function createExpense(formData: FormData) {
     payment_type: text(formData, "payment_type") as PaymentType,
     amount: number(formData, "amount"),
     entered_by: await getUserId()
-  }).select("id, branch_id, expense_date, category, vendor_name, description, payment_type, amount, receipt_path").single();
+  }).select("id, branch_id, expense_date, category, vendor_name, description, payment_type, amount, receipt_path, is_void, void_reason, voided_at, voided_by").single();
 
   if (error || !expense) throw error ?? new Error("Expense could not be loaded after creation.");
 
@@ -1633,21 +1667,118 @@ export async function createExpense(formData: FormData) {
     entityId: expense.id,
     entityName: "expenses"
   });
-  revalidatePath("/expenses");
-  revalidatePath("/dashboard");
+  revalidateExpenseReports();
+}
+
+export async function updateExpense(formData: FormData) {
+  if (!hasSupabaseEnv()) return;
+
+  const expenseId = text(formData, "expense_id");
+  const branchId = text(formData, "branch_id");
+  if (!expenseId) throw new Error("Expense record is required.");
+  if (!branchId) throw new Error("Expense branch is required.");
+
+  const supabase = await createClient();
+  const { data: expense, error: expenseError } = await supabase
+    .from("expenses")
+    .select("id, branch_id, expense_date, category, vendor_name, description, payment_type, amount, receipt_path, is_void, void_reason, voided_at, voided_by")
+    .eq("id", expenseId)
+    .maybeSingle();
+
+  if (expenseError || !expense) throw new Error("Expense record not found.");
+  await requireEditableBranch(expense.branch_id);
+  await requireEditableBranch(branchId);
+  if (expense.is_void) throw new Error("Voided expenses cannot be edited.");
+
+  const { data: updatedExpense, error } = await supabase
+    .from("expenses")
+    .update({
+      amount: number(formData, "amount"),
+      branch_id: branchId,
+      category: text(formData, "category") as ExpenseCategory,
+      description: text(formData, "description"),
+      expense_date: text(formData, "expense_date"),
+      payment_type: text(formData, "payment_type") as PaymentType,
+      vendor_name: text(formData, "vendor_name")
+    })
+    .eq("id", expense.id)
+    .eq("is_void", false)
+    .select("id, branch_id, expense_date, category, vendor_name, description, payment_type, amount, receipt_path, is_void, void_reason, voided_at, voided_by")
+    .single();
+
+  if (error || !updatedExpense) throw error ?? new Error("Updated expense could not be loaded.");
+
+  const beforeData = expenseAuditData(expense);
+  const afterData = expenseAuditData(updatedExpense);
+  if (hasAuditChanges(beforeData, afterData)) {
+    await logAuditEvent({
+      action: "update",
+      afterData,
+      beforeData,
+      branchId: updatedExpense.branch_id,
+      description: "Edited expense.",
+      entityId: updatedExpense.id,
+      entityName: "expenses"
+    });
+  }
+
+  revalidateExpenseReports();
+}
+
+export async function voidExpense(formData: FormData) {
+  if (!hasSupabaseEnv()) return;
+
+  const expenseId = text(formData, "expense_id");
+  const reason = requiredVoidReason(formData);
+  if (!expenseId) throw new Error("Expense record is required.");
+
+  const supabase = await createClient();
+  const { data: expense, error: expenseError } = await supabase
+    .from("expenses")
+    .select("id, branch_id, expense_date, category, vendor_name, description, payment_type, amount, receipt_path, is_void, void_reason, voided_at, voided_by")
+    .eq("id", expenseId)
+    .maybeSingle();
+
+  if (expenseError || !expense) throw new Error("Expense record not found.");
+  await requireEditableBranch(expense.branch_id);
+  if (expense.is_void) throw new Error("Expense record is already voided.");
+
+  const { data: voidedExpense, error } = await supabase
+    .from("expenses")
+    .update(voidFields(reason, await getUserId()))
+    .eq("id", expense.id)
+    .eq("is_void", false)
+    .select("id, branch_id, expense_date, category, vendor_name, description, payment_type, amount, receipt_path, is_void, void_reason, voided_at, voided_by")
+    .single();
+
+  if (error || !voidedExpense) throw error ?? new Error("Voided expense could not be loaded.");
+
+  await logAuditEvent({
+    action: "void",
+    afterData: expenseAuditData(voidedExpense),
+    beforeData: expenseAuditData(expense),
+    branchId: voidedExpense.branch_id,
+    description: `Voided expense: ${reason}`,
+    entityId: voidedExpense.id,
+    entityName: "expenses"
+  });
+  revalidateExpenseReports();
 }
 
 export async function createSupplier(formData: FormData) {
   if (!hasSupabaseEnv()) return;
-  await requirePermission("view_reports");
+  await requireMasterDataManager();
   const supabase = await createClient();
   const { data: supplier, error } = await supabase.from("suppliers").insert({
     name: text(formData, "name"),
     contact_person: text(formData, "contact_person"),
     phone: text(formData, "phone"),
     email: text(formData, "email"),
+    address: text(formData, "address"),
+    notes: text(formData, "notes"),
+    is_active: booleanText(formData, "is_active", true),
     payment_terms_days: number(formData, "payment_terms_days") || 30
-  }).select("id, name, contact_person, phone, email, address, payment_terms_days, is_active").single();
+  }).select("id, name, contact_person, phone, email, address, notes, payment_terms_days, is_active").single();
 
   if (error || !supplier) throw error ?? new Error("Supplier could not be loaded after creation.");
 
@@ -1658,6 +1789,57 @@ export async function createSupplier(formData: FormData) {
     entityId: supplier.id,
     entityName: "suppliers"
   });
+  revalidatePath("/purchases");
+  revalidatePath("/suppliers/payments");
+}
+
+export async function updateSupplier(formData: FormData) {
+  if (!hasSupabaseEnv()) return;
+  await requireMasterDataManager();
+
+  const supplierId = text(formData, "supplier_id");
+  if (!supplierId) throw new Error("Supplier record is required.");
+
+  const supabase = await createClient();
+  const { data: supplier, error: supplierError } = await supabase
+    .from("suppliers")
+    .select("id, name, contact_person, phone, email, address, notes, payment_terms_days, is_active")
+    .eq("id", supplierId)
+    .maybeSingle();
+
+  if (supplierError || !supplier) throw new Error("Supplier record not found.");
+
+  const { data: updatedSupplier, error } = await supabase
+    .from("suppliers")
+    .update({
+      address: text(formData, "address"),
+      contact_person: text(formData, "contact_person"),
+      email: text(formData, "email"),
+      is_active: booleanText(formData, "is_active", true),
+      name: text(formData, "name"),
+      notes: text(formData, "notes"),
+      payment_terms_days: number(formData, "payment_terms_days") || 30,
+      phone: text(formData, "phone")
+    })
+    .eq("id", supplier.id)
+    .select("id, name, contact_person, phone, email, address, notes, payment_terms_days, is_active")
+    .single();
+
+  if (error || !updatedSupplier) throw error ?? new Error("Updated supplier could not be loaded.");
+
+  const beforeData = supplierAuditData(supplier);
+  const afterData = supplierAuditData(updatedSupplier);
+  if (hasAuditChanges(beforeData, afterData)) {
+    await logAuditEvent({
+      action: "update",
+      afterData,
+      beforeData,
+      description: `Updated supplier ${updatedSupplier.name}.`,
+      entityId: updatedSupplier.id,
+      entityName: "suppliers"
+    });
+  }
+
   revalidatePath("/purchases");
   revalidatePath("/suppliers/payments");
 }
@@ -1747,15 +1929,18 @@ export async function createSupplierPayment(formData: FormData) {
 
 export async function createPanelCompany(formData: FormData) {
   if (!hasSupabaseEnv()) return;
-  await requirePermission("view_reports");
+  await requireMasterDataManager();
   const supabase = await createClient();
   const { data: company, error } = await supabase.from("panel_companies").insert({
     name: text(formData, "name"),
     contact_person: text(formData, "contact_person"),
     phone: text(formData, "phone"),
     email: text(formData, "email"),
+    address: text(formData, "address"),
+    notes: text(formData, "notes"),
+    is_active: booleanText(formData, "is_active", true),
     payment_terms_days: number(formData, "payment_terms_days") || 30
-  }).select("id, name, contact_person, phone, email, payment_terms_days, is_active").single();
+  }).select("id, name, contact_person, phone, email, address, notes, payment_terms_days, is_active").single();
 
   if (error || !company) throw error ?? new Error("Panel company could not be loaded after creation.");
 
@@ -1766,6 +1951,56 @@ export async function createPanelCompany(formData: FormData) {
     entityId: company.id,
     entityName: "panel_companies"
   });
+  revalidatePath("/panels");
+}
+
+export async function updatePanelCompany(formData: FormData) {
+  if (!hasSupabaseEnv()) return;
+  await requireMasterDataManager();
+
+  const panelCompanyId = text(formData, "panel_company_id");
+  if (!panelCompanyId) throw new Error("Panel company record is required.");
+
+  const supabase = await createClient();
+  const { data: company, error: companyError } = await supabase
+    .from("panel_companies")
+    .select("id, name, contact_person, phone, email, address, notes, payment_terms_days, is_active")
+    .eq("id", panelCompanyId)
+    .maybeSingle();
+
+  if (companyError || !company) throw new Error("Panel company record not found.");
+
+  const { data: updatedCompany, error } = await supabase
+    .from("panel_companies")
+    .update({
+      address: text(formData, "address"),
+      contact_person: text(formData, "contact_person"),
+      email: text(formData, "email"),
+      is_active: booleanText(formData, "is_active", true),
+      name: text(formData, "name"),
+      notes: text(formData, "notes"),
+      payment_terms_days: number(formData, "payment_terms_days") || 30,
+      phone: text(formData, "phone")
+    })
+    .eq("id", company.id)
+    .select("id, name, contact_person, phone, email, address, notes, payment_terms_days, is_active")
+    .single();
+
+  if (error || !updatedCompany) throw error ?? new Error("Updated panel company could not be loaded.");
+
+  const beforeData = panelCompanyAuditData(company);
+  const afterData = panelCompanyAuditData(updatedCompany);
+  if (hasAuditChanges(beforeData, afterData)) {
+    await logAuditEvent({
+      action: "update",
+      afterData,
+      beforeData,
+      description: `Updated panel company ${updatedCompany.name}.`,
+      entityId: updatedCompany.id,
+      entityName: "panel_companies"
+    });
+  }
+
   revalidatePath("/panels");
 }
 
