@@ -1,9 +1,9 @@
-import { createSupplier, createSupplierPurchase, updateSupplier } from "@/app/actions";
+import { createSupplier, updateSupplier } from "@/app/actions";
 import { DataTable } from "@/components/data-table";
 import { DocumentManager } from "@/components/documents/document-manager";
 import { MetricCard } from "@/components/metric-card";
 import { ModuleHeader } from "@/components/module-header";
-import { purchaseCategories } from "@/lib/constants";
+import { SupplierPurchaseForm } from "@/components/supplier-purchase-form";
 import { getDashboardData, getSuppliers, totalBy } from "@/lib/data";
 import { formatCurrency, formatDate, labelize } from "@/lib/format";
 import { hasPermission, normalizeRole, requirePermission } from "@/lib/permissions";
@@ -40,9 +40,11 @@ export default async function PurchasesPage() {
 
       <section className="section-grid">
         <DataTable
-          columns={["Date", "Branch", "Supplier", "Invoice", "Category", "Medicine", "Consumables", "Other", "Total", "Documents"]}
+          columns={["Invoice Date", "Due Date", "Credit Term", "Branch", "Supplier", "Invoice", "Category", "Medicine", "Consumables", "Other", "Total", "Documents"]}
           rows={data.purchases.map((purchase) => [
-            formatDate(purchase.purchase_date),
+            formatDate(purchase.invoice_date ?? purchase.purchase_date),
+            purchase.due_date ? formatDate(purchase.due_date) : "-",
+            `${purchase.credit_term_days ?? 0} days`,
             purchase.branches?.name ?? "-",
             purchase.suppliers?.name ?? "-",
             purchase.invoice_no ?? "-",
@@ -62,72 +64,7 @@ export default async function PurchasesPage() {
         />
 
         <div className="cards-grid single-column">
-          <form action={createSupplierPurchase} className="form-card">
-            <h2>Record purchase</h2>
-            <label>
-              Supplier
-              <select name="supplier_id" required>
-                {activeSuppliers.map((supplier) => (
-                  <option key={supplier.id} value={supplier.id}>
-                    {supplier.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Branch
-              <select name="branch_id" required>
-                {data.branches.map((branch) => (
-                  <option key={branch.id} value={branch.id}>
-                    {branch.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Invoice no.
-              <input name="invoice_no" placeholder="Supplier invoice" />
-            </label>
-            <label>
-              Purchase date
-              <input name="purchase_date" type="date" required />
-            </label>
-            <label>
-              Due date
-              <input name="due_date" type="date" />
-            </label>
-            <label>
-              Category
-              <select name="category" required>
-                {purchaseCategories.map((category) => (
-                  <option key={category.value} value={category.value}>
-                    {category.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <div className="form-grid">
-              <label>
-                Medicine cost
-                <input min="0" name="medicine_cost" step="0.01" type="number" />
-              </label>
-              <label>
-                Consumables cost
-                <input min="0" name="consumables_cost" step="0.01" type="number" />
-              </label>
-              <label className="full-span">
-                Other cost
-                <input min="0" name="other_cost" step="0.01" type="number" />
-              </label>
-            </div>
-            <label>
-              Notes
-              <textarea name="notes" />
-            </label>
-            <button className="primary-button" type="submit">
-              Save purchase
-            </button>
-          </form>
+          <SupplierPurchaseForm branches={data.branches} suppliers={activeSuppliers} />
 
           {canManageMasterData ? (
           <form action={createSupplier} className="form-card">

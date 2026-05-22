@@ -1,10 +1,9 @@
-import { createSupplierPayment } from "@/app/actions";
 import { DataTable } from "@/components/data-table";
 import { DocumentManager } from "@/components/documents/document-manager";
 import { MetricCard } from "@/components/metric-card";
 import { ModuleHeader } from "@/components/module-header";
-import { paymentTypes } from "@/lib/constants";
-import { getDashboardData, getSuppliers, totalBy } from "@/lib/data";
+import { SupplierPaymentForm } from "@/components/supplier-payment-form";
+import { getDashboardData, getSupplierOutstanding, getSuppliers, totalBy } from "@/lib/data";
 import { formatCurrency, formatDate, labelize } from "@/lib/format";
 import { outstandingOpeningBalanceTotal } from "@/lib/opening-balances";
 import { canViewAllBranches, normalizeRole, requirePermission } from "@/lib/permissions";
@@ -14,6 +13,7 @@ import { BadgeCheck, Banknote, CircleDollarSign, Truck } from "lucide-react";
 export default async function SupplierPaymentsPage() {
   const profile = await requirePermission("view_supplier_payments");
   const data = await getDashboardData();
+  const outstandingRows = await getSupplierOutstanding();
   const suppliers = await getSuppliers();
   const paymentDocuments = await getTransactionDocuments("supplier_payments", data.supplierPayments.map((payment) => payment.id));
   const canUseGeneralPayment = canViewAllBranches(profile);
@@ -58,70 +58,35 @@ export default async function SupplierPaymentsPage() {
           ])}
         />
 
-        <form action={createSupplierPayment} className="form-card">
-          <h2>Record supplier payment</h2>
-          <label>
-            Supplier
-            <select name="supplier_id" required>
-              {suppliers.map((supplier) => (
-                <option key={supplier.id} value={supplier.id}>
-                  {supplier.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Purchase invoice
-            <select name="purchase_id">
-              <option value="">General supplier payment</option>
-              {data.purchases.map((purchase) => (
-                <option key={purchase.id} value={purchase.id}>
-                  {purchase.invoice_no ?? purchase.id}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Branch
-            <select name="branch_id">
-              {canUseGeneralPayment ? <option value="">No branch allocation</option> : null}
-              {data.branches.map((branch) => (
-                <option key={branch.id} value={branch.id}>
-                  {branch.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Payment date
-            <input name="payment_date" type="date" required />
-          </label>
-          <label>
-            Payment type
-            <select name="payment_type" required>
-              {paymentTypes.map((type) => (
-                <option key={type.value} value={type.value}>
-                  {type.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Amount
-            <input min="0" name="amount" required step="0.01" type="number" />
-          </label>
-          <label>
-            Reference
-            <input name="reference_no" />
-          </label>
-          <label>
-            Notes
-            <textarea name="notes" />
-          </label>
-          <button className="primary-button" type="submit">
-            Save payment
-          </button>
-        </form>
+        <SupplierPaymentForm
+          branches={data.branches}
+          suppliers={suppliers}
+          purchases={outstandingRows}
+          payments={data.supplierPayments}
+          canUseGeneralPayment={canUseGeneralPayment}
+        />
+      </section>
+
+      <section className="table-section mt-section">
+        <h2>Supplier aging report</h2>
+        <DataTable
+          columns={["Supplier", "Invoice", "Branch", "Invoice Date", "Due Date", "Term", "Invoice Amount", "Amount Paid", "Outstanding", "Bucket", "Days Overdue"]}
+          rows={outstandingRows
+            .filter((row) => row.outstanding_amount > 0)
+            .map((row) => [
+              row.supplier_name ?? row.suppliers?.name ?? "-",
+              row.invoice_no ?? row.purchase_id ?? row.id,
+              row.branch_name ?? row.branches?.name ?? "-",
+              formatDate(row.invoice_date ?? row.purchase_date),
+              row.due_date ? formatDate(row.due_date) : "-",
+              `${row.credit_term_days ?? 0} days`,
+              formatCurrency(row.total_amount),
+              formatCurrency(row.paid_amount),
+              formatCurrency(row.outstanding_amount),
+              row.aging_bucket ?? "-",
+              String(row.days_overdue ?? 0)
+            ])}
+        />
       </section>
     </>
   );

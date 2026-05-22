@@ -33,6 +33,12 @@ function checked(formData: FormData, key: string) {
   return formData.get(key) === "true";
 }
 
+function addDays(dateString: string, days: number) {
+  const date = new Date(`${dateString}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
 function booleanText(formData: FormData, key: string, fallback = true) {
   const value = text(formData, key);
   if (value === "true") return true;
@@ -1777,7 +1783,8 @@ export async function createSupplier(formData: FormData) {
     address: text(formData, "address"),
     notes: text(formData, "notes"),
     is_active: booleanText(formData, "is_active", true),
-    payment_terms_days: number(formData, "payment_terms_days") || 30
+    payment_terms_days: number(formData, "payment_terms_days") || 30,
+    default_credit_term_days: number(formData, "payment_terms_days") || 30
   }).select("id, name, contact_person, phone, email, address, notes, payment_terms_days, is_active").single();
 
   if (error || !supplier) throw error ?? new Error("Supplier could not be loaded after creation.");
@@ -1849,19 +1856,26 @@ export async function createSupplierPurchase(formData: FormData) {
   const branchId = text(formData, "branch_id");
   await requireEditableBranch(branchId);
   const supabase = await createClient();
+  const invoiceDate = text(formData, "invoice_date") ?? text(formData, "purchase_date");
+  if (!invoiceDate) throw new Error("Invoice date is required.");
+  const termDays = Math.max(0, number(formData, "credit_term_days"));
+  const calculatedDueDate = addDays(invoiceDate, termDays);
+
   const { data: purchase, error } = await supabase.from("supplier_purchases").insert({
     supplier_id: text(formData, "supplier_id"),
     branch_id: branchId,
     invoice_no: text(formData, "invoice_no"),
-    purchase_date: text(formData, "purchase_date"),
-    due_date: text(formData, "due_date"),
+    invoice_date: invoiceDate,
+    purchase_date: invoiceDate,
+    credit_term_days: termDays,
+    due_date: calculatedDueDate,
     category: text(formData, "category") as PurchaseCategory,
     medicine_cost: number(formData, "medicine_cost"),
     consumables_cost: number(formData, "consumables_cost"),
     other_cost: number(formData, "other_cost"),
     notes: text(formData, "notes"),
     entered_by: await getUserId()
-  }).select("id, supplier_id, branch_id, invoice_no, purchase_date, due_date, category, medicine_cost, consumables_cost, other_cost, attachment_path, notes").single();
+  }).select("id, supplier_id, branch_id, invoice_no, invoice_date, purchase_date, credit_term_days, due_date, category, medicine_cost, consumables_cost, other_cost, attachment_path, notes").single();
 
   if (error || !purchase) throw error ?? new Error("Supplier purchase could not be loaded after creation.");
 

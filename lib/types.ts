@@ -99,6 +99,7 @@ export type Supplier = {
   email?: string | null;
   address?: string | null;
   notes?: string | null;
+  default_credit_term_days?: number;
   payment_terms_days: number;
   is_active: boolean;
 };
@@ -108,8 +109,11 @@ export type SupplierPurchase = {
   supplier_id: string;
   branch_id: string;
   invoice_no?: string | null;
+  invoice_date?: string | null;
   purchase_date: string;
+  credit_term_days?: number | null;
   due_date?: string | null;
+  payment_status?: "unpaid" | "partially_paid" | "paid" | "overdue" | null;
   category: PurchaseCategory;
   medicine_cost: number;
   consumables_cost: number;

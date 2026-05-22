@@ -16,7 +16,7 @@ import {
   resolveDateRange
 } from "@/lib/bank-reporting";
 import { branchGroups, getBranchGroup, resolveSelectedBranchIds, toParamArray } from "@/lib/branch-reporting";
-import { getBankingData, getDashboardData, totalBy } from "@/lib/data";
+import { getBankingData, getDashboardData, getSupplierOutstanding, totalBy } from "@/lib/data";
 import { formatCurrency, formatDate, monthKey } from "@/lib/format";
 import { bankOpeningBalanceTotal, needsOpeningBalanceCaution, outstandingOpeningBalanceTotal } from "@/lib/opening-balances";
 import { canViewAllBranches, requirePermission } from "@/lib/permissions";
@@ -169,6 +169,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const profile = await requirePermission("view_dashboard");
   const params = await searchParams;
   const data = await getDashboardData();
+  const supplierOutstandingRows = await getSupplierOutstanding();
   const isLimitedDashboard = profile.role === "staff";
   const bankingData = isLimitedDashboard ? null : await getBankingData();
   const canSelectMultiple = canViewAllBranches(profile);
@@ -224,6 +225,19 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   );
   const supplierOutstanding = Math.max(0, supplierOpeningOutstanding + purchaseCost - totalBy(supplierPayments, (payment) => money(payment.amount)));
   const selectedBranchLabel = selectedBranches.length > 0 ? selectedBranches.map((branch) => branch.name).join(", ") : "No branches selected";
+  const filteredSupplierOutstanding = supplierOutstandingRows.filter((row) => selectedBranchIdSet.has(row.branch_id) && row.outstanding_amount > 0);
+  const supplierDueSoon = totalBy(
+    filteredSupplierOutstanding.filter((row) => row.aging_bucket === "not_due" || row.aging_bucket === "due_within_30"),
+    (row) => money(row.outstanding_amount)
+  );
+  const supplierOverdue = totalBy(
+    filteredSupplierOutstanding.filter((row) => row.aging_bucket !== "not_due" && row.aging_bucket !== "due_within_30"),
+    (row) => money(row.outstanding_amount)
+  );
+  const supplierOver90 = totalBy(
+    filteredSupplierOutstanding.filter((row) => row.aging_bucket === "over_90"),
+    (row) => money(row.outstanding_amount)
+  );
 
   const selectedBankBranches = bankingData?.branches.filter((branch) => selectedBranchIdSet.has(branch.id)) ?? [];
   const selectedBankBranchIds = new Set(selectedBankBranches.map((branch) => branch.id));
@@ -441,6 +455,9 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
             <MetricCard icon={BadgeDollarSign} label="Total Physical Cash" value={formatCurrency(totalPhysicalCash)} detail="Cash in hand plus petty cash" tone={totalPhysicalCash >= 0 ? "teal" : "rose"} />
             <MetricCard icon={ShieldAlert} label="Panel Outstanding" value={formatCurrency(panelOutstanding)} detail="Unpaid and partial claims" tone="rose" />
             <MetricCard icon={CircleDollarSign} label="Supplier Outstanding" value={formatCurrency(supplierOutstanding)} detail="Purchases less supplier payments" tone="amber" />
+            <MetricCard icon={ShieldAlert} label="Supplier Due Soon" value={formatCurrency(supplierDueSoon)} detail="Not due and within 30 days" tone="blue" />
+            <MetricCard icon={ShieldAlert} label="Supplier Overdue" value={formatCurrency(supplierOverdue)} detail="Overdue invoices only" tone="rose" />
+            <MetricCard icon={ShieldAlert} label="Supplier Over 90d" value={formatCurrency(supplierOver90)} detail="High-priority overdue" tone="rose" />
             <MetricCard icon={WalletCards} label="Owner Drawing" value={formatCurrency(totalOwnerDrawing)} detail="Manual owner drawing from bank" tone="amber" />
           </>
         ) : null}

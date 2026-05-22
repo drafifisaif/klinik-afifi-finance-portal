@@ -20,6 +20,16 @@ import type {
   SupplierPurchase
 } from "@/lib/types";
 
+export type SupplierOutstandingRow = SupplierPurchase & {
+  supplier_name?: string;
+  branch_name?: string;
+  paid_amount: number;
+  outstanding_amount: number;
+  status: string;
+  aging_bucket?: string;
+  days_overdue?: number;
+};
+
 const branches: Branch[] = [
   { id: "putatan", name: "Putatan", code: "PUT", is_active: true },
   { id: "papar", name: "Papar", code: "PAP", is_active: true },
@@ -640,4 +650,24 @@ export function totalBy<T>(items: T[], getAmount: (item: T) => number) {
 
 export function branchName(data: DashboardData, branchId: string) {
   return data.branches.find((branch) => branch.id === branchId)?.name ?? branchId;
+}
+
+export async function getSupplierOutstanding() {
+  if (!hasSupabaseEnv()) {
+    return [] as SupplierOutstandingRow[];
+  }
+
+  const profile = await getCurrentProfile();
+  const supabase = await createClient();
+  const rows = await fetchOrDemo(
+    supabase
+      .from("v_supplier_outstanding")
+      .select("*")
+      .order("due_date", { ascending: true }),
+    []
+  );
+
+  if (!profile || canViewAllBranches(profile)) return rows as SupplierOutstandingRow[];
+  if (!profile.branch_id) return [];
+  return (rows as SupplierOutstandingRow[]).filter((row) => row.branch_id === profile.branch_id);
 }
