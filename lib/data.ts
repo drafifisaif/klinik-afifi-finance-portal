@@ -423,55 +423,69 @@ function filterBankingDataForProfile(data: BankingData, profile: Awaited<ReturnT
   const filteredBranches = filterBranchesForProfile(data.branches, profile);
   const branchIds = new Set(filteredBranches.map((branch) => branch.id));
   const role = normalizeRole(profile?.role);
+
   const shouldFilterByBankPermissions = profile?.is_active && (role === "admin" || role === "finance");
   const shouldUseAssignedBranchPicBanks = role === "branch_pic" && options.bankAccessOnly;
-  const branchPicBankAccountIds = role === "branch_pic" && !options.bankAccessOnly
-    ? new Set(
-        data.branchBankMappings
-          .filter((mapping) => mapping.is_active && branchIds.has(mapping.branch_id))
-          .map((mapping) => mapping.bank_account_id)
-      )
-    : null;
-  const assignedBankAccountIds = shouldFilterByBankPermissions || shouldUseAssignedBranchPicBanks
-    ? new Set(
-        data.bankAccountPermissions
-          .filter((permission) => permission.user_id === profile?.id && permissionHasVisibleAccount(permission))
-          .map((permission) => permission.bank_account_id)
-      )
-    : null;
-  const permittedBankAccountIds = assignedBankAccountIds
-    ? assignedBankAccountIds
-    : branchPicBankAccountIds;
+
+  const branchPicBankAccountIds =
+    role === "branch_pic" && !options.bankAccessOnly
+      ? new Set(
+          data.branchBankMappings
+            .filter((mapping) => mapping.is_active && branchIds.has(mapping.branch_id))
+            .map((mapping) => mapping.bank_account_id)
+        )
+      : null;
+
+  const assignedBankAccountIds =
+    shouldFilterByBankPermissions || shouldUseAssignedBranchPicBanks
+      ? new Set(
+          data.bankAccountPermissions
+            .filter((permission) => permission.user_id === profile?.id && permissionHasVisibleAccount(permission))
+            .map((permission) => permission.bank_account_id)
+        )
+      : null;
+
+  const permittedBankAccountIds = assignedBankAccountIds ? assignedBankAccountIds : branchPicBankAccountIds;
 
   const permittedMappings = data.branchBankMappings.filter((mapping) => {
     if (!mapping.is_active || !branchIds.has(mapping.branch_id)) return false;
     return !permittedBankAccountIds || permittedBankAccountIds.has(mapping.bank_account_id);
   });
+
   const mappedBranchIds = new Set(permittedMappings.map((mapping) => mapping.branch_id));
+
   const filteredCashBankIns = data.cashBankIns.filter((bankIn) => {
     if (!branchIds.has(bankIn.branch_id)) return false;
     return !permittedBankAccountIds || permittedBankAccountIds.has(bankIn.bank_account_id);
   });
+
   const filteredBankTransactions = data.bankTransactions.filter((transaction) => {
     return !permittedBankAccountIds || permittedBankAccountIds.has(transaction.bank_account_id);
   });
+
   const filteredSupplierPayments = data.supplierPayments.filter((payment) => {
     if (payment.branch_id && !branchIds.has(payment.branch_id)) return false;
     if (payment.bank_account_id && permittedBankAccountIds) return permittedBankAccountIds.has(payment.bank_account_id);
     return true;
   });
+
   const filteredPanelPayments = data.panelPayments.filter((payment) => {
     if (payment.branch_id && !branchIds.has(payment.branch_id)) return false;
     if (payment.bank_account_id && permittedBankAccountIds) return permittedBankAccountIds.has(payment.bank_account_id);
     return true;
   });
+
   const filteredPettyCashTransactions = data.pettyCashTransactions.filter((transaction) => {
     if (!branchIds.has(transaction.branch_id)) return false;
-    return !options.bankAccessOnly
-      || !transaction.bank_account_id
-      || !permittedBankAccountIds
-      || permittedBankAccountIds.has(transaction.bank_account_id);
+
+    return (
+      !options.bankAccessOnly ||
+      !transaction.bank_account_id ||
+      !permittedBankAccountIds ||
+      permittedBankAccountIds.has(transaction.bank_account_id)
+    );
   });
+
   const visibleBranchIds = permittedBankAccountIds
     ? new Set([
         ...mappedBranchIds,
@@ -490,14 +504,24 @@ function filterBankingDataForProfile(data: BankingData, profile: Awaited<ReturnT
     : branchIds;
 
   return {
-    branches: filteredBranches.filter((branch) => visibleBranchIds.has(branch.id)),
-    sales: data.sales.filter((sale) => visibleBranchIds.has(sale.branch_id) && (!permittedBankAccountIds || mappedBranchIds.has(sale.branch_id))),
-    bankAccounts: data.bankAccounts.filter((account) => account.is_active && (!permittedBankAccountIds || permittedBankAccountIds.has(account.id))),
+    // Keep branch filter options complete for the user's accessible branches.
+    // Bank account visibility remains permission-scoped below.
+    branches: filteredBranches,
+
+    sales: data.sales.filter(
+      (sale) => visibleBranchIds.has(sale.branch_id) && (!permittedBankAccountIds || mappedBranchIds.has(sale.branch_id))
+    ),
+
+    bankAccounts: data.bankAccounts.filter((account) => {
+      return account.is_active && (!permittedBankAccountIds || permittedBankAccountIds.has(account.id));
+    }),
+
     openingBalances: data.openingBalances.filter((balance) => {
       if (balance.branch_id && !visibleBranchIds.has(balance.branch_id)) return false;
       if (balance.bank_account_id && permittedBankAccountIds && !permittedBankAccountIds.has(balance.bank_account_id)) return false;
       return true;
     }),
+
     bankAccountPermissions: data.bankAccountPermissions.filter((permission) => !profile || permission.user_id === profile.id),
     bankTransactions: filteredBankTransactions,
     branchBankMappings: permittedMappings,
