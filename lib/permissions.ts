@@ -32,10 +32,13 @@ export function canManageBankPermissions(profile: Pick<Profile, "role" | "is_act
 
 export type BankAccountPermissionMode = "view" | "create_transaction" | "edit_transaction" | "manage_account";
 
-function permissionAllows(permission: Pick<
-  BankAccountPermission,
-  "can_create_transaction" | "can_edit_transaction" | "can_manage_account" | "can_view"
->, mode: BankAccountPermissionMode) {
+function permissionAllows(
+  permission: Pick<
+    BankAccountPermission,
+    "can_create_transaction" | "can_edit_transaction" | "can_manage_account" | "can_view"
+  >,
+  mode: BankAccountPermissionMode
+) {
   if (mode === "manage_account") return permission.can_manage_account;
   if (mode === "edit_transaction") return permission.can_edit_transaction || permission.can_manage_account;
   if (mode === "create_transaction") return permission.can_create_transaction || permission.can_manage_account;
@@ -86,31 +89,62 @@ export async function getCurrentBankAccountPermissions(profile?: Pick<Profile, "
     .select("id, user_id, bank_account_id, can_view, can_create_transaction, can_edit_transaction, can_manage_account");
 
   const { data, error } = normalizeRole(currentProfile.role) === "owner" ? await query : await query.eq("user_id", currentProfile.id);
+
   if (error) return [];
   return (data ?? []) as BankAccountPermission[];
 }
 
 export async function requireBankPositionAccess() {
   const profile = await getCurrentProfile();
+
   if (!profile) redirect("/login");
   if (!profile.is_active) redirect("/unauthorized");
+
   const role = normalizeRole(profile.role);
+
   if (role === "owner") return profile;
-  if (role !== "admin" && role !== "finance") redirect("/unauthorized");
+
+  if (role !== "admin" && role !== "finance") {
+    redirect("/unauthorized");
+  }
+
   if (!hasSupabaseEnv()) return profile;
 
   const permissions = await getCurrentBankAccountPermissions(profile);
-  const eligiblePermissions = permissions.filter((permission) => permission.user_id === profile.id && permissionAllows(permission, "view"));
-  if (!eligiblePermissions.length) redirect("/unauthorized");
+  const eligiblePermissions = permissions.filter(
+    (permission) => permission.user_id === profile.id && permissionAllows(permission, "view")
+  );
+
+  if (!eligiblePermissions.length) {
+    redirect("/unauthorized");
+  }
+
   return profile;
 }
 
-export async function requireBankAccountPermission(bankAccountId: string | null | undefined, mode: BankAccountPermissionMode = "view") {
-  const profile = await requirePermission(mode === "view" || mode === "manage_account" ? "view_bank_position" : "record_cash_bank_in");
-  if (normalizeRole(profile.role) === "owner") return profile;
-  if (!bankAccountId) throw new Error("Bank account is required.");
+export async function requireBankAccountPermission(
+  bankAccountId: string | null | undefined,
+  mode: BankAccountPermissionMode = "view"
+) {
+  const profile = await getCurrentProfile();
+
+  if (!profile) redirect("/login");
+  if (!profile.is_active) redirect("/unauthorized");
+
+  const role = normalizeRole(profile.role);
+
+  if (role === "owner") return profile;
+
+  if (role !== "admin" && role !== "finance") {
+    throw new Error("You do not have access to bank transactions.");
+  }
+
+  if (!bankAccountId) {
+    throw new Error("Bank account is required.");
+  }
 
   const supabase = await createClient();
+
   const { data, error } = await supabase
     .from("bank_account_permissions")
     .select("bank_account_id, can_view, can_create_transaction, can_edit_transaction, can_manage_account, user_id")
@@ -126,7 +160,10 @@ export async function requireBankAccountPermission(bankAccountId: string | null 
 }
 
 export function normalizeProfileRow(row: unknown): Profile {
-  const profile = row as Profile & { branches?: Pick<Branch, "name" | "code"> | Pick<Branch, "name" | "code">[] | null };
+  const profile = row as Profile & {
+    branches?: Pick<Branch, "name" | "code"> | Pick<Branch, "name" | "code">[] | null;
+  };
+
   return {
     ...profile,
     email: profile.email ?? null,
@@ -190,6 +227,7 @@ export function filterDashboardDataForProfile(data: DashboardData, profile: Prof
   }
 
   if (canViewAllBranches(profile)) return data;
+
   const branchId = profile.branch_id;
   if (!branchId) return { ...data, branches: [] };
 
