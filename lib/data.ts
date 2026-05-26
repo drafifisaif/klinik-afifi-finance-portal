@@ -319,9 +319,14 @@ export const demoBankingData: BankingData = {
   panelPayments
 };
 
-async function fetchOrDemo<T>(query: PromiseLike<{ data: T | null; error: unknown }>, fallback: T) {
+async function fetchOrDemo<T>(query: PromiseLike<{ data: T | null; error: unknown }>, fallback: T, label?: string) {
   const { data, error } = await query;
-  if (error || !data) return fallback;
+  if (error || !data) {
+    if (error) {
+      console.error(`fetchOrDemo failed for ${label ?? "unknown query"}`, error);
+    }
+    return fallback;
+  }
   return data;
 }
 
@@ -591,13 +596,14 @@ export async function getBankingDataForScope(options: BankingDataOptions = {}): 
   const supabase = await createClient();
   const role = normalizeRole(profile?.role);
   const [branchRows, openingBalanceRows, salesRows, permissionRows, transactionRows, mappingRows, cashBankInRows, pettyCashRows, supplierPaymentRows, panelPaymentRows] = await Promise.all([
-    fetchOrDemo(supabase.from("branches").select("*").eq("is_active", true).order("name"), demoBankingData.branches),
+    fetchOrDemo(supabase.from("branches").select("*").eq("is_active", true).order("name"), demoBankingData.branches, "branches"),
     fetchOrDemo(
       supabase
         .from("opening_balances")
         .select("*, branches(name, code), bank_accounts(name, bank_name, account_no), suppliers(name), panel_companies(name)")
         .order("balance_date", { ascending: false }),
-      demoBankingData.openingBalances
+      demoBankingData.openingBalances,
+      "opening_balances"
     ),
     fetchOrDemo(
       supabase
@@ -605,13 +611,15 @@ export async function getBankingDataForScope(options: BankingDataOptions = {}): 
         .select("*, branches(name, code)")
         .order("sale_date", { ascending: false })
         .limit(1000),
-      demoBankingData.sales
+      demoBankingData.sales,
+      "daily_sales"
     ),
     fetchOrDemo<BankAccountPermission[]>(
       supabase
         .from("bank_account_permissions")
         .select("id, user_id, bank_account_id, can_view, can_create_transaction, can_edit_transaction, can_manage_account"),
-      demoBankingData.bankAccountPermissions
+      demoBankingData.bankAccountPermissions,
+      "bank_account_permissions"
     ),
     fetchOrDemo(
       supabase
@@ -619,14 +627,16 @@ export async function getBankingDataForScope(options: BankingDataOptions = {}): 
         .select("*, branches(name, code), bank_accounts(name, bank_name, account_no)")
         .order("transaction_date", { ascending: false })
         .limit(2000),
-      demoBankingData.bankTransactions
+      demoBankingData.bankTransactions,
+      "bank_transactions"
     ),
     fetchOrDemo(
       supabase
         .from("branch_bank_mappings")
         .select("*, branches(name, code), bank_accounts(name, bank_name, account_no)")
         .eq("is_active", true),
-      demoBankingData.branchBankMappings
+      demoBankingData.branchBankMappings,
+      "branch_bank_mappings"
     ),
     fetchOrDemo(
       supabase
@@ -634,15 +644,17 @@ export async function getBankingDataForScope(options: BankingDataOptions = {}): 
         .select("*, branches(name, code), bank_accounts(name, bank_name, account_no)")
         .order("bank_in_date", { ascending: false })
         .limit(1000),
-      demoBankingData.cashBankIns
+      demoBankingData.cashBankIns,
+      "cash_bank_ins"
     ),
     fetchOrDemo(
       supabase
         .from("petty_cash_transactions")
-        .select("*, branches(name, code), bank_accounts(name, bank_name, account_no), profiles(full_name)")
+        .select("*, branches(name, code), bank_accounts(name, bank_name, account_no)")
         .order("transaction_date", { ascending: false })
         .limit(2000),
-      demoBankingData.pettyCashTransactions
+      demoBankingData.pettyCashTransactions,
+      "petty_cash_transactions"
     ),
     fetchOrDemo(
       supabase
@@ -650,7 +662,8 @@ export async function getBankingDataForScope(options: BankingDataOptions = {}): 
         .select("*, suppliers(name), branches(name, code), bank_accounts(name, bank_name, account_no)")
         .order("payment_date", { ascending: false })
         .limit(2000),
-      demoBankingData.supplierPayments
+      demoBankingData.supplierPayments,
+      "supplier_payments"
     ),
     fetchOrDemo(
       supabase
@@ -658,7 +671,8 @@ export async function getBankingDataForScope(options: BankingDataOptions = {}): 
         .select("*, bank_accounts(name, bank_name, account_no), panel_claims(branch_id, claim_no, panel_company_id, branches(name, code), panel_companies(name))")
         .order("payment_date", { ascending: false })
         .limit(2000),
-      demoBankingData.panelPayments
+      demoBankingData.panelPayments,
+      "panel_payments"
     )
   ]);
 
