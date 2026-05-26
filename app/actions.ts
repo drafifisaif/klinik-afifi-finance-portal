@@ -1926,6 +1926,75 @@ export async function createSupplierPurchase(formData: FormData) {
   revalidatePath("/dashboard");
 }
 
+export async function updateSupplierPurchase(formData: FormData) {
+  if (!hasSupabaseEnv()) return;
+
+  const purchaseId = text(formData, "purchase_id");
+  const branchId = text(formData, "branch_id");
+  const supplierId = text(formData, "supplier_id");
+  const invoiceDate = text(formData, "invoice_date") ?? text(formData, "purchase_date");
+  const purchaseDate = text(formData, "purchase_date") ?? invoiceDate;
+  const manualDueDate = text(formData, "due_date");
+  const termDays = Math.max(0, number(formData, "credit_term_days"));
+
+  if (!purchaseId) throw new Error("Supplier purchase record is required.");
+  if (!branchId) throw new Error("Supplier purchase branch is required.");
+  if (!supplierId) throw new Error("Supplier is required.");
+  if (!invoiceDate || !purchaseDate) throw new Error("Invoice date is required.");
+
+  const dueDate = manualDueDate || addDays(invoiceDate, termDays);
+
+  const supabase = await createClient();
+  const { data: purchase, error: purchaseError } = await supabase
+    .from("supplier_purchases")
+    .select("id, supplier_id, branch_id, invoice_no, invoice_date, purchase_date, credit_term_days, due_date, category, medicine_cost, consumables_cost, other_cost, attachment_path, notes")
+    .eq("id", purchaseId)
+    .maybeSingle();
+
+  if (purchaseError || !purchase) throw new Error("Supplier purchase record not found.");
+  await requireEditableBranch(purchase.branch_id);
+  await requireEditableBranch(branchId);
+
+  const { data: updatedPurchase, error } = await supabase
+    .from("supplier_purchases")
+    .update({
+      supplier_id: supplierId,
+      branch_id: branchId,
+      invoice_no: text(formData, "invoice_no"),
+      invoice_date: invoiceDate,
+      purchase_date: purchaseDate,
+      credit_term_days: termDays,
+      due_date: dueDate,
+      category: text(formData, "category") as PurchaseCategory,
+      medicine_cost: number(formData, "medicine_cost"),
+      consumables_cost: number(formData, "consumables_cost"),
+      other_cost: number(formData, "other_cost"),
+      notes: text(formData, "notes")
+    })
+    .eq("id", purchase.id)
+    .select("id, supplier_id, branch_id, invoice_no, invoice_date, purchase_date, credit_term_days, due_date, category, medicine_cost, consumables_cost, other_cost, attachment_path, notes")
+    .single();
+
+  if (error || !updatedPurchase) throw error ?? new Error("Updated supplier purchase could not be loaded.");
+
+  const beforeData = supplierPurchaseAuditData(purchase);
+  const afterData = supplierPurchaseAuditData(updatedPurchase);
+  if (hasAuditChanges(beforeData, afterData)) {
+    await logAuditEvent({
+      action: "update",
+      afterData,
+      beforeData,
+      branchId: updatedPurchase.branch_id,
+      description: "Edited supplier purchase.",
+      entityId: updatedPurchase.id,
+      entityName: "supplier_purchases"
+    });
+  }
+
+  revalidatePath("/purchases");
+  revalidatePath("/dashboard");
+}
+
 export async function createSupplierPayment(formData: FormData) {
   if (!hasSupabaseEnv()) return;
   const supabase = await createClient();

@@ -1,4 +1,4 @@
-import { createSupplier, updateSupplier } from "@/app/actions";
+import { createSupplier, updateSupplier, updateSupplierPurchase } from "@/app/actions";
 import { DataTable } from "@/components/data-table";
 import { DocumentManager } from "@/components/documents/document-manager";
 import { MetricCard } from "@/components/metric-card";
@@ -18,6 +18,7 @@ export default async function PurchasesPage() {
   const purchaseDocuments = await getTransactionDocuments("supplier_purchases", data.purchases.map((purchase) => purchase.id));
   const role = normalizeRole(profile.role);
   const canManageMasterData = hasPermission(profile, "edit_finance") && role !== "branch_pic";
+  const canEditPurchases = hasPermission(profile, "edit_finance") && role !== "branch_pic";
   const canDeleteDocuments = role !== "branch_pic";
   const totalPurchases = totalBy(data.purchases, (purchase) => purchase.total_amount);
   const medicine = totalBy(data.purchases, (purchase) => purchase.medicine_cost);
@@ -40,7 +41,7 @@ export default async function PurchasesPage() {
 
       <section className="section-grid">
         <DataTable
-          columns={["Invoice Date", "Due Date", "Credit Term", "Branch", "Supplier", "Invoice", "Category", "Medicine", "Consumables", "Other", "Total", "Documents"]}
+          columns={["Invoice Date", "Due Date", "Credit Term", "Branch", "Supplier", "Invoice", "Category", "Medicine", "Consumables", "Other", "Total", "Edit", "Documents"]}
           rows={data.purchases.map((purchase) => [
             formatDate(purchase.invoice_date ?? purchase.purchase_date),
             purchase.due_date ? formatDate(purchase.due_date) : "-",
@@ -53,6 +54,80 @@ export default async function PurchasesPage() {
             formatCurrency(purchase.consumables_cost),
             formatCurrency(purchase.other_cost),
             formatCurrency(purchase.total_amount),
+            canEditPurchases ? (
+              <details className="manual-bank-editor" key={`${purchase.id}-edit`}>
+                <summary>Edit</summary>
+                <form action={updateSupplierPurchase} className="manual-bank-edit-form">
+                  <input name="purchase_id" type="hidden" value={purchase.id} />
+                  <input name="purchase_date" type="hidden" value={purchase.purchase_date} />
+                  <label>
+                    Supplier
+                    <select defaultValue={purchase.supplier_id} name="supplier_id" required>
+                      {activeSuppliers.map((supplier) => (
+                        <option key={supplier.id} value={supplier.id}>
+                          {supplier.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    Branch
+                    <select defaultValue={purchase.branch_id} name="branch_id" required>
+                      {data.branches.map((branch) => (
+                        <option key={branch.id} value={branch.id}>
+                          {branch.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    Invoice no.
+                    <input defaultValue={purchase.invoice_no ?? ""} name="invoice_no" />
+                  </label>
+                  <label>
+                    Invoice date
+                    <input defaultValue={purchase.invoice_date ?? purchase.purchase_date} name="invoice_date" required type="date" />
+                  </label>
+                  <label>
+                    Credit term days
+                    <input defaultValue={purchase.credit_term_days ?? 0} min="0" name="credit_term_days" required step="1" type="number" />
+                  </label>
+                  <label>
+                    Due date
+                    <input defaultValue={purchase.due_date ?? ""} name="due_date" type="date" />
+                  </label>
+                  <label>
+                    Category
+                    <select defaultValue={purchase.category} name="category" required>
+                      <option value="medicine">Medicine</option>
+                      <option value="consumables">Consumables</option>
+                      <option value="other">Other</option>
+                    </select>
+                  </label>
+                  <label>
+                    Medicine cost
+                    <input defaultValue={purchase.medicine_cost} min="0" name="medicine_cost" step="0.01" type="number" />
+                  </label>
+                  <label>
+                    Consumables cost
+                    <input defaultValue={purchase.consumables_cost} min="0" name="consumables_cost" step="0.01" type="number" />
+                  </label>
+                  <label>
+                    Other cost
+                    <input defaultValue={purchase.other_cost} min="0" name="other_cost" step="0.01" type="number" />
+                  </label>
+                  <label>
+                    Notes
+                    <textarea defaultValue={purchase.notes ?? ""} name="notes" />
+                  </label>
+                  <button className="primary-button compact-button" type="submit">
+                    Save
+                  </button>
+                </form>
+              </details>
+            ) : (
+              "-"
+            ),
             <DocumentManager
               canDelete={canDeleteDocuments}
               documents={purchaseDocuments.get(purchase.id) ?? []}
