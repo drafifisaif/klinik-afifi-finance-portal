@@ -1929,6 +1929,8 @@ export async function createSupplierPurchase(formData: FormData) {
 export async function updateSupplierPurchase(formData: FormData) {
   if (!hasSupabaseEnv()) return;
 
+  const profile = await requirePermission("view_supplier_records");
+  const role = normalizeRole(profile.role);
   const purchaseId = text(formData, "purchase_id");
   const branchId = text(formData, "branch_id");
   const supplierId = text(formData, "supplier_id");
@@ -1952,8 +1954,16 @@ export async function updateSupplierPurchase(formData: FormData) {
     .maybeSingle();
 
   if (purchaseError || !purchase) throw new Error("Supplier purchase record not found.");
-  await requireEditableBranch(purchase.branch_id);
-  await requireEditableBranch(branchId);
+  if (!canEditBranch(profile, purchase.branch_id)) {
+    throw new Error(role === "branch_pic"
+      ? "You can only edit supplier purchases for your own branch."
+      : "You do not have permission to edit this supplier purchase.");
+  }
+  if (!canEditBranch(profile, branchId)) {
+    throw new Error(role === "branch_pic"
+      ? "Branch PIC cannot move supplier purchases to another branch."
+      : "You do not have permission to assign this supplier purchase to the selected branch.");
+  }
 
   const { data: updatedPurchase, error } = await supabase
     .from("supplier_purchases")

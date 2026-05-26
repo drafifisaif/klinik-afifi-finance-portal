@@ -6,7 +6,7 @@ import { ModuleHeader } from "@/components/module-header";
 import { SupplierPurchaseForm } from "@/components/supplier-purchase-form";
 import { getDashboardData, getSuppliers, totalBy } from "@/lib/data";
 import { formatCurrency, formatDate, labelize } from "@/lib/format";
-import { hasPermission, normalizeRole, requirePermission } from "@/lib/permissions";
+import { canEditBranch, hasPermission, normalizeRole, requirePermission } from "@/lib/permissions";
 import { getTransactionDocuments } from "@/lib/transaction-documents";
 import { ClipboardList, PackagePlus, Pill, TestTube2 } from "lucide-react";
 
@@ -18,7 +18,6 @@ export default async function PurchasesPage() {
   const purchaseDocuments = await getTransactionDocuments("supplier_purchases", data.purchases.map((purchase) => purchase.id));
   const role = normalizeRole(profile.role);
   const canManageMasterData = hasPermission(profile, "edit_finance") && role !== "branch_pic";
-  const canEditPurchases = hasPermission(profile, "edit_finance") && role !== "branch_pic";
   const canDeleteDocuments = role !== "branch_pic";
   const totalPurchases = totalBy(data.purchases, (purchase) => purchase.total_amount);
   const medicine = totalBy(data.purchases, (purchase) => purchase.medicine_cost);
@@ -54,7 +53,7 @@ export default async function PurchasesPage() {
             formatCurrency(purchase.consumables_cost),
             formatCurrency(purchase.other_cost),
             formatCurrency(purchase.total_amount),
-            canEditPurchases ? (
+            canEditBranch(profile, purchase.branch_id) ? (
               <details className="manual-bank-editor" key={`${purchase.id}-edit`}>
                 <summary>Edit</summary>
                 <form action={updateSupplierPurchase} className="manual-bank-edit-form">
