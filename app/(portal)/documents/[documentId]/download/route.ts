@@ -1,5 +1,5 @@
 import { createClient } from "@/lib/supabase-server";
-import { FINANCE_DOCUMENTS_BUCKET, getTransactionDocumentById } from "@/lib/transaction-documents";
+import { documentBucketForEntity, getTransactionDocumentById } from "@/lib/transaction-documents";
 
 type DocumentDownloadRouteProps = {
   params: Promise<{ documentId: string }>;
@@ -12,8 +12,9 @@ export async function GET(request: Request, { params }: DocumentDownloadRoutePro
 
   const download = new URL(request.url).searchParams.has("download");
   const supabase = await createClient();
+  const bucketName = documentBucketForEntity(document.entity_name);
   const { data, error } = await supabase.storage
-    .from(FINANCE_DOCUMENTS_BUCKET)
+    .from(bucketName)
     .createSignedUrl(document.file_path, 60, download ? { download: document.file_name } : undefined);
 
   if (error || !data?.signedUrl) {

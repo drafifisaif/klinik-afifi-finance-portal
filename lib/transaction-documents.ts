@@ -3,6 +3,9 @@ import { createClient, hasSupabaseEnv } from "@/lib/supabase-server";
 import type { Branch, TransactionDocument, TransactionDocumentEntityName } from "@/lib/types";
 
 export const FINANCE_DOCUMENTS_BUCKET = "finance-documents";
+export const FINANCE_RECEIPTS_BUCKET = "finance-receipts";
+export const SUPPLIER_INVOICES_BUCKET = "supplier-invoices";
+export const PANEL_DOCUMENTS_BUCKET = "panel-documents";
 
 export const transactionDocumentEntityLabels: Record<TransactionDocumentEntityName, string> = {
   bank_transactions: "Manual bank transaction",
@@ -110,6 +113,21 @@ export function documentEntityPath(entityName: TransactionDocumentEntityName) {
   return pathForEntity(entityName);
 }
 
+export function documentUploadLabel(entityName: TransactionDocumentEntityName) {
+  if (entityName === "supplier_purchases") return "Upload Supplier Invoice";
+  if (entityName === "cash_bank_ins") return "Upload Bank-in Receipt";
+  if (entityName === "petty_cash_transactions") return "Upload Petty Cash Receipt";
+  if (entityName === "panel_claims") return "Upload Panel Invoice";
+  return "Upload Document";
+}
+
+export function documentBucketForEntity(entityName: TransactionDocumentEntityName) {
+  if (entityName === "supplier_purchases") return SUPPLIER_INVOICES_BUCKET;
+  if (entityName === "cash_bank_ins" || entityName === "petty_cash_transactions") return FINANCE_RECEIPTS_BUCKET;
+  if (entityName === "panel_claims") return PANEL_DOCUMENTS_BUCKET;
+  return FINANCE_DOCUMENTS_BUCKET;
+}
+
 export function documentStatusLabel(count: number) {
   if (count <= 0) return "No document";
   if (count === 1) return "Uploaded";
@@ -122,13 +140,20 @@ export async function getTransactionDocuments(entityName: TransactionDocumentEnt
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("transaction_documents")
-    .select("*, profiles(full_name)")
+    .select("*, profiles:profiles!transaction_documents_uploaded_by_fkey(full_name)")
     .eq("entity_name", entityName)
     .in("entity_id", entityIds)
     .is("deleted_at", null)
     .order("created_at", { ascending: false });
 
-  if (error) return new Map<string, TransactionDocument[]>();
+  if (error) {
+    console.error("getTransactionDocuments failed", {
+      entityIdCount: entityIds.length,
+      entityName,
+      error: error.message
+    });
+    return new Map<string, TransactionDocument[]>();
+  }
   return groupDocuments((data ?? []) as TransactionDocument[]);
 }
 
@@ -138,12 +163,19 @@ export async function getTransactionDocumentById(documentId: string) {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("transaction_documents")
-    .select("*, profiles(full_name)")
+    .select("*, profiles:profiles!transaction_documents_uploaded_by_fkey(full_name)")
     .eq("id", documentId)
     .is("deleted_at", null)
     .maybeSingle();
 
-  if (error || !data) return null;
+  if (error) {
+    console.error("getTransactionDocumentById failed", {
+      documentId,
+      error: error.message
+    });
+    return null;
+  }
+  if (!data) return null;
   return data as TransactionDocument;
 }
 

@@ -5,8 +5,8 @@ import { logAuditEvent } from "@/lib/audit";
 import { getCurrentProfile, normalizeRole } from "@/lib/permissions";
 import { createClient, hasSupabaseEnv } from "@/lib/supabase-server";
 import {
+  documentBucketForEntity,
   documentEntityPath,
-  FINANCE_DOCUMENTS_BUCKET,
   getTransactionDocumentContext,
   isTransactionDocumentEntity
 } from "@/lib/transaction-documents";
@@ -75,8 +75,9 @@ export async function uploadTransactionDocument(formData: FormData) {
   if (!context) throw new Error("Transaction document target was not found or is not accessible.");
 
   const supabase = await createClient();
+  const bucketName = documentBucketForEntity(context.entityName);
   const filePath = `${profile.id}/${entityName}/${entityId}/${crypto.randomUUID()}-${safeFileName(file.name)}`;
-  const { error: storageError } = await supabase.storage.from(FINANCE_DOCUMENTS_BUCKET).upload(filePath, file, {
+  const { error: storageError } = await supabase.storage.from(bucketName).upload(filePath, file, {
     cacheControl: "3600",
     contentType: file.type,
     upsert: false
@@ -101,7 +102,7 @@ export async function uploadTransactionDocument(formData: FormData) {
   }).select("id, entity_name, entity_id, branch_id, bank_account_id, document_type, file_name, file_size_bytes, compressed_size_bytes, mime_type").single();
 
   if (error || !document) {
-    await supabase.storage.from(FINANCE_DOCUMENTS_BUCKET).remove([filePath]);
+    await supabase.storage.from(bucketName).remove([filePath]);
     throw error ?? new Error("Uploaded document record could not be loaded.");
   }
 
@@ -115,6 +116,7 @@ export async function uploadTransactionDocument(formData: FormData) {
     entityName: document.entity_name
   });
   revalidateDocumentPaths(context.entityName);
+  return document;
 }
 
 export async function deleteTransactionDocument(formData: FormData) {

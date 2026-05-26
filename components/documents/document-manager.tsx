@@ -1,10 +1,11 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { deleteTransactionDocument, uploadTransactionDocument } from "@/app/document-actions";
 import { byteSize, userDisplayLabel } from "@/lib/display";
+import { documentUploadLabel } from "@/lib/transaction-documents";
 import type { TransactionDocument, TransactionDocumentEntityName } from "@/lib/types";
 
 const imageTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
@@ -80,8 +81,18 @@ export function DocumentManager({ canDelete = false, documents, entityId, entity
   const router = useRouter();
   const fileInput = useRef<HTMLInputElement>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [localDocuments, setLocalDocuments] = useState(documents);
+  const [lastUploadedFiles, setLastUploadedFiles] = useState<string[]>([]);
+  const [isViewDocumentsOpen, setIsViewDocumentsOpen] = useState(false);
   const [isPending, startTransition] = useTransition();
-  const status = documentStatusLabel(documents.length);
+  const visibleDocumentCount = localDocuments.length;
+  const status = documentStatusLabel(visibleDocumentCount);
+  const uploadLabel = documentUploadLabel(entityName);
+
+  useEffect(() => {
+    setLocalDocuments(documents);
+    setLastUploadedFiles([]);
+  }, [documents]);
 
   async function uploadSelectedDocuments(formData: FormData) {
     const selectedFiles = fileInput.current?.files ? Array.from(fileInput.current.files) : [];
@@ -92,6 +103,8 @@ export function DocumentManager({ canDelete = false, documents, entityId, entity
 
     setMessage(null);
     try {
+      const uploadedFileNames: string[] = [];
+      const uploadedDocuments: TransactionDocument[] = [];
       for (const file of selectedFiles) {
         const { compressed, originalSize } = await compressImage(file);
         const uploadData = new FormData();
@@ -102,9 +115,18 @@ export function DocumentManager({ canDelete = false, documents, entityId, entity
         uploadData.set("original_size_bytes", String(originalSize));
         uploadData.set("compressed_size_bytes", String(compressed.size));
         uploadData.set("file", compressed);
-        await uploadTransactionDocument(uploadData);
+        const uploadedDocument = await uploadTransactionDocument(uploadData);
+        uploadedFileNames.push(file.name);
+        if (uploadedDocument) {
+          uploadedDocuments.push(uploadedDocument as TransactionDocument);
+        }
       }
       if (fileInput.current) fileInput.current.value = "";
+      if (uploadedDocuments.length) {
+        setLocalDocuments((currentDocuments) => [...uploadedDocuments, ...currentDocuments]);
+      }
+      setLastUploadedFiles(uploadedFileNames);
+      setIsViewDocumentsOpen(true);
       setMessage("Document uploaded.");
       startTransition(() => router.refresh());
     } catch (error) {
@@ -114,13 +136,13 @@ export function DocumentManager({ canDelete = false, documents, entityId, entity
 
   return (
     <div className="document-manager">
-      <span className={`status-pill ${documents.length ? "status-paid" : "status-unpaid"}`}>{status}</span>
+      <span className={`status-pill ${visibleDocumentCount ? "status-paid" : "status-unpaid"}`}>{status}</span>
       <div className="document-actions">
         <details className="document-action">
-          <summary className="ghost-button compact-button">Upload Document</summary>
+          <summary className="ghost-button compact-button">{uploadLabel}</summary>
           <div className="document-panel">
             <form action={uploadSelectedDocuments} className="document-upload-form">
-              <strong>Upload document</strong>
+              <strong>{uploadLabel}</strong>
               <label>
                 Document type
                 <select defaultValue="supporting_document" name="document_type">
@@ -140,18 +162,25 @@ export function DocumentManager({ canDelete = false, documents, entityId, entity
                 <textarea name="notes" placeholder="Optional document note" />
               </label>
               <button className="primary-button compact-button" disabled={isPending} type="submit">
-                Upload document
+                {uploadLabel}
               </button>
               {message ? <p className="document-message">{message}</p> : null}
+              {lastUploadedFiles.length ? (
+                <p className="document-message">Latest upload: {lastUploadedFiles.join(", ")}</p>
+              ) : null}
             </form>
           </div>
         </details>
 
-        <details className="document-action">
+        <details
+          className="document-action"
+          onToggle={(event) => setIsViewDocumentsOpen(event.currentTarget.open)}
+          open={isViewDocumentsOpen}
+        >
           <summary className="ghost-button compact-button">View Documents</summary>
           <div className="document-panel">
             <div className="document-list">
-              {documents.length ? documents.map((document) => (
+              {localDocuments.length ? localDocuments.map((document) => (
                 <article className="document-item" key={document.id}>
                   {isImage(document) ? (
                     <a href={`/documents/${document.id}/download`} target="_blank" rel="noreferrer">
@@ -197,7 +226,9 @@ export function DocumentManager({ canDelete = false, documents, entityId, entity
                     </details>
                   ) : null}
                 </article>
-              )) : <p className="muted-copy">No document uploaded.</p>}
+              )) : lastUploadedFiles.length ? (
+                <p className="muted-copy">Refreshing document list for: {lastUploadedFiles.join(", ")}</p>
+              ) : <p className="muted-copy">No document uploaded.</p>}
             </div>
           </div>
         </details>
