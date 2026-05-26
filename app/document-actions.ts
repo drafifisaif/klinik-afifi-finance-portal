@@ -4,8 +4,8 @@ import { revalidatePath } from "next/cache";
 import { logAuditEvent } from "@/lib/audit";
 import { getCurrentProfile, normalizeRole } from "@/lib/permissions";
 import { createClient, hasSupabaseEnv } from "@/lib/supabase-server";
+import { documentBucketForEntity } from "@/lib/transaction-document-config";
 import {
-  documentBucketForEntity,
   documentEntityPath,
   getTransactionDocumentContext,
   isTransactionDocumentEntity

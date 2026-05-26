@@ -5,7 +5,7 @@ import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { deleteTransactionDocument, uploadTransactionDocument } from "@/app/document-actions";
 import { byteSize, userDisplayLabel } from "@/lib/display";
-import { documentUploadLabel } from "@/lib/transaction-documents";
+import { documentUploadLabel } from "@/lib/transaction-document-config";
 import type { TransactionDocument, TransactionDocumentEntityName } from "@/lib/types";
 
 const imageTypes = new Set(["image/jpeg", "image/png", "image/webp"]);

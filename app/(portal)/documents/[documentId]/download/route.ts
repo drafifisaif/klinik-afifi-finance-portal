@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase-server";
-import { documentBucketForEntity, getTransactionDocumentById } from "@/lib/transaction-documents";
+import { documentBucketForEntity } from "@/lib/transaction-document-config";
+import { getTransactionDocumentById } from "@/lib/transaction-documents";
 
 type DocumentDownloadRouteProps = {
   params: Promise<{ documentId: string }>;
