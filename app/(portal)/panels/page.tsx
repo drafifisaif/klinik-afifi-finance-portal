@@ -1,4 +1,4 @@
-import { createPanelClaim, createPanelCompany, updatePanelCompany } from "@/app/actions";
+import { createPanelClaim, createPanelCompany, updatePanelClaim, updatePanelCompany } from "@/app/actions";
 import { DataTable } from "@/components/data-table";
 import { DocumentManager } from "@/components/documents/document-manager";
 import { MetricCard } from "@/components/metric-card";
@@ -7,7 +7,7 @@ import { PanelPaymentForm } from "@/components/panel-payment-form";
 import { getBankingDataForScope, getDashboardData, getPanelCompanies, totalBy } from "@/lib/data";
 import { formatCurrency, formatDate, labelize } from "@/lib/format";
 import { outstandingOpeningBalanceTotal } from "@/lib/opening-balances";
-import { hasPermission, normalizeRole, requirePermission } from "@/lib/permissions";
+import { canEditBranch, hasPermission, normalizeRole, requirePermission } from "@/lib/permissions";
 import { getTransactionDocuments } from "@/lib/transaction-documents";
 import { Building, CalendarClock, FileClock, ShieldCheck } from "lucide-react";
 
@@ -50,7 +50,7 @@ export default async function PanelsPage() {
 
       <section className="section-grid">
         <DataTable
-          columns={["Claim month", "Panel", "Branch", "Claim no.", "Due", "Status", "Amount", "Documents"]}
+          columns={["Claim month", "Panel", "Branch", "Claim no.", "Due", "Status", "Amount", "Edit", "Documents"]}
           rows={data.panels.map((claim) => [
             formatDate(claim.claim_month),
             claim.panel_companies?.name ?? "-",
@@ -59,6 +59,72 @@ export default async function PanelsPage() {
             formatDate(claim.due_date),
             <StatusPill key={claim.id} status={claim.status} />,
             formatCurrency(claim.amount),
+            canEditBranch(profile, claim.branch_id) ? (
+              <details className="manual-bank-editor" key={`${claim.id}-edit`}>
+                <summary>Edit</summary>
+                <form action={updatePanelClaim} className="manual-bank-edit-form">
+                  <input name="claim_id" type="hidden" value={claim.id} />
+                  <label>
+                    Panel company
+                    <select defaultValue={claim.panel_company_id} name="panel_company_id" required>
+                      {activePanelCompanies.map((company) => (
+                        <option key={company.id} value={company.id}>
+                          {company.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    Branch
+                    <select defaultValue={claim.branch_id} name="branch_id" required>
+                      {data.branches.map((branch) => (
+                        <option key={branch.id} value={branch.id}>
+                          {branch.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    Claim no.
+                    <input defaultValue={claim.claim_no ?? ""} name="claim_no" />
+                  </label>
+                  <label>
+                    Claim month
+                    <input defaultValue={claim.claim_month} name="claim_month" required type="date" />
+                  </label>
+                  <label>
+                    Submitted date
+                    <input defaultValue={claim.submitted_date ?? ""} name="submitted_date" type="date" />
+                  </label>
+                  <label>
+                    Due date
+                    <input defaultValue={claim.due_date ?? ""} name="due_date" type="date" />
+                  </label>
+                  <label>
+                    Amount
+                    <input defaultValue={claim.amount} min="0" name="amount" required step="0.01" type="number" />
+                  </label>
+                  <label>
+                    Status
+                    <select defaultValue={claim.status} name="status">
+                      <option value="unpaid">Unpaid</option>
+                      <option value="partial">Partial</option>
+                      <option value="paid">Paid</option>
+                      <option value="overdue">Overdue</option>
+                    </select>
+                  </label>
+                  <label>
+                    Notes
+                    <textarea defaultValue={claim.notes ?? ""} name="notes" />
+                  </label>
+                  <button className="primary-button compact-button" type="submit">
+                    Save
+                  </button>
+                </form>
+              </details>
+            ) : (
+              "-"
+            ),
             <DocumentManager
               canDelete={canDeleteDocuments}
               documents={claimDocuments.get(claim.id) ?? []}

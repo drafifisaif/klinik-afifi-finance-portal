@@ -2191,6 +2191,73 @@ export async function createPanelClaim(formData: FormData) {
   revalidatePath("/dashboard");
 }
 
+export async function updatePanelClaim(formData: FormData) {
+  if (!hasSupabaseEnv()) return;
+
+  const profile = await requirePermission("view_panel_records");
+  const role = normalizeRole(profile.role);
+  const claimId = text(formData, "claim_id");
+  const branchId = text(formData, "branch_id");
+
+  if (!claimId) throw new Error("Panel claim record is required.");
+  if (!branchId) throw new Error("Panel claim branch is required.");
+
+  const supabase = await createClient();
+  const { data: claim, error: claimError } = await supabase
+    .from("panel_claims")
+    .select("id, panel_company_id, branch_id, claim_no, claim_month, submitted_date, due_date, amount, status, notes")
+    .eq("id", claimId)
+    .maybeSingle();
+
+  if (claimError || !claim) throw new Error("Panel claim record not found.");
+  if (!canEditBranch(profile, claim.branch_id)) {
+    throw new Error(role === "branch_pic"
+      ? "You can only edit panel claims for your own branch."
+      : "You do not have permission to edit this panel claim.");
+  }
+  if (!canEditBranch(profile, branchId)) {
+    throw new Error(role === "branch_pic"
+      ? "Branch PIC cannot move panel claims to another branch."
+      : "You do not have permission to assign this panel claim to the selected branch.");
+  }
+
+  const { data: updatedClaim, error } = await supabase
+    .from("panel_claims")
+    .update({
+      panel_company_id: text(formData, "panel_company_id"),
+      branch_id: branchId,
+      claim_no: text(formData, "claim_no"),
+      claim_month: text(formData, "claim_month"),
+      submitted_date: text(formData, "submitted_date"),
+      due_date: text(formData, "due_date"),
+      amount: number(formData, "amount"),
+      status: text(formData, "status") ?? "unpaid",
+      notes: text(formData, "notes")
+    })
+    .eq("id", claim.id)
+    .select("id, panel_company_id, branch_id, claim_no, claim_month, submitted_date, due_date, amount, status, notes")
+    .single();
+
+  if (error || !updatedClaim) throw error ?? new Error("Updated panel claim could not be loaded.");
+
+  const beforeData = panelClaimAuditData(claim);
+  const afterData = panelClaimAuditData(updatedClaim);
+  if (hasAuditChanges(beforeData, afterData)) {
+    await logAuditEvent({
+      action: "update",
+      afterData,
+      beforeData,
+      branchId: updatedClaim.branch_id,
+      description: "Edited panel claim.",
+      entityId: updatedClaim.id,
+      entityName: "panel_claims"
+    });
+  }
+
+  revalidatePath("/panels");
+  revalidatePath("/dashboard");
+}
+
 export async function createPanelPayment(formData: FormData) {
   if (!hasSupabaseEnv()) return;
   const panelClaimId = text(formData, "panel_claim_id");
