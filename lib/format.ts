@@ -2,7 +2,8 @@ export function formatCurrency(value: number | null | undefined) {
   return new Intl.NumberFormat("en-MY", {
     style: "currency",
     currency: "MYR",
-    maximumFractionDigits: 0
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
   }).format(value ?? 0);
 }
 
