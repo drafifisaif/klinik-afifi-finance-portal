@@ -38,6 +38,10 @@ function dateTime(value: string) {
   }).format(new Date(value));
 }
 
+function documentTypeLabel(value: string | null | undefined) {
+  return value?.replaceAll("_", " ") ?? "supporting document";
+}
+
 function documentStatusLabel(count: number) {
   if (count <= 0) return "No document";
   if (count === 1) return "Uploaded";
@@ -81,6 +85,7 @@ export function DocumentManager({ canDelete = false, documents, entityId, entity
   const router = useRouter();
   const fileInput = useRef<HTMLInputElement>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [messageTone, setMessageTone] = useState<"success" | "error" | null>(null);
   const [localDocuments, setLocalDocuments] = useState(documents);
   const [lastUploadedFiles, setLastUploadedFiles] = useState<string[]>([]);
   const [isViewDocumentsOpen, setIsViewDocumentsOpen] = useState(false);
@@ -90,18 +95,34 @@ export function DocumentManager({ canDelete = false, documents, entityId, entity
   const uploadLabel = documentUploadLabel(entityName);
 
   useEffect(() => {
-    setLocalDocuments(documents);
-    setLastUploadedFiles([]);
+    setLocalDocuments((currentDocuments) => {
+      if (!lastUploadedFiles.length) return documents;
+
+      const knownIds = new Set(documents.map((document) => document.id));
+      const optimisticDocuments = currentDocuments.filter((document) => !knownIds.has(document.id));
+      return [...optimisticDocuments, ...documents];
+    });
+    if (documents.length) {
+      setLastUploadedFiles([]);
+    }
+  }, [documents, lastUploadedFiles.length]);
+
+  useEffect(() => {
+    if (visibleDocumentCount > 0 && lastUploadedFiles.length) {
+      setIsViewDocumentsOpen(true);
+    }
   }, [documents]);
 
   async function uploadSelectedDocuments(formData: FormData) {
     const selectedFiles = fileInput.current?.files ? Array.from(fileInput.current.files) : [];
     if (!selectedFiles.length) {
+      setMessageTone("error");
       setMessage("Choose at least one document.");
       return;
     }
 
     setMessage(null);
+    setMessageTone(null);
     try {
       const uploadedFileNames: string[] = [];
       const uploadedDocuments: TransactionDocument[] = [];
@@ -118,18 +139,24 @@ export function DocumentManager({ canDelete = false, documents, entityId, entity
         const uploadedDocument = await uploadTransactionDocument(uploadData);
         uploadedFileNames.push(file.name);
         if (uploadedDocument) {
-          uploadedDocuments.push(uploadedDocument as TransactionDocument);
+          uploadedDocuments.push(uploadedDocument);
         }
       }
       if (fileInput.current) fileInput.current.value = "";
       if (uploadedDocuments.length) {
-        setLocalDocuments((currentDocuments) => [...uploadedDocuments, ...currentDocuments]);
+        setLocalDocuments((currentDocuments) => {
+          const existingIds = new Set(currentDocuments.map((document) => document.id));
+          const uniqueUploads = uploadedDocuments.filter((document) => !existingIds.has(document.id));
+          return [...uniqueUploads, ...currentDocuments];
+        });
       }
       setLastUploadedFiles(uploadedFileNames);
       setIsViewDocumentsOpen(true);
-      setMessage("Document uploaded.");
+      setMessageTone("success");
+      setMessage(uploadedFileNames.length > 1 ? "Documents uploaded." : "Document uploaded.");
       startTransition(() => router.refresh());
     } catch (error) {
+      setMessageTone("error");
       setMessage(error instanceof Error ? error.message : "Document upload failed.");
     }
   }
@@ -162,11 +189,11 @@ export function DocumentManager({ canDelete = false, documents, entityId, entity
                 <textarea name="notes" placeholder="Optional document note" />
               </label>
               <button className="primary-button compact-button" disabled={isPending} type="submit">
-                {uploadLabel}
+                {isPending ? "Uploading..." : uploadLabel}
               </button>
-              {message ? <p className="document-message">{message}</p> : null}
+              {message ? <p className={`document-message ${messageTone === "error" ? "error-copy" : ""}`}>{message}</p> : null}
               {lastUploadedFiles.length ? (
-                <p className="document-message">Latest upload: {lastUploadedFiles.join(", ")}</p>
+                <p className="document-message">Uploaded file{lastUploadedFiles.length > 1 ? "s" : ""}: {lastUploadedFiles.join(", ")}</p>
               ) : null}
             </form>
           </div>
@@ -197,10 +224,14 @@ export function DocumentManager({ canDelete = false, documents, entityId, entity
                   ) : null}
                   <div className="document-meta">
                     <strong>{document.file_name}</strong>
-                    <span>{document.document_type?.replaceAll("_", " ") ?? "supporting document"}</span>
-                    <span>Uploaded by {userDisplayLabel(document.profiles, document.uploaded_by)}</span>
+                    <span>{documentTypeLabel(document.document_type)}</span>
                     <span>{dateTime(document.created_at)}</span>
-                    <span>Original {byteSize(document.file_size_bytes)} / stored {byteSize(document.compressed_size_bytes)}</span>
+                    <span>
+                      {document.compressed_size_bytes
+                        ? `Stored ${byteSize(document.compressed_size_bytes)}`
+                        : `File size ${byteSize(document.file_size_bytes)}`}
+                    </span>
+                    <span>Uploaded by {userDisplayLabel(document.profiles, document.uploaded_by)}</span>
                   </div>
                   <div className="document-links">
                     <a className="ghost-button compact-button" href={`/documents/${document.id}/download`} target="_blank" rel="noreferrer">

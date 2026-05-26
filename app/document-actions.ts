@@ -10,6 +10,7 @@ import {
   getTransactionDocumentContext,
   isTransactionDocumentEntity
 } from "@/lib/transaction-documents";
+import type { TransactionDocument } from "@/lib/types";
 
 const allowedDocumentMimeTypes = new Set(["application/pdf", "image/jpeg", "image/png", "image/webp"]);
 
@@ -26,6 +27,12 @@ function integerField(formData: FormData, key: string) {
 function safeFileName(value: string) {
   const trimmed = value.trim().replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/-+/g, "-");
   return trimmed.replace(/^-|-$/g, "") || "document";
+}
+
+function normalizeDocumentProfile(document: {
+  profiles?: { full_name?: string | null } | { full_name?: string | null }[] | null;
+}) {
+  return Array.isArray(document.profiles) ? (document.profiles[0] ?? null) : (document.profiles ?? null);
 }
 
 async function requireDocumentActor() {
@@ -99,12 +106,17 @@ export async function uploadTransactionDocument(formData: FormData) {
     mime_type: file.type,
     notes: field(formData, "notes"),
     uploaded_by: profile.id
-  }).select("id, entity_name, entity_id, branch_id, bank_account_id, document_type, file_name, file_size_bytes, compressed_size_bytes, mime_type").single();
+  }).select("id, entity_name, entity_id, branch_id, bank_account_id, document_type, file_name, file_path, file_size_bytes, compressed_size_bytes, mime_type, notes, uploaded_by, created_at, deleted_at, deleted_by, delete_reason, profiles:profiles!transaction_documents_uploaded_by_fkey(full_name)").single();
 
   if (error || !document) {
     await supabase.storage.from(bucketName).remove([filePath]);
     throw error ?? new Error("Uploaded document record could not be loaded.");
   }
+
+  const normalizedDocument = {
+    ...document,
+    profiles: normalizeDocumentProfile(document)
+  } as TransactionDocument;
 
   await logAuditEvent({
     action: "document_upload",
@@ -116,7 +128,7 @@ export async function uploadTransactionDocument(formData: FormData) {
     entityName: document.entity_name
   });
   revalidateDocumentPaths(context.entityName);
-  return document;
+  return normalizedDocument;
 }
 
 export async function deleteTransactionDocument(formData: FormData) {
