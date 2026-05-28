@@ -1935,7 +1935,7 @@ export async function updateSupplierPurchase(formData: FormData) {
 
   const profile = await requirePermission("view_supplier_records");
   const role = normalizeRole(profile.role);
-  const purchaseId = text(formData, "purchase_id");
+  const purchaseId = String(formData.get("purchase_id") || "").trim();
   const branchId = text(formData, "branch_id");
   const supplierId = text(formData, "supplier_id");
   const invoiceDate = text(formData, "invoice_date") ?? text(formData, "purchase_date");
@@ -1943,12 +1943,12 @@ export async function updateSupplierPurchase(formData: FormData) {
   const manualDueDate = text(formData, "due_date");
   const termDays = Math.max(0, number(formData, "credit_term_days"));
 
-  if (!purchaseId) failPurchaseEdit("Supplier purchase record is required.");
+  if (!purchaseId) failPurchaseEdit("Supplier purchase id is missing.");
   if (!branchId) failPurchaseEdit("Supplier purchase branch is required.");
   if (!supplierId) failPurchaseEdit("Supplier is required.");
   if (!invoiceDate || !purchaseDate) failPurchaseEdit("Invoice date is required.");
 
-  const safePurchaseId = purchaseId as string;
+  const safePurchaseId = purchaseId;
   const safeBranchId = branchId as string;
   const safeSupplierId = supplierId as string;
   const safeInvoiceDate = invoiceDate as string;
@@ -1969,25 +1969,41 @@ export async function updateSupplierPurchase(formData: FormData) {
       purchaseId: safePurchaseId,
       error: purchaseError?.message ?? "no row returned"
     });
-    failPurchaseEdit("Supplier purchase not found or you do not have permission to edit it.");
+    failPurchaseEdit("Supplier purchase not found.");
   }
   const existingPurchase = purchase as NonNullable<typeof purchase>;
+  const nextBranchId = role === "branch_pic" ? existingPurchase.branch_id : safeBranchId;
+
   if (!canEditBranch(profile, existingPurchase.branch_id)) {
-    failPurchaseEdit(role === "branch_pic"
-      ? "You can only edit supplier purchases for your own branch."
-      : "Supplier purchase not found or you do not have permission to edit it.");
+    console.error("updateSupplierPurchase permission denied", {
+      action: "updateSupplierPurchase",
+      purchaseId: safePurchaseId,
+      role,
+      profileBranchId: profile.branch_id,
+      purchaseBranchId: existingPurchase.branch_id
+    });
+    failPurchaseEdit("You do not have permission to edit this supplier purchase.");
   }
-  if (!canEditBranch(profile, safeBranchId)) {
+  if (!canEditBranch(profile, nextBranchId)) {
+    console.error("updateSupplierPurchase target branch denied", {
+      action: "updateSupplierPurchase",
+      purchaseId: safePurchaseId,
+      role,
+      profileBranchId: profile.branch_id,
+      purchaseBranchId: existingPurchase.branch_id,
+      submittedBranchId: safeBranchId,
+      nextBranchId
+    });
     failPurchaseEdit(role === "branch_pic"
       ? "Branch PIC cannot move supplier purchases to another branch."
-      : "Supplier purchase not found or you do not have permission to edit it.");
+      : "You do not have permission to edit this supplier purchase.");
   }
 
   const { data: updatedPurchase, error } = await supabase
     .from("supplier_purchases")
     .update({
       supplier_id: safeSupplierId,
-      branch_id: safeBranchId,
+      branch_id: nextBranchId,
       invoice_no: text(formData, "invoice_no"),
       invoice_date: safeInvoiceDate,
       purchase_date: safePurchaseDate,
@@ -2015,9 +2031,13 @@ export async function updateSupplierPurchase(formData: FormData) {
     console.error("updateSupplierPurchase update returned no rows", {
       action: "updateSupplierPurchase",
       purchaseId: safePurchaseId,
-      error: "no row returned"
+      error: "no row returned",
+      role,
+      profileBranchId: profile.branch_id,
+      purchaseBranchId: existingPurchase.branch_id,
+      attemptedBranchId: nextBranchId
     });
-    failPurchaseEdit("Supplier purchase not found or you do not have permission to edit it.");
+    failPurchaseEdit("You do not have permission to edit this supplier purchase.");
   }
   const savedPurchase = updatedPurchase as NonNullable<typeof updatedPurchase>;
 
