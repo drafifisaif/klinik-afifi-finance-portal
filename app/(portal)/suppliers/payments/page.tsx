@@ -3,6 +3,7 @@ import { DocumentManager } from "@/components/documents/document-manager";
 import { MetricCard } from "@/components/metric-card";
 import { ModuleHeader } from "@/components/module-header";
 import { SupplierPaymentForm } from "@/components/supplier-payment-form";
+import { isActiveFinancialRecord } from "@/lib/bank-reporting";
 import { getBankingDataForScope, getDashboardData, getSupplierOutstanding, getSuppliers, totalBy } from "@/lib/data";
 import { formatCurrency, formatDate, labelize } from "@/lib/format";
 import { outstandingOpeningBalanceTotal } from "@/lib/opening-balances";
@@ -19,7 +20,8 @@ export default async function SupplierPaymentsPage() {
   const paymentDocuments = await getTransactionDocuments("supplier_payments", data.supplierPayments.map((payment) => payment.id));
   const canUseGeneralPayment = canViewAllBranches(profile);
   const canDeleteDocuments = normalizeRole(profile.role) !== "branch_pic";
-  const purchased = totalBy(data.purchases, (purchase) => purchase.total_amount);
+  const activePurchases = data.purchases.filter(isActiveFinancialRecord);
+  const purchased = totalBy(activePurchases, (purchase) => purchase.total_amount);
   const paid = totalBy(data.supplierPayments, (payment) => payment.amount);
   const openingOutstanding = outstandingOpeningBalanceTotal(data.openingBalances, "supplier_outstanding");
   const outstanding = openingOutstanding + purchased - paid;

@@ -120,6 +120,10 @@ export type SupplierPurchase = {
   other_cost: number;
   total_amount: number;
   notes?: string | null;
+  is_void?: boolean;
+  voided_at?: string | null;
+  voided_by?: string | null;
+  void_reason?: string | null;
   suppliers?: Pick<Supplier, "name"> | null;
   branches?: Pick<Branch, "name" | "code"> | null;
 };

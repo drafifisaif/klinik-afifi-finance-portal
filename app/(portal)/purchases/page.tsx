@@ -1,11 +1,12 @@
-import { createSupplier, updateSupplier, updateSupplierPurchase } from "@/app/actions";
+import { createSupplier, updateSupplier, voidSupplierPurchase } from "@/app/actions";
 import { DataTable } from "@/components/data-table";
 import { DocumentManager } from "@/components/documents/document-manager";
 import { MetricCard } from "@/components/metric-card";
 import { ModuleHeader } from "@/components/module-header";
 import { SupplierPurchaseForm } from "@/components/supplier-purchase-form";
+import { isActiveFinancialRecord } from "@/lib/bank-reporting";
 import { getDashboardData, getSuppliers, totalBy } from "@/lib/data";
-import { formatCurrency, formatDate, labelize } from "@/lib/format";
+import { formatCurrency, formatDate, formatDateTime, labelize } from "@/lib/format";
 import { canEditBranch, hasPermission, normalizeRole, requirePermission } from "@/lib/permissions";
 import { getTransactionDocuments } from "@/lib/transaction-documents";
 import { ClipboardList, PackagePlus, Pill, TestTube2 } from "lucide-react";
@@ -24,9 +25,10 @@ export default async function PurchasesPage({ searchParams }: { searchParams: Pr
   const role = normalizeRole(profile.role);
   const canManageMasterData = hasPermission(profile, "edit_finance") && role !== "branch_pic";
   const canDeleteDocuments = role !== "branch_pic";
-  const totalPurchases = totalBy(data.purchases, (purchase) => purchase.total_amount);
-  const medicine = totalBy(data.purchases, (purchase) => purchase.medicine_cost);
-  const consumables = totalBy(data.purchases, (purchase) => purchase.consumables_cost);
+  const activePurchases = data.purchases.filter(isActiveFinancialRecord);
+  const totalPurchases = totalBy(activePurchases, (purchase) => purchase.total_amount);
+  const medicine = totalBy(activePurchases, (purchase) => purchase.medicine_cost);
+  const consumables = totalBy(activePurchases, (purchase) => purchase.consumables_cost);
 
   return (
     <>
@@ -51,7 +53,7 @@ export default async function PurchasesPage({ searchParams }: { searchParams: Pr
 
       <section className="table-section mt-section">
         <DataTable
-          columns={["Invoice Date", "Due Date", "Credit Term", "Branch", "Supplier", "Invoice", "Category", "Medicine", "Consumables", "Other", "Total", "Edit", "Documents"]}
+          columns={["Invoice Date", "Due Date", "Credit Term", "Branch", "Supplier", "Invoice", "Category", "Medicine", "Consumables", "Other", "Total", "Status", "Void", "Documents"]}
           rows={data.purchases.map((purchase) => [
             formatDate(purchase.invoice_date ?? purchase.purchase_date),
             purchase.due_date ? formatDate(purchase.due_date) : "-",
@@ -64,82 +66,30 @@ export default async function PurchasesPage({ searchParams }: { searchParams: Pr
             formatCurrency(purchase.consumables_cost),
             formatCurrency(purchase.other_cost),
             formatCurrency(purchase.total_amount),
-            canEditBranch(profile, purchase.branch_id) ? (
+            purchase.is_void ? (
+              <details className="manual-bank-editor" key={`${purchase.id}-status`}>
+                <summary>
+                  <span className="status-pill status-overdue">Voided</span>
+                </summary>
+                <div className="record-detail-card">
+                  <p><strong>Reason:</strong> {purchase.void_reason ?? "-"}</p>
+                  <p><strong>Voided at:</strong> {purchase.voided_at ? formatDateTime(purchase.voided_at) : "-"}</p>
+                </div>
+              </details>
+            ) : (
+              <span className="status-pill status-paid" key={`${purchase.id}-active`}>Active</span>
+            ),
+            !purchase.is_void && canEditBranch(profile, purchase.branch_id) ? (
               <details className="manual-bank-editor" key={`${purchase.id}-edit`}>
-                <summary>Edit</summary>
-                <form action={updateSupplierPurchase} className="manual-bank-edit-form">
+                <summary>Void</summary>
+                <form action={voidSupplierPurchase} className="manual-bank-edit-form">
                   <input name="purchase_id" type="hidden" value={purchase.id} />
-                  <input name="purchase_date" type="hidden" value={purchase.purchase_date} />
                   <label>
-                    Supplier
-                    <select defaultValue={purchase.supplier_id} name="supplier_id" required>
-                      {activeSuppliers.map((supplier) => (
-                        <option key={supplier.id} value={supplier.id}>
-                          {supplier.name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  {role === "branch_pic" ? (
-                    <label>
-                      Branch
-                      <input readOnly value={purchase.branches?.name ?? "-"} />
-                      <input name="branch_id" type="hidden" value={purchase.branch_id} />
-                    </label>
-                  ) : (
-                    <label>
-                      Branch
-                      <select defaultValue={purchase.branch_id} name="branch_id" required>
-                        {data.branches.map((branch) => (
-                          <option key={branch.id} value={branch.id}>
-                            {branch.name}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  )}
-                  <label>
-                    Invoice no.
-                    <input defaultValue={purchase.invoice_no ?? ""} name="invoice_no" />
-                  </label>
-                  <label>
-                    Invoice date
-                    <input defaultValue={purchase.invoice_date ?? purchase.purchase_date} name="invoice_date" required type="date" />
-                  </label>
-                  <label>
-                    Credit term days
-                    <input defaultValue={purchase.credit_term_days ?? 0} min="0" name="credit_term_days" required step="1" type="number" />
-                  </label>
-                  <label>
-                    Due date
-                    <input defaultValue={purchase.due_date ?? ""} name="due_date" type="date" />
-                  </label>
-                  <label>
-                    Category
-                    <select defaultValue={purchase.category} name="category" required>
-                      <option value="medicine">Medicine</option>
-                      <option value="consumables">Consumables</option>
-                      <option value="other">Other</option>
-                    </select>
-                  </label>
-                  <label>
-                    Medicine cost
-                    <input defaultValue={purchase.medicine_cost} min="0" name="medicine_cost" step="0.01" type="number" />
-                  </label>
-                  <label>
-                    Consumables cost
-                    <input defaultValue={purchase.consumables_cost} min="0" name="consumables_cost" step="0.01" type="number" />
-                  </label>
-                  <label>
-                    Other cost
-                    <input defaultValue={purchase.other_cost} min="0" name="other_cost" step="0.01" type="number" />
-                  </label>
-                  <label>
-                    Notes
-                    <textarea defaultValue={purchase.notes ?? ""} name="notes" />
+                    Void this supplier purchase
+                    <textarea name="void_reason" placeholder="Explain why this supplier purchase is incorrect." required />
                   </label>
                   <button className="primary-button compact-button" type="submit">
-                    Save
+                    Confirm Void
                   </button>
                 </form>
               </details>

@@ -236,11 +236,15 @@ type SupplierPurchaseAuditRow = {
   consumables_cost: number;
   due_date: string | null;
   invoice_no: string | null;
+  is_void?: boolean;
   medicine_cost: number;
   notes: string | null;
   other_cost: number;
   purchase_date: string;
   supplier_id: string;
+  void_reason?: string | null;
+  voided_at?: string | null;
+  voided_by?: string | null;
 };
 
 type SupplierPaymentAuditRow = {
@@ -455,11 +459,15 @@ function supplierPurchaseAuditData(purchase: SupplierPurchaseAuditRow) {
     consumables_cost: purchase.consumables_cost,
     due_date: purchase.due_date,
     invoice_no: purchase.invoice_no,
+    is_void: purchase.is_void ?? false,
     medicine_cost: purchase.medicine_cost,
     notes: purchase.notes,
     other_cost: purchase.other_cost,
     purchase_date: purchase.purchase_date,
-    supplier_id: purchase.supplier_id
+    supplier_id: purchase.supplier_id,
+    void_reason: purchase.void_reason ?? null,
+    voided_at: purchase.voided_at ?? null,
+    voided_by: purchase.voided_by ?? null
   };
 }
 
@@ -1959,6 +1967,7 @@ export async function createSupplierPurchase(formData: FormData) {
   revalidatePath("/dashboard");
 }
 
+// Supplier purchases now use void + recreate from the UI. This action remains for history only.
 export async function updateSupplierPurchase(formData: FormData) {
   if (!hasSupabaseEnv()) return;
 
@@ -2097,6 +2106,120 @@ export async function updateSupplierPurchase(formData: FormData) {
 
   revalidatePath("/purchases");
   revalidatePath("/dashboard");
+}
+
+function supplierPurchaseVoidRpcErrorMessage(error: {
+  code?: string | null;
+  details?: string | null;
+  hint?: string | null;
+  message?: string | null;
+}) {
+  const message = error.message ?? "";
+  const details = error.details ?? "";
+  const hint = error.hint ?? "";
+  const haystack = `${message} ${details} ${hint}`.toLowerCase();
+
+  if (error.code === "PGRST202" || haystack.includes("could not find the function public.void_supplier_purchase")) {
+    return "Supplier purchase void function is unavailable. Run the latest Supabase migration.";
+  }
+  if (haystack.includes("stack depth limit exceeded")) {
+    return "Supplier purchase void policy is still recursive. Run the latest supplier purchase void RPC migration.";
+  }
+  if (error.code === "42501" || haystack.includes("permission")) {
+    return "You do not have permission to void this supplier purchase.";
+  }
+  if (error.code === "P0002" || haystack.includes("supplier purchase not found")) {
+    return "Supplier purchase not found.";
+  }
+  if (haystack.includes("already voided")) {
+    return "Supplier purchase is already voided.";
+  }
+
+  return "Supplier purchase could not be voided. Please try again.";
+}
+
+export async function voidSupplierPurchase(formData: FormData) {
+  if (!hasSupabaseEnv()) return;
+
+  const failSupplierPurchaseVoid = (message: string): never => {
+    redirect(`/purchases?error=${encodeURIComponent(message)}`);
+  };
+
+  const profile = await requirePermission("view_supplier_records");
+  const role = normalizeRole(profile.role);
+  const purchaseId = String(formData.get("purchase_id") || "").trim();
+  const reason = text(formData, "void_reason");
+
+  if (!purchaseId) failSupplierPurchaseVoid("Supplier purchase record is required.");
+  if (!reason) failSupplierPurchaseVoid("Void reason is required.");
+
+  const supabase = await createClient();
+  const { data: purchase, error: purchaseError } = await supabase
+    .from("supplier_purchases")
+    .select("id, supplier_id, branch_id, invoice_no, invoice_date, purchase_date, credit_term_days, due_date, category, medicine_cost, consumables_cost, other_cost, attachment_path, notes, is_void, void_reason, voided_at, voided_by")
+    .eq("id", purchaseId)
+    .maybeSingle();
+
+  if (purchaseError || !purchase) {
+    console.error("voidSupplierPurchase load failed", {
+      action: "voidSupplierPurchase",
+      purchaseId,
+      error: purchaseError?.message ?? "no row returned"
+    });
+    failSupplierPurchaseVoid("Supplier purchase not found.");
+  }
+  const existingPurchase = purchase as NonNullable<typeof purchase>;
+  if (!canEditBranch(profile, existingPurchase.branch_id)) {
+    failSupplierPurchaseVoid("You do not have permission to void this supplier purchase.");
+  }
+  if (existingPurchase.is_void) {
+    failSupplierPurchaseVoid("Supplier purchase is already voided.");
+  }
+
+  const { data: voidedPurchase, error } = await supabase.rpc("void_supplier_purchase", {
+    p_purchase_id: existingPurchase.id,
+    p_void_reason: reason
+  });
+
+  if (error) {
+    console.error("voidSupplierPurchase failed", {
+      action: "voidSupplierPurchase",
+      purchaseId,
+      role,
+      profileBranchId: profile.branch_id,
+      purchaseBranchId: existingPurchase.branch_id,
+      code: error.code,
+      error: error.message,
+      details: error.details,
+      hint: error.hint
+    });
+    failSupplierPurchaseVoid(supplierPurchaseVoidRpcErrorMessage(error));
+  }
+  if (!voidedPurchase) {
+    console.error("voidSupplierPurchase returned no rows", {
+      action: "voidSupplierPurchase",
+      purchaseId,
+      error: "no row returned"
+    });
+    failSupplierPurchaseVoid("Supplier purchase could not be voided. Please try again.");
+  }
+
+  const beforeData = supplierPurchaseAuditData(existingPurchase);
+  const afterData = supplierPurchaseAuditData(voidedPurchase as NonNullable<typeof voidedPurchase>);
+  await logAuditEvent({
+    action: "void",
+    afterData,
+    beforeData,
+    branchId: existingPurchase.branch_id,
+    description: `Voided supplier purchase. Reason: ${reason}`,
+    entityId: existingPurchase.id,
+    entityName: "supplier_purchases"
+  });
+
+  revalidatePath("/purchases");
+  revalidatePath("/dashboard");
+  revalidatePath("/reports/profit-loss");
+  revalidatePath("/suppliers/payments");
 }
 
 export async function createSupplierPayment(formData: FormData) {
