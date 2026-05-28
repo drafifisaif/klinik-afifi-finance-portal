@@ -193,10 +193,6 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const purchases = data.purchases.filter((purchase) => {
     return isActiveFinancialRecord(purchase) && selectedBranchIdSet.has(purchase.branch_id) && isWithinDateRange(purchase.purchase_date, range);
   });
-  const supplierPayments = data.supplierPayments.filter((payment) => {
-    const matchesBranch = payment.branch_id ? selectedBranchIdSet.has(payment.branch_id) : isAllSelectedBranches;
-    return matchesBranch && isWithinDateRange(payment.payment_date, range);
-  });
   const panels = data.panels.filter((panel) => selectedBranchIdSet.has(panel.branch_id) && isWithinDateRange(panel.claim_month, range));
   const latestSaleDate = sales[0]?.sale_date;
   const dailySales = latestSaleDate ? sales.filter((sale) => sale.sale_date === latestSaleDate) : [];
@@ -225,9 +221,9 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     panels.filter((panel) => panel.status !== "paid"),
     (panel) => money(panel.amount)
   );
-  const supplierOutstanding = Math.max(0, supplierOpeningOutstanding + purchaseCost - totalBy(supplierPayments, (payment) => money(payment.amount)));
   const selectedBranchLabel = selectedBranches.length > 0 ? selectedBranches.map((branch) => branch.name).join(", ") : "No branches selected";
   const filteredSupplierOutstanding = supplierOutstandingRows.filter((row) => selectedBranchIdSet.has(row.branch_id) && row.outstanding_amount > 0);
+  const supplierOutstanding = supplierOpeningOutstanding + totalBy(filteredSupplierOutstanding, (row) => money(row.outstanding_amount));
   const supplierDueSoon = totalBy(
     filteredSupplierOutstanding.filter((row) => row.aging_bucket === "not_due" || row.aging_bucket === "due_within_30"),
     (row) => money(row.outstanding_amount)
@@ -456,7 +452,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
             <MetricCard icon={Coins} label="Petty Cash" value={formatCurrency(totalPettyCash)} detail="Selected-period petty cash balance" tone={totalPettyCash >= 0 ? "teal" : "rose"} />
             <MetricCard icon={BadgeDollarSign} label="Total Physical Cash" value={formatCurrency(totalPhysicalCash)} detail="Cash in hand plus petty cash" tone={totalPhysicalCash >= 0 ? "teal" : "rose"} />
             <MetricCard icon={ShieldAlert} label="Panel Outstanding" value={formatCurrency(panelOutstanding)} detail="Unpaid and partial claims" tone="rose" />
-            <MetricCard icon={CircleDollarSign} label="Supplier Outstanding" value={formatCurrency(supplierOutstanding)} detail="Purchases less supplier payments" tone="amber" />
+            <MetricCard icon={CircleDollarSign} label="Supplier Outstanding" value={formatCurrency(supplierOutstanding)} detail="Active purchases pending V2 payment linkage" tone="amber" />
             <MetricCard icon={ShieldAlert} label="Supplier Due Soon" value={formatCurrency(supplierDueSoon)} detail="Not due and within 30 days" tone="blue" />
             <MetricCard icon={ShieldAlert} label="Supplier Overdue" value={formatCurrency(supplierOverdue)} detail="Overdue invoices only" tone="rose" />
             <MetricCard icon={ShieldAlert} label="Supplier Over 90d" value={formatCurrency(supplierOver90)} detail="High-priority overdue" tone="rose" />

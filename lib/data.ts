@@ -17,6 +17,7 @@ import type {
   PanelPayment,
   PanelCompany,
   PettyCashTransaction,
+  PurchaseCategory,
   Supplier,
   SupplierPayment,
   SupplierPurchase,
@@ -365,11 +366,12 @@ export async function getDashboardData(): Promise<DashboardData> {
     ),
     fetchOrDemo(
       supabase
-        .from("supplier_purchases")
+        .from("supplier_purchase_entries")
         .select("*, suppliers(name), branches(name, code)")
         .order("purchase_date", { ascending: false })
         .limit(50),
-      demoData.purchases
+      demoData.purchases,
+      "supplier_purchase_entries_dashboard"
     ),
     fetchOrDemo(
       supabase
@@ -854,13 +856,49 @@ export async function getSupplierOutstanding() {
   const supabase = await createClient();
   const rows = await fetchOrDemo(
     supabase
-      .from("v_supplier_outstanding")
-      .select("*")
+      .from("supplier_purchase_entries")
+      .select("id, supplier_id, branch_id, invoice_no, invoice_date, purchase_date, credit_term_days, due_date, category, medicine_cost, consumables_cost, other_cost, total_amount, notes, is_void, void_reason, voided_at, voided_by, created_at, updated_at, suppliers(name), branches(name, code)")
+      .is("is_void", false)
       .order("due_date", { ascending: true }),
-    []
+    [] as unknown[],
+    "supplier_purchase_entries_outstanding"
   );
 
-  if (!profile || canViewAllBranches(profile)) return rows as SupplierOutstandingRow[];
+  const today = new Date().toISOString().slice(0, 10);
+  const outstandingRows = (rows as unknown as SupplierPurchaseEntry[]).map((row) => {
+    const dueDate = row.due_date;
+    let agingBucket = "not_due";
+    let daysOverdue = 0;
+
+    if (dueDate && dueDate < today) {
+      const dueMs = new Date(`${dueDate}T00:00:00Z`).getTime();
+      const todayMs = new Date(`${today}T00:00:00Z`).getTime();
+      daysOverdue = Math.max(0, Math.floor((todayMs - dueMs) / 86400000));
+      if (daysOverdue > 90) agingBucket = "over_90";
+      else if (daysOverdue > 60) agingBucket = "overdue_61_90";
+      else if (daysOverdue > 30) agingBucket = "overdue_31_60";
+      else agingBucket = "overdue";
+    } else if (dueDate) {
+      const dueMs = new Date(`${dueDate}T00:00:00Z`).getTime();
+      const todayMs = new Date(`${today}T00:00:00Z`).getTime();
+      const daysUntilDue = Math.max(0, Math.floor((dueMs - todayMs) / 86400000));
+      agingBucket = daysUntilDue <= 30 ? "due_within_30" : "not_due";
+    }
+
+    return {
+      ...row,
+      category: (row.category as PurchaseCategory | null | undefined) ?? "other",
+      paid_amount: 0,
+      outstanding_amount: Number(row.total_amount ?? 0),
+      status: dueDate && dueDate < today ? "overdue" : "unpaid",
+      aging_bucket: agingBucket,
+      days_overdue: daysOverdue,
+      supplier_name: row.suppliers?.name,
+      branch_name: row.branches?.name
+    } as SupplierOutstandingRow;
+  });
+
+  if (!profile || canViewAllBranches(profile)) return outstandingRows;
   if (!profile.branch_id) return [];
-  return (rows as SupplierOutstandingRow[]).filter((row) => row.branch_id === profile.branch_id);
+  return outstandingRows.filter((row) => row.branch_id === profile.branch_id);
 }
