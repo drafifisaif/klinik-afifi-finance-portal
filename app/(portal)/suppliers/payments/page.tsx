@@ -19,6 +19,24 @@ function searchValue(value: string | string[] | undefined) {
   return value ?? null;
 }
 
+function purchaseOptionLabel(row: {
+  branch_name?: string;
+  branches?: { name?: string | null } | null;
+  due_date?: string | null;
+  invoice_no?: string | null;
+  outstanding_amount: number;
+  paid_amount: number;
+  supplier_name?: string;
+  suppliers?: { name?: string | null } | null;
+  total_amount: number;
+}) {
+  const supplier = row.supplier_name ?? row.suppliers?.name ?? "-";
+  const branch = row.branch_name ?? row.branches?.name ?? "-";
+  const invoicePart = row.invoice_no ? `Invoice ${row.invoice_no}` : "Invoice -";
+  const duePart = `Due ${row.due_date ? formatDate(row.due_date) : "-"}`;
+  return `${supplier} • ${branch} • ${invoicePart} • ${duePart} • Total ${formatCurrency(row.total_amount)} • Paid ${formatCurrency(row.paid_amount)} • Balance ${formatCurrency(row.outstanding_amount)}`;
+}
+
 export default async function SupplierPaymentsPage({ searchParams }: SupplierPaymentsPageProps) {
   const profile = await requirePermission("view_supplier_payments");
   const [payments, outstandingRows, suppliers, bankingData] = await Promise.all([
@@ -66,17 +84,21 @@ export default async function SupplierPaymentsPage({ searchParams }: SupplierPay
             const canManage = canEditBranch(profile, payment.branch_id);
             const documents = paymentDocuments.get(payment.id) ?? [];
             const linkedPurchaseLabel = payment.supplier_purchase_entries?.invoice_no ?? payment.supplier_purchase_entry_id ?? "General payment";
+            const linkedPurchaseOptions = outstandingRows
+              .filter((row) => !row.is_void && row.supplier_id === payment.supplier_id && (row.outstanding_amount > 0 || row.id === payment.supplier_purchase_entry_id));
 
             return [
               formatDate(payment.payment_date),
               payment.branches?.name ?? "-",
               payment.suppliers?.name ?? "-",
-              linkedPurchaseLabel,
+              payment.supplier_purchase_entry_id ? linkedPurchaseLabel : "General payment",
               labelize(payment.payment_method ?? "bank_transfer"),
               payment.bank_accounts?.name ?? "-",
               formatCurrency(payment.amount),
               payment.reference_no ?? "-",
-              payment.notes ?? "-",
+              payment.supplier_purchase_entry_id
+                ? (payment.notes ?? "-")
+                : `${payment.notes ?? "-"}${payment.notes ? " " : ""}(General payment is not allocated to a purchase.)`,
               <DocumentManager
                 canDelete={canDeleteDocuments}
                 documents={documents}
@@ -104,27 +126,20 @@ export default async function SupplierPaymentsPage({ searchParams }: SupplierPay
                     </label>
                     <label>
                       Linked purchase
-                      <select defaultValue={payment.supplier_purchase_entry_id ?? ""} name="supplier_purchase_entry_id">
-                        <option value="">General supplier payment</option>
-                        {outstandingRows
-                          .filter((row) => !row.is_void && row.supplier_id === payment.supplier_id)
-                          .map((row) => (
-                            <option key={row.id} value={row.id}>
-                              {(row.invoice_no ?? row.id)} | {row.branch_name ?? row.branches?.name ?? "-"} | {formatCurrency(row.outstanding_amount)}
-                            </option>
-                          ))}
-                      </select>
-                    </label>
-                    <label>
-                      Branch
-                      <select defaultValue={payment.branch_id} name="branch_id" required>
-                        {bankingData.branches.map((branch) => (
-                          <option key={branch.id} value={branch.id}>
-                            {branch.name}
+                      <select defaultValue={payment.supplier_purchase_entry_id ?? ""} name="supplier_purchase_entry_id" required>
+                        <option value="">Select supplier purchase / invoice</option>
+                        {linkedPurchaseOptions.map((row) => (
+                          <option key={row.id} value={row.id}>
+                            {purchaseOptionLabel(row)}
                           </option>
                         ))}
                       </select>
                     </label>
+                    <label>
+                      Branch
+                      <input value={payment.branches?.name ?? "-"} disabled />
+                    </label>
+                    <input name="branch_id" type="hidden" value={payment.branch_id} />
                     <label>
                       Payment date
                       <input defaultValue={payment.payment_date} name="payment_date" required type="date" />
@@ -202,7 +217,6 @@ export default async function SupplierPaymentsPage({ searchParams }: SupplierPay
       <section className="section-grid mt-section">
         <SupplierPaymentForm
           bankAccounts={bankingData.bankAccounts}
-          branches={bankingData.branches}
           purchases={outstandingRows.filter((row) => row.outstanding_amount > 0)}
           suppliers={suppliers}
         />

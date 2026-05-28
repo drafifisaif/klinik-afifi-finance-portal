@@ -878,11 +878,15 @@ function supplierPaymentEntryInput(formData: FormData) {
   const paymentMethod = text(formData, "payment_method");
   const bankAccountId = text(formData, "bank_account_id");
   const amount = number(formData, "amount");
+  const supplierPurchaseEntryId = text(formData, "supplier_purchase_entry_id");
 
   if (!supplierId) failSupplierPaymentEntry("Supplier is required.");
   if (!branchId) failSupplierPaymentEntry("Branch is required.");
   if (!paymentDate) failSupplierPaymentEntry("Payment date is required.");
   if (amount <= 0) failSupplierPaymentEntry("Amount must be greater than zero.");
+  if (!supplierPurchaseEntryId) {
+    failSupplierPaymentEntry("Please select the supplier purchase/invoice this payment belongs to.");
+  }
   if (paymentMethod && paymentUsesBankAccount(paymentMethod as PaymentType) && !bankAccountId) {
     failSupplierPaymentEntry("Paid from bank account is required for bank-based supplier payments.");
   }
@@ -896,7 +900,7 @@ function supplierPaymentEntryInput(formData: FormData) {
     payment_method: paymentMethod,
     reference_no: text(formData, "reference_no"),
     supplier_id: supplierId,
-    supplier_purchase_entry_id: text(formData, "supplier_purchase_entry_id")
+    supplier_purchase_entry_id: supplierPurchaseEntryId
   };
 }
 

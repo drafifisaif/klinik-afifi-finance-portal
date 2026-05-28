@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { createSupplierPaymentEntry } from "@/app/actions";
 import { paymentTypes } from "@/lib/constants";
 import { formatCurrency, formatDate, labelize } from "@/lib/format";
-import type { BankAccount, Branch, PaymentType, Supplier } from "@/lib/types";
+import type { BankAccount, PaymentType, Supplier } from "@/lib/types";
 
 type PurchaseOption = {
   id: string;
@@ -25,7 +25,6 @@ type PurchaseOption = {
 
 type Props = {
   bankAccounts: BankAccount[];
-  branches: Branch[];
   purchases: PurchaseOption[];
   suppliers: Supplier[];
 };
@@ -42,7 +41,14 @@ function getAgingStatus(dueDate?: string | null, outstandingAmount?: number) {
   return "Over 90 days overdue";
 }
 
-export function SupplierPaymentForm({ bankAccounts, branches, purchases, suppliers }: Props) {
+function purchaseOptionLabel(purchase: PurchaseOption) {
+  const invoicePart = purchase.invoice_no ? `Invoice ${purchase.invoice_no}` : "Invoice -";
+  const duePart = `Due ${purchase.due_date ? formatDate(purchase.due_date) : "-"}`;
+  const balancePart = `Balance ${formatCurrency(purchase.outstanding_amount)}`;
+  return `${purchase.supplier_name ?? "-"} • ${purchase.branch_name ?? "-"} • ${invoicePart} • ${duePart} • ${balancePart}`;
+}
+
+export function SupplierPaymentForm({ bankAccounts, purchases, suppliers }: Props) {
   const [supplierId, setSupplierId] = useState(suppliers[0]?.id ?? "");
   const [purchaseEntryId, setPurchaseEntryId] = useState("");
   const [paymentMethod, setPaymentMethod] = useState<PaymentType>("bank_transfer");
@@ -78,15 +84,16 @@ export function SupplierPaymentForm({ bankAccounts, branches, purchases, supplie
       </label>
       <label>
         Linked supplier purchase
-        <select name="supplier_purchase_entry_id" value={purchaseEntryId} onChange={(event) => setPurchaseEntryId(event.target.value)}>
-          <option value="">General supplier payment</option>
+        <select name="supplier_purchase_entry_id" required value={purchaseEntryId} onChange={(event) => setPurchaseEntryId(event.target.value)}>
+          <option value="">Select supplier purchase / invoice</option>
           {filteredPurchases.map((purchase) => (
             <option key={purchase.id} value={purchase.id}>
-              {(purchase.invoice_no ?? purchase.id)} | {purchase.branch_name ?? "-"} | {formatCurrency(purchase.outstanding_amount)}
+              {purchaseOptionLabel(purchase)}
             </option>
           ))}
         </select>
       </label>
+      <input name="branch_id" type="hidden" value={selectedPurchase?.branch_id ?? ""} />
       {selectedPurchase ? (
         <div className="import-message">
           <strong>{selectedPurchase.invoice_no ?? selectedPurchase.id}</strong>
@@ -102,13 +109,7 @@ export function SupplierPaymentForm({ bankAccounts, branches, purchases, supplie
       ) : null}
       <label>
         Branch
-        <select name="branch_id" defaultValue={selectedPurchase?.branch_id ?? branches[0]?.id ?? ""} key={selectedPurchase?.id ?? supplierId}>
-          {branches.map((branch) => (
-            <option key={branch.id} value={branch.id}>
-              {branch.name}
-            </option>
-          ))}
-        </select>
+        <input value={selectedPurchase?.branch_name ?? "-"} disabled />
       </label>
       <label>
         Payment date
