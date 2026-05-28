@@ -128,6 +128,33 @@ export type SupplierPurchase = {
   branches?: Pick<Branch, "name" | "code"> | null;
 };
 
+export type SupplierPurchaseEntry = {
+  id: string;
+  supplier_id: string;
+  branch_id: string;
+  invoice_no?: string | null;
+  invoice_date?: string | null;
+  purchase_date: string;
+  credit_term_days: number;
+  due_date?: string | null;
+  category?: PurchaseCategory | null;
+  medicine_cost: number;
+  consumables_cost: number;
+  other_cost: number;
+  total_amount: number;
+  notes?: string | null;
+  is_void: boolean;
+  void_reason?: string | null;
+  voided_at?: string | null;
+  voided_by?: string | null;
+  created_by?: string | null;
+  updated_by?: string | null;
+  created_at: string;
+  updated_at: string;
+  suppliers?: Pick<Supplier, "name"> | null;
+  branches?: Pick<Branch, "name" | "code"> | null;
+};
+
 export type SupplierPayment = {
   id: string;
   supplier_id: string;
@@ -363,6 +390,7 @@ export type AuditEvent = {
 export type TransactionDocumentEntityName =
   | "expenses"
   | "supplier_purchases"
+  | "supplier_purchase_entries"
   | "supplier_payments"
   | "cash_bank_ins"
   | "panel_claims"

@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { createSupplierPurchase } from "@/app/actions";
+import { createSupplierPurchaseEntry } from "@/app/actions";
 import { purchaseCategories } from "@/lib/constants";
 import type { Branch, Supplier } from "@/lib/types";
 
@@ -19,6 +19,7 @@ function addDays(dateString: string, days: number) {
 
 export function SupplierPurchaseForm({ branches, suppliers }: Props) {
   const [supplierId, setSupplierId] = useState(suppliers[0]?.id ?? "");
+  const [purchaseDate, setPurchaseDate] = useState("");
   const [invoiceDate, setInvoiceDate] = useState("");
   const [termMode, setTermMode] = useState("default");
   const [termDays, setTermDays] = useState<number>(30);
@@ -28,7 +29,7 @@ export function SupplierPurchaseForm({ branches, suppliers }: Props) {
   const dueDate = useMemo(() => addDays(invoiceDate, Math.max(0, Number(effectiveTerm) || 0)), [effectiveTerm, invoiceDate]);
 
   return (
-    <form action={createSupplierPurchase} className="form-card">
+    <form action={createSupplierPurchaseEntry} className="form-card">
       <h2>Record purchase</h2>
       <label>
         Supplier
@@ -59,8 +60,12 @@ export function SupplierPurchaseForm({ branches, suppliers }: Props) {
         <input name="invoice_no" placeholder="Supplier invoice" />
       </label>
       <label>
+        Purchase date
+        <input name="purchase_date" type="date" required value={purchaseDate} onChange={(event) => setPurchaseDate(event.target.value)} />
+      </label>
+      <label>
         Invoice date
-        <input name="invoice_date" type="date" required value={invoiceDate} onChange={(event) => setInvoiceDate(event.target.value)} />
+        <input name="invoice_date" type="date" value={invoiceDate} onChange={(event) => setInvoiceDate(event.target.value)} />
       </label>
       <label>
         Credit term

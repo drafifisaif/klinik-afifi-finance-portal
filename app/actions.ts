@@ -248,6 +248,26 @@ type SupplierPurchaseAuditRow = {
   voided_by?: string | null;
 };
 
+type SupplierPurchaseEntryAuditRow = {
+  branch_id: string;
+  category: string | null;
+  consumables_cost: number;
+  credit_term_days: number;
+  due_date: string | null;
+  invoice_date: string | null;
+  invoice_no: string | null;
+  is_void: boolean;
+  medicine_cost: number;
+  notes: string | null;
+  other_cost: number;
+  purchase_date: string;
+  supplier_id: string;
+  total_amount: number;
+  void_reason?: string | null;
+  voided_at?: string | null;
+  voided_by?: string | null;
+};
+
 type SupplierPaymentAuditRow = {
   amount: number;
   bank_account_id: string | null;
@@ -466,6 +486,28 @@ function supplierPurchaseAuditData(purchase: SupplierPurchaseAuditRow) {
     other_cost: purchase.other_cost,
     purchase_date: purchase.purchase_date,
     supplier_id: purchase.supplier_id,
+    void_reason: purchase.void_reason ?? null,
+    voided_at: purchase.voided_at ?? null,
+    voided_by: purchase.voided_by ?? null
+  };
+}
+
+function supplierPurchaseEntryAuditData(purchase: SupplierPurchaseEntryAuditRow) {
+  return {
+    branch_id: purchase.branch_id,
+    category: purchase.category ?? null,
+    consumables_cost: purchase.consumables_cost,
+    credit_term_days: purchase.credit_term_days,
+    due_date: purchase.due_date,
+    invoice_date: purchase.invoice_date,
+    invoice_no: purchase.invoice_no,
+    is_void: purchase.is_void ?? false,
+    medicine_cost: purchase.medicine_cost,
+    notes: purchase.notes,
+    other_cost: purchase.other_cost,
+    purchase_date: purchase.purchase_date,
+    supplier_id: purchase.supplier_id,
+    total_amount: purchase.total_amount,
     void_reason: purchase.void_reason ?? null,
     voided_at: purchase.voided_at ?? null,
     voided_by: purchase.voided_by ?? null
@@ -741,6 +783,50 @@ function voidFields(reason: string, userId: string | null) {
     voided_at: new Date().toISOString(),
     voided_by: userId
   };
+}
+
+function failSupplierPurchaseEntry(message: string): never {
+  redirect(`/purchases?error=${encodeURIComponent(message)}`);
+}
+
+function supplierPurchaseEntryInput(formData: FormData) {
+  const supplierId = text(formData, "supplier_id");
+  const branchId = text(formData, "branch_id");
+  const invoiceDate = text(formData, "invoice_date");
+  const purchaseDate = text(formData, "purchase_date");
+  const creditTermDays = Math.max(0, number(formData, "credit_term_days"));
+  const dueDate = text(formData, "due_date") || (invoiceDate ? addDays(invoiceDate, creditTermDays) : null);
+  const medicineCost = number(formData, "medicine_cost");
+  const consumablesCost = number(formData, "consumables_cost");
+  const otherCost = number(formData, "other_cost");
+
+  if (!supplierId) failSupplierPurchaseEntry("Supplier is required.");
+  if (!branchId) failSupplierPurchaseEntry("Branch is required.");
+  if (!purchaseDate) failSupplierPurchaseEntry("Purchase date is required.");
+
+  return {
+    branch_id: branchId,
+    category: text(formData, "category") as PurchaseCategory | null,
+    consumables_cost: consumablesCost,
+    credit_term_days: creditTermDays,
+    due_date: dueDate,
+    invoice_date: invoiceDate,
+    invoice_no: text(formData, "invoice_no"),
+    medicine_cost: medicineCost,
+    notes: text(formData, "notes"),
+    other_cost: otherCost,
+    purchase_date: purchaseDate,
+    supplier_id: supplierId
+  };
+}
+
+function canManageSupplierPurchaseEntry(profile: Awaited<ReturnType<typeof requirePermission>>, branchId: string) {
+  return canEditBranch(profile, branchId);
+}
+
+function isSupplierPurchaseEntryManager(profile: Awaited<ReturnType<typeof requirePermission>>) {
+  const role = normalizeRole(profile.role);
+  return role === "owner" || role === "admin" || role === "finance" || role === "branch_pic";
 }
 
 export async function signIn(formData: FormData) {
@@ -1926,6 +2012,242 @@ export async function updateSupplier(formData: FormData) {
 
   revalidatePath("/purchases");
   revalidatePath("/suppliers/payments");
+}
+
+export async function createSupplierPurchaseEntry(formData: FormData) {
+  if (!hasSupabaseEnv()) return;
+
+  const profile = await requirePermission("view_supplier_records");
+  if (!isSupplierPurchaseEntryManager(profile)) {
+    failSupplierPurchaseEntry("You do not have permission to create supplier purchases.");
+  }
+
+  const payload = supplierPurchaseEntryInput(formData);
+  if (!canManageSupplierPurchaseEntry(profile, payload.branch_id)) {
+    failSupplierPurchaseEntry("You do not have permission to create supplier purchases for this branch.");
+  }
+
+  const adminSupabase = createAdminClient();
+  const timestamp = new Date().toISOString();
+  const insertPayload = {
+    ...payload,
+    created_at: timestamp,
+    created_by: profile.id,
+    updated_at: timestamp,
+    updated_by: profile.id
+  };
+
+  const { data: createdEntry, error } = await adminSupabase
+    .from("supplier_purchase_entries")
+    .insert(insertPayload)
+    .select("id, supplier_id, branch_id, invoice_no, invoice_date, purchase_date, credit_term_days, due_date, category, medicine_cost, consumables_cost, other_cost, total_amount, notes, is_void, void_reason, voided_at, voided_by, created_by, updated_by, created_at, updated_at")
+    .single();
+
+  if (error || !createdEntry) {
+    console.error("createSupplierPurchaseEntry failed", {
+      action: "createSupplierPurchaseEntry",
+      branchId: payload.branch_id,
+      role: normalizeRole(profile.role),
+      profileBranchId: profile.branch_id,
+      code: error?.code,
+      error: error?.message,
+      details: error?.details,
+      hint: error?.hint
+    });
+    failSupplierPurchaseEntry("Supplier purchase could not be created.");
+  }
+
+  await logAuditEvent({
+    action: "create",
+    afterData: supplierPurchaseEntryAuditData(createdEntry),
+    branchId: createdEntry.branch_id,
+    description: "Created supplier purchase entry.",
+    entityId: createdEntry.id,
+    entityName: "supplier_purchase_entries"
+  });
+
+  revalidatePath("/purchases");
+  revalidatePath("/dashboard");
+}
+
+export async function updateSupplierPurchaseEntry(formData: FormData) {
+  if (!hasSupabaseEnv()) return;
+
+  const profile = await requirePermission("view_supplier_records");
+  if (!isSupplierPurchaseEntryManager(profile)) {
+    failSupplierPurchaseEntry("You do not have permission to edit supplier purchases.");
+  }
+
+  const purchaseEntryId = String(formData.get("purchase_entry_id") || "").trim();
+  if (!purchaseEntryId) failSupplierPurchaseEntry("Supplier purchase entry is required.");
+
+  const payload = supplierPurchaseEntryInput(formData);
+  const adminSupabase = createAdminClient();
+  const { data: existingEntry, error: loadError } = await adminSupabase
+    .from("supplier_purchase_entries")
+    .select("id, supplier_id, branch_id, invoice_no, invoice_date, purchase_date, credit_term_days, due_date, category, medicine_cost, consumables_cost, other_cost, total_amount, notes, is_void, void_reason, voided_at, voided_by, created_by, updated_by, created_at, updated_at")
+    .eq("id", purchaseEntryId)
+    .maybeSingle();
+
+  if (loadError || !existingEntry) {
+    console.error("updateSupplierPurchaseEntry load failed", {
+      action: "updateSupplierPurchaseEntry",
+      purchaseEntryId,
+      code: loadError?.code,
+      error: loadError?.message,
+      details: loadError?.details,
+      hint: loadError?.hint
+    });
+    failSupplierPurchaseEntry("Supplier purchase not found.");
+  }
+
+  if (!canManageSupplierPurchaseEntry(profile, existingEntry.branch_id)) {
+    failSupplierPurchaseEntry("You do not have permission to edit this supplier purchase.");
+  }
+  if (existingEntry.is_void) {
+    failSupplierPurchaseEntry("Voided supplier purchases cannot be edited.");
+  }
+
+  const role = normalizeRole(profile.role);
+  const nextBranchId = role === "branch_pic" ? existingEntry.branch_id : payload.branch_id;
+  if (!canManageSupplierPurchaseEntry(profile, nextBranchId)) {
+    failSupplierPurchaseEntry(role === "branch_pic"
+      ? "Branch PIC cannot move supplier purchases to another branch."
+      : "You do not have permission to edit this supplier purchase.");
+  }
+
+  const timestamp = new Date().toISOString();
+  const updatePayload = {
+    ...payload,
+    branch_id: nextBranchId,
+    updated_at: timestamp,
+    updated_by: profile.id
+  };
+
+  const { data: updatedEntry, error } = await adminSupabase
+    .from("supplier_purchase_entries")
+    .update(updatePayload)
+    .eq("id", existingEntry.id)
+    .eq("is_void", false)
+    .select("id, supplier_id, branch_id, invoice_no, invoice_date, purchase_date, credit_term_days, due_date, category, medicine_cost, consumables_cost, other_cost, total_amount, notes, is_void, void_reason, voided_at, voided_by, created_by, updated_by, created_at, updated_at")
+    .single();
+
+  if (error || !updatedEntry) {
+    console.error("updateSupplierPurchaseEntry failed", {
+      action: "updateSupplierPurchaseEntry",
+      purchaseEntryId,
+      role,
+      profileBranchId: profile.branch_id,
+      purchaseBranchId: existingEntry.branch_id,
+      submittedBranchId: payload.branch_id,
+      code: error?.code,
+      error: error?.message,
+      details: error?.details,
+      hint: error?.hint
+    });
+    failSupplierPurchaseEntry("Supplier purchase could not be updated.");
+  }
+
+  const beforeData = supplierPurchaseEntryAuditData(existingEntry);
+  const afterData = supplierPurchaseEntryAuditData(updatedEntry);
+  if (hasAuditChanges(beforeData, afterData)) {
+    await logAuditEvent({
+      action: "update",
+      afterData,
+      beforeData,
+      branchId: updatedEntry.branch_id,
+      description: "Updated supplier purchase entry.",
+      entityId: updatedEntry.id,
+      entityName: "supplier_purchase_entries"
+    });
+  }
+
+  revalidatePath("/purchases");
+  revalidatePath("/dashboard");
+}
+
+export async function voidSupplierPurchaseEntry(formData: FormData) {
+  if (!hasSupabaseEnv()) return;
+
+  const profile = await requirePermission("view_supplier_records");
+  if (!isSupplierPurchaseEntryManager(profile)) {
+    failSupplierPurchaseEntry("You do not have permission to void supplier purchases.");
+  }
+
+  const purchaseEntryId = String(formData.get("purchase_entry_id") || "").trim();
+  const reason = text(formData, "void_reason");
+  if (!purchaseEntryId) failSupplierPurchaseEntry("Supplier purchase entry is required.");
+  if (!reason) failSupplierPurchaseEntry("Void reason is required.");
+
+  const adminSupabase = createAdminClient();
+  const { data: existingEntry, error: loadError } = await adminSupabase
+    .from("supplier_purchase_entries")
+    .select("id, supplier_id, branch_id, invoice_no, invoice_date, purchase_date, credit_term_days, due_date, category, medicine_cost, consumables_cost, other_cost, total_amount, notes, is_void, void_reason, voided_at, voided_by, created_by, updated_by, created_at, updated_at")
+    .eq("id", purchaseEntryId)
+    .maybeSingle();
+
+  if (loadError || !existingEntry) {
+    console.error("voidSupplierPurchaseEntry load failed", {
+      action: "voidSupplierPurchaseEntry",
+      purchaseEntryId,
+      code: loadError?.code,
+      error: loadError?.message,
+      details: loadError?.details,
+      hint: loadError?.hint
+    });
+    failSupplierPurchaseEntry("Supplier purchase not found.");
+  }
+
+  if (!canManageSupplierPurchaseEntry(profile, existingEntry.branch_id)) {
+    failSupplierPurchaseEntry("You do not have permission to void this supplier purchase.");
+  }
+  if (existingEntry.is_void) {
+    failSupplierPurchaseEntry("Supplier purchase is already voided.");
+  }
+
+  const timestamp = new Date().toISOString();
+  const { data: voidedEntry, error } = await adminSupabase
+    .from("supplier_purchase_entries")
+    .update({
+      is_void: true,
+      updated_at: timestamp,
+      updated_by: profile.id,
+      void_reason: reason,
+      voided_at: timestamp,
+      voided_by: profile.id
+    })
+    .eq("id", existingEntry.id)
+    .eq("is_void", false)
+    .select("id, supplier_id, branch_id, invoice_no, invoice_date, purchase_date, credit_term_days, due_date, category, medicine_cost, consumables_cost, other_cost, total_amount, notes, is_void, void_reason, voided_at, voided_by, created_by, updated_by, created_at, updated_at")
+    .single();
+
+  if (error || !voidedEntry) {
+    console.error("voidSupplierPurchaseEntry failed", {
+      action: "voidSupplierPurchaseEntry",
+      purchaseEntryId,
+      role: normalizeRole(profile.role),
+      profileBranchId: profile.branch_id,
+      purchaseBranchId: existingEntry.branch_id,
+      code: error?.code,
+      error: error?.message,
+      details: error?.details,
+      hint: error?.hint
+    });
+    failSupplierPurchaseEntry("Supplier purchase could not be voided.");
+  }
+
+  await logAuditEvent({
+    action: "void",
+    afterData: supplierPurchaseEntryAuditData(voidedEntry),
+    beforeData: supplierPurchaseEntryAuditData(existingEntry),
+    branchId: voidedEntry.branch_id,
+    description: `Voided supplier purchase entry. Reason: ${reason}`,
+    entityId: voidedEntry.id,
+    entityName: "supplier_purchase_entries"
+  });
+
+  revalidatePath("/purchases");
+  revalidatePath("/dashboard");
 }
 
 export async function createSupplierPurchase(formData: FormData) {

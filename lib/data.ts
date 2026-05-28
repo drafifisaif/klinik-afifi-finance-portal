@@ -1,3 +1,4 @@
+import { createAdminClient } from "@/lib/supabase-admin";
 import { hasSupabaseEnv, createClient } from "@/lib/supabase-server";
 import { canViewAllBranches, filterBranchesForProfile, filterDashboardDataForProfile, getCurrentProfile, normalizeRole } from "@/lib/permissions";
 import type {
@@ -18,7 +19,8 @@ import type {
   PettyCashTransaction,
   Supplier,
   SupplierPayment,
-  SupplierPurchase
+  SupplierPurchase,
+  SupplierPurchaseEntry
 } from "@/lib/types";
 
 export type SupplierOutstandingRow = SupplierPurchase & {
@@ -736,6 +738,43 @@ export async function getSuppliers() {
   if (!hasSupabaseEnv()) return suppliers;
   const supabase = await createClient();
   return fetchOrDemo(supabase.from("suppliers").select("*").order("name"), suppliers);
+}
+
+export async function getSupplierPurchaseEntries() {
+  const profile = await getCurrentProfile();
+  if (!profile?.is_active) return [] as SupplierPurchaseEntry[];
+
+  if (!hasSupabaseEnv()) {
+    const demoEntries = purchases.map((purchase, index) => ({
+      ...purchase,
+      created_at: `2026-05-${String(index + 10).padStart(2, "0")}T08:00:00.000Z`,
+      created_by: null,
+      credit_term_days: purchase.credit_term_days ?? 0,
+      is_void: purchase.is_void ?? false,
+      updated_at: `2026-05-${String(index + 10).padStart(2, "0")}T08:00:00.000Z`,
+      updated_by: null
+    })) as SupplierPurchaseEntry[];
+
+    return canViewAllBranches(profile)
+      ? demoEntries
+      : demoEntries.filter((entry) => entry.branch_id === profile.branch_id);
+  }
+
+  const supabase = createAdminClient();
+  const rows = await fetchOrDemo(
+    supabase
+      .from("supplier_purchase_entries")
+      .select("*, suppliers(name), branches(name, code)")
+      .order("purchase_date", { ascending: false })
+      .order("created_at", { ascending: false }),
+    [] as SupplierPurchaseEntry[],
+    "supplier_purchase_entries"
+  );
+
+  const entries = rows as SupplierPurchaseEntry[];
+  return canViewAllBranches(profile)
+    ? entries
+    : entries.filter((entry) => entry.branch_id === profile.branch_id);
 }
 
 export async function getBranches() {
