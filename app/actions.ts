@@ -1953,7 +1953,9 @@ export async function updateSupplierPurchase(formData: FormData) {
     .eq("id", purchaseId)
     .maybeSingle();
 
-  if (purchaseError || !purchase) throw new Error("Supplier purchase record not found.");
+  if (purchaseError || !purchase) {
+    throw new Error("Supplier purchase not found or you do not have permission to edit it.");
+  }
   if (!canEditBranch(profile, purchase.branch_id)) {
     throw new Error(role === "branch_pic"
       ? "You can only edit supplier purchases for your own branch."
@@ -1983,9 +1985,14 @@ export async function updateSupplierPurchase(formData: FormData) {
     })
     .eq("id", purchase.id)
     .select("id, supplier_id, branch_id, invoice_no, invoice_date, purchase_date, credit_term_days, due_date, category, medicine_cost, consumables_cost, other_cost, attachment_path, notes")
-    .single();
+    .maybeSingle();
 
-  if (error || !updatedPurchase) throw error ?? new Error("Updated supplier purchase could not be loaded.");
+  if (error) {
+    throw new Error("Supplier purchase update failed. Please try again.");
+  }
+  if (!updatedPurchase) {
+    throw new Error("Supplier purchase not found or you do not have permission to edit it.");
+  }
 
   const beforeData = supplierPurchaseAuditData(purchase);
   const afterData = supplierPurchaseAuditData(updatedPurchase);
