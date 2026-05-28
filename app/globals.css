@@ -545,38 +545,33 @@ dd {
   border-radius: 8px;
   box-shadow: var(--shadow);
   overflow-x: auto;
-  width: 100%;
 }
 
 table {
   border-collapse: collapse;
-  min-width: 0;
-  table-layout: fixed;
+  min-width: 720px;
   width: 100%;
 }
 
 th,
 td {
   border-bottom: 1px solid var(--line);
-  overflow-wrap: anywhere;
-  padding: 10px 12px;
+  padding: 14px 16px;
   text-align: left;
   vertical-align: top;
-  word-break: break-word;
 }
 
 th {
   background: #f8fbfb;
   color: #4c6263;
-  font-size: 11px;
+  font-size: 12px;
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
 
 td {
   color: #263f40;
-  font-size: 13px;
-  line-height: 1.45;
+  font-size: 14px;
 }
 
 .table-subtext {
@@ -726,7 +721,7 @@ tr:last-child td {
 }
 
 .manual-bank-editor {
-  min-width: 0;
+  min-width: 260px;
 }
 
 .manual-bank-editor summary {
@@ -761,7 +756,7 @@ tr:last-child td {
   display: grid;
   gap: 8px;
   margin-top: 10px;
-  min-width: 0;
+  min-width: 250px;
   padding: 12px;
 }
 
@@ -781,7 +776,7 @@ tr:last-child td {
   display: grid;
   gap: 10px;
   margin-top: 10px;
-  min-width: 0;
+  min-width: 340px;
   padding: 12px;
 }
 
@@ -820,7 +815,7 @@ tr:last-child td {
 .document-manager {
   display: grid;
   gap: 8px;
-  min-width: 0;
+  min-width: 300px;
 }
 
 .document-actions {
@@ -846,7 +841,7 @@ tr:last-child td {
   display: grid;
   gap: 12px;
   margin-top: 10px;
-  min-width: 0;
+  min-width: 420px;
   padding: 12px;
 }
 
@@ -906,7 +901,7 @@ tr:last-child td {
 }
 
 .document-links {
-  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .document-links .ghost-button {
@@ -922,7 +917,7 @@ tr:last-child td {
 }
 
 .audit-details {
-  min-width: 0;
+  min-width: 240px;
 }
 
 .audit-details summary {
@@ -941,7 +936,7 @@ tr:last-child td {
   display: grid;
   gap: 12px;
   margin-top: 10px;
-  min-width: 0;
+  min-width: 640px;
   padding: 12px;
 }
 
@@ -993,7 +988,7 @@ tr:last-child td {
   display: grid;
   gap: 10px;
   margin-top: 10px;
-  min-width: 0;
+  min-width: 560px;
   padding: 12px;
 }
 
@@ -1062,31 +1057,6 @@ textarea {
 .report-panel h2 {
   font-size: 18px;
   margin: 0 0 14px;
-}
-
-.finance-table-wrap details,
-.finance-table-wrap .document-manager,
-.finance-table-wrap .manual-bank-editor,
-.finance-table-wrap .record-detail-card,
-.finance-table-wrap .record-detail-grid {
-  max-width: 100%;
-}
-
-.finance-table-wrap .compact-button,
-.finance-table-wrap .ghost-button,
-.finance-table-wrap .primary-button {
-  font-size: 12px;
-  min-height: 36px;
-  padding: 8px 10px;
-}
-
-.finance-table-wrap .document-actions {
-  align-items: stretch;
-}
-
-.finance-table-wrap .document-action summary,
-.finance-table-wrap .manual-bank-editor summary {
-  white-space: normal;
 }
 
 .summary-list {

@@ -5,7 +5,7 @@ type DataTableProps = {
 
 export function DataTable({ columns, rows }: DataTableProps) {
   return (
-    <div className="table-wrap finance-table-wrap">
+    <div className="table-wrap">
       <table>
         <thead>
           <tr>
