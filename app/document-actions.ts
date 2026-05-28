@@ -2,7 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { logAuditEvent } from "@/lib/audit";
-import { getCurrentProfile, normalizeRole } from "@/lib/permissions";
+import { canEditBranch, getCurrentProfile, normalizeRole } from "@/lib/permissions";
+import { createAdminClient } from "@/lib/supabase-admin";
 import { createClient, hasSupabaseEnv } from "@/lib/supabase-server";
 import { documentBucketForEntity } from "@/lib/transaction-document-config";
 import {
@@ -10,7 +11,7 @@ import {
   getTransactionDocumentContext,
   isTransactionDocumentEntity
 } from "@/lib/transaction-documents";
-import type { TransactionDocument } from "@/lib/types";
+import type { TransactionDocument, TransactionDocumentEntityName } from "@/lib/types";
 
 const allowedDocumentMimeTypes = new Set(["application/pdf", "image/jpeg", "image/png", "image/webp"]);
 
@@ -64,6 +65,10 @@ function revalidateDocumentPaths(entityName: Parameters<typeof documentEntityPat
   revalidatePath("/documents");
 }
 
+function shouldUseAdminDocumentFlow(entityName: TransactionDocumentEntityName) {
+  return entityName === "supplier_purchase_entries";
+}
+
 export async function uploadTransactionDocument(formData: FormData) {
   if (!hasSupabaseEnv()) return;
 
@@ -78,18 +83,58 @@ export async function uploadTransactionDocument(formData: FormData) {
     throw new Error("Upload a PDF, JPG, PNG, or WebP document.");
   }
 
-  const context = await getTransactionDocumentContext(entityName, entityId);
-  if (!context) throw new Error("Transaction document target was not found or is not accessible.");
+  let context = await getTransactionDocumentContext(entityName, entityId);
+  if (shouldUseAdminDocumentFlow(entityName)) {
+    const adminSupabase = createAdminClient();
+    const { data: entry, error: entryError } = await adminSupabase
+      .from("supplier_purchase_entries")
+      .select("id, branch_id")
+      .eq("id", entityId)
+      .maybeSingle();
 
-  const supabase = await createClient();
+    if (entryError || !entry) {
+      console.error("uploadTransactionDocument supplier purchase lookup failed", {
+        action: "uploadTransactionDocument",
+        entityId,
+        entityName,
+        error: entryError?.message ?? "no row returned"
+      });
+      throw new Error("Transaction document target was not found or is not accessible.");
+    }
+
+    context = {
+      bankAccountId: null,
+      branchId: entry.branch_id,
+      entityId: entry.id,
+      entityName
+    };
+  }
+  if (!context) throw new Error("Transaction document target was not found or is not accessible.");
+  if (!canEditBranch(profile, context.branchId)) {
+    throw new Error("You do not have permission to upload documents for this supplier purchase.");
+  }
+
+  const supabase = shouldUseAdminDocumentFlow(context.entityName) ? createAdminClient() : await createClient();
   const bucketName = documentBucketForEntity(context.entityName);
-  const filePath = `${profile.id}/${entityName}/${entityId}/${crypto.randomUUID()}-${safeFileName(file.name)}`;
+  const filePath = shouldUseAdminDocumentFlow(context.entityName)
+    ? `${entityName}/${context.entityId}/${Date.now()}-${safeFileName(file.name)}`
+    : `${profile.id}/${entityName}/${entityId}/${crypto.randomUUID()}-${safeFileName(file.name)}`;
   const { error: storageError } = await supabase.storage.from(bucketName).upload(filePath, file, {
     cacheControl: "3600",
     contentType: file.type,
     upsert: false
   });
-  if (storageError) throw storageError;
+  if (storageError) {
+    console.error("uploadTransactionDocument storage upload failed", {
+      action: "uploadTransactionDocument",
+      entityId: context.entityId,
+      entityName: context.entityName,
+      bucket: bucketName,
+      error: storageError.message,
+      statusCode: storageError.statusCode
+    });
+    throw storageError;
+  }
 
   const fileSizeBytes = integerField(formData, "original_size_bytes") ?? file.size;
   const compressedSizeBytes = integerField(formData, "compressed_size_bytes") ?? file.size;
@@ -110,6 +155,13 @@ export async function uploadTransactionDocument(formData: FormData) {
 
   if (error || !document) {
     await supabase.storage.from(bucketName).remove([filePath]);
+    console.error("uploadTransactionDocument metadata insert failed", {
+      action: "uploadTransactionDocument",
+      entityId: context.entityId,
+      entityName: context.entityName,
+      bucket: bucketName,
+      error: error?.message ?? "no row returned"
+    });
     throw error ?? new Error("Uploaded document record could not be loaded.");
   }
 
