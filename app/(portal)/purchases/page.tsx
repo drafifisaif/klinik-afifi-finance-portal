@@ -10,8 +10,13 @@ import { canEditBranch, hasPermission, normalizeRole, requirePermission } from "
 import { getTransactionDocuments } from "@/lib/transaction-documents";
 import { ClipboardList, PackagePlus, Pill, TestTube2 } from "lucide-react";
 
-export default async function PurchasesPage() {
+type PurchasesSearchParams = {
+  error?: string;
+};
+
+export default async function PurchasesPage({ searchParams }: { searchParams: Promise<PurchasesSearchParams> }) {
   const profile = await requirePermission("view_supplier_records");
+  const params = await searchParams;
   const data = await getDashboardData();
   const suppliers = await getSuppliers();
   const activeSuppliers = suppliers.filter((supplier) => supplier.is_active);
@@ -37,6 +42,12 @@ export default async function PurchasesPage() {
         <MetricCard icon={TestTube2} label="Consumables cost" value={formatCurrency(consumables)} tone="amber" />
         <MetricCard icon={PackagePlus} label="Other purchase cost" value={formatCurrency(totalPurchases - medicine - consumables)} tone="rose" />
       </section>
+
+      {params.error ? (
+        <section className="table-section mt-section">
+          <p className="void-warning">{params.error}</p>
+        </section>
+      ) : null}
 
       <section className="table-section mt-section">
         <DataTable

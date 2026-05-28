@@ -1929,6 +1929,10 @@ export async function createSupplierPurchase(formData: FormData) {
 export async function updateSupplierPurchase(formData: FormData) {
   if (!hasSupabaseEnv()) return;
 
+  const failPurchaseEdit = (message: string): never => {
+    redirect(`/purchases?error=${encodeURIComponent(message)}`);
+  };
+
   const profile = await requirePermission("view_supplier_records");
   const role = normalizeRole(profile.role);
   const purchaseId = text(formData, "purchase_id");
@@ -1939,42 +1943,54 @@ export async function updateSupplierPurchase(formData: FormData) {
   const manualDueDate = text(formData, "due_date");
   const termDays = Math.max(0, number(formData, "credit_term_days"));
 
-  if (!purchaseId) throw new Error("Supplier purchase record is required.");
-  if (!branchId) throw new Error("Supplier purchase branch is required.");
-  if (!supplierId) throw new Error("Supplier is required.");
-  if (!invoiceDate || !purchaseDate) throw new Error("Invoice date is required.");
+  if (!purchaseId) failPurchaseEdit("Supplier purchase record is required.");
+  if (!branchId) failPurchaseEdit("Supplier purchase branch is required.");
+  if (!supplierId) failPurchaseEdit("Supplier is required.");
+  if (!invoiceDate || !purchaseDate) failPurchaseEdit("Invoice date is required.");
 
-  const dueDate = manualDueDate || addDays(invoiceDate, termDays);
+  const safePurchaseId = purchaseId as string;
+  const safeBranchId = branchId as string;
+  const safeSupplierId = supplierId as string;
+  const safeInvoiceDate = invoiceDate as string;
+  const safePurchaseDate = purchaseDate as string;
+
+  const dueDate = manualDueDate || addDays(safeInvoiceDate, termDays);
 
   const supabase = await createClient();
   const { data: purchase, error: purchaseError } = await supabase
     .from("supplier_purchases")
     .select("id, supplier_id, branch_id, invoice_no, invoice_date, purchase_date, credit_term_days, due_date, category, medicine_cost, consumables_cost, other_cost, attachment_path, notes")
-    .eq("id", purchaseId)
+    .eq("id", safePurchaseId)
     .maybeSingle();
 
   if (purchaseError || !purchase) {
-    throw new Error("Supplier purchase not found or you do not have permission to edit it.");
+    console.error("updateSupplierPurchase load failed", {
+      action: "updateSupplierPurchase",
+      purchaseId: safePurchaseId,
+      error: purchaseError?.message ?? "no row returned"
+    });
+    failPurchaseEdit("Supplier purchase not found or you do not have permission to edit it.");
   }
-  if (!canEditBranch(profile, purchase.branch_id)) {
-    throw new Error(role === "branch_pic"
+  const existingPurchase = purchase as NonNullable<typeof purchase>;
+  if (!canEditBranch(profile, existingPurchase.branch_id)) {
+    failPurchaseEdit(role === "branch_pic"
       ? "You can only edit supplier purchases for your own branch."
-      : "You do not have permission to edit this supplier purchase.");
+      : "Supplier purchase not found or you do not have permission to edit it.");
   }
-  if (!canEditBranch(profile, branchId)) {
-    throw new Error(role === "branch_pic"
+  if (!canEditBranch(profile, safeBranchId)) {
+    failPurchaseEdit(role === "branch_pic"
       ? "Branch PIC cannot move supplier purchases to another branch."
-      : "You do not have permission to assign this supplier purchase to the selected branch.");
+      : "Supplier purchase not found or you do not have permission to edit it.");
   }
 
   const { data: updatedPurchase, error } = await supabase
     .from("supplier_purchases")
     .update({
-      supplier_id: supplierId,
-      branch_id: branchId,
+      supplier_id: safeSupplierId,
+      branch_id: safeBranchId,
       invoice_no: text(formData, "invoice_no"),
-      invoice_date: invoiceDate,
-      purchase_date: purchaseDate,
+      invoice_date: safeInvoiceDate,
+      purchase_date: safePurchaseDate,
       credit_term_days: termDays,
       due_date: dueDate,
       category: text(formData, "category") as PurchaseCategory,
@@ -1983,27 +1999,38 @@ export async function updateSupplierPurchase(formData: FormData) {
       other_cost: number(formData, "other_cost"),
       notes: text(formData, "notes")
     })
-    .eq("id", purchase.id)
+    .eq("id", existingPurchase.id)
     .select("id, supplier_id, branch_id, invoice_no, invoice_date, purchase_date, credit_term_days, due_date, category, medicine_cost, consumables_cost, other_cost, attachment_path, notes")
     .maybeSingle();
 
   if (error) {
-    throw new Error("Supplier purchase update failed. Please try again.");
+    console.error("updateSupplierPurchase update failed", {
+      action: "updateSupplierPurchase",
+      purchaseId: safePurchaseId,
+      error: error.message
+    });
+    failPurchaseEdit("Supplier purchase update failed. Please try again.");
   }
   if (!updatedPurchase) {
-    throw new Error("Supplier purchase not found or you do not have permission to edit it.");
+    console.error("updateSupplierPurchase update returned no rows", {
+      action: "updateSupplierPurchase",
+      purchaseId: safePurchaseId,
+      error: "no row returned"
+    });
+    failPurchaseEdit("Supplier purchase not found or you do not have permission to edit it.");
   }
+  const savedPurchase = updatedPurchase as NonNullable<typeof updatedPurchase>;
 
-  const beforeData = supplierPurchaseAuditData(purchase);
-  const afterData = supplierPurchaseAuditData(updatedPurchase);
+  const beforeData = supplierPurchaseAuditData(existingPurchase);
+  const afterData = supplierPurchaseAuditData(savedPurchase);
   if (hasAuditChanges(beforeData, afterData)) {
     await logAuditEvent({
       action: "update",
       afterData,
       beforeData,
-      branchId: updatedPurchase.branch_id,
+      branchId: savedPurchase.branch_id,
       description: "Edited supplier purchase.",
-      entityId: updatedPurchase.id,
+      entityId: savedPurchase.id,
       entityName: "supplier_purchases"
     });
   }
