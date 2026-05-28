@@ -1999,31 +1999,30 @@ export async function updateSupplierPurchase(formData: FormData) {
       : "You do not have permission to edit this supplier purchase.");
   }
 
-  const { data: updatedPurchase, error } = await supabase
-    .from("supplier_purchases")
-    .update({
-      supplier_id: safeSupplierId,
-      branch_id: nextBranchId,
-      invoice_no: text(formData, "invoice_no"),
-      invoice_date: safeInvoiceDate,
-      purchase_date: safePurchaseDate,
-      credit_term_days: termDays,
-      due_date: dueDate,
-      category: text(formData, "category") as PurchaseCategory,
-      medicine_cost: number(formData, "medicine_cost"),
-      consumables_cost: number(formData, "consumables_cost"),
-      other_cost: number(formData, "other_cost"),
-      notes: text(formData, "notes")
-    })
-    .eq("id", existingPurchase.id)
-    .select("id, supplier_id, branch_id, invoice_no, invoice_date, purchase_date, credit_term_days, due_date, category, medicine_cost, consumables_cost, other_cost, attachment_path, notes")
-    .maybeSingle();
+  const { data: updatedPurchase, error } = await supabase.rpc("update_supplier_purchase", {
+    p_purchase_id: existingPurchase.id,
+    p_supplier_id: safeSupplierId,
+    p_branch_id: nextBranchId,
+    p_invoice_no: text(formData, "invoice_no"),
+    p_invoice_date: safeInvoiceDate,
+    p_purchase_date: safePurchaseDate,
+    p_credit_term_days: termDays,
+    p_due_date: dueDate,
+    p_category: text(formData, "category") as PurchaseCategory,
+    p_medicine_cost: number(formData, "medicine_cost"),
+    p_consumables_cost: number(formData, "consumables_cost"),
+    p_other_cost: number(formData, "other_cost"),
+    p_notes: text(formData, "notes")
+  });
 
   if (error) {
     console.error("updateSupplierPurchase update failed", {
       action: "updateSupplierPurchase",
       purchaseId: safePurchaseId,
-      error: error.message
+      code: error.code,
+      error: error.message,
+      details: error.details,
+      hint: error.hint
     });
     failPurchaseEdit("Supplier purchase update failed. Please try again.");
   }
