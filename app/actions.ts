@@ -2176,7 +2176,7 @@ export async function voidSupplierPurchase(formData: FormData) {
     failSupplierPurchaseVoid("Supplier purchase is already voided.");
   }
 
-  const { data: voidedPurchase, error } = await supabase.rpc("void_supplier_purchase", {
+  const { data: voidedPurchaseId, error } = await supabase.rpc("void_supplier_purchase", {
     p_purchase_id: existingPurchase.id,
     p_void_reason: reason
   });
@@ -2195,7 +2195,7 @@ export async function voidSupplierPurchase(formData: FormData) {
     });
     failSupplierPurchaseVoid(supplierPurchaseVoidRpcErrorMessage(error));
   }
-  if (!voidedPurchase) {
+  if (!voidedPurchaseId) {
     console.error("voidSupplierPurchase returned no rows", {
       action: "voidSupplierPurchase",
       purchaseId,
@@ -2205,14 +2205,20 @@ export async function voidSupplierPurchase(formData: FormData) {
   }
 
   const beforeData = supplierPurchaseAuditData(existingPurchase);
-  const afterData = supplierPurchaseAuditData(voidedPurchase as NonNullable<typeof voidedPurchase>);
+  const afterData = supplierPurchaseAuditData({
+    ...existingPurchase,
+    is_void: true,
+    void_reason: reason,
+    voided_at: new Date().toISOString(),
+    voided_by: await getUserId()
+  });
   await logAuditEvent({
     action: "void",
     afterData,
     beforeData,
     branchId: existingPurchase.branch_id,
     description: `Voided supplier purchase. Reason: ${reason}`,
-    entityId: existingPurchase.id,
+    entityId: voidedPurchaseId,
     entityName: "supplier_purchases"
   });
 

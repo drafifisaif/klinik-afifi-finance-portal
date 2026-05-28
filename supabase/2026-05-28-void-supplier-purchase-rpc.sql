@@ -1,11 +1,13 @@
 alter table public.supplier_purchases no force row level security;
 alter table public.profiles no force row level security;
 
+drop function if exists public.void_supplier_purchase(uuid, text);
+
 create or replace function public.void_supplier_purchase(
   p_purchase_id uuid,
   p_void_reason text
 )
-returns public.supplier_purchases
+returns uuid
 language plpgsql
 security definer
 set search_path = public
@@ -14,7 +16,7 @@ as $$
 declare
   current_profile public.profiles%rowtype;
   existing_purchase public.supplier_purchases%rowtype;
-  voided_purchase public.supplier_purchases%rowtype;
+  voided_purchase_id uuid;
 begin
   if auth.uid() is null then
     raise exception 'Authentication required.' using errcode = '42501';
@@ -65,10 +67,10 @@ begin
       voided_by = current_profile.id,
       updated_at = now()
   where id = existing_purchase.id
-  returning *
-  into voided_purchase;
+  returning id
+  into voided_purchase_id;
 
-  return voided_purchase;
+  return voided_purchase_id;
 end;
 $$;
 
