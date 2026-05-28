@@ -9,6 +9,7 @@ export const transactionDocumentEntityLabels: Record<TransactionDocumentEntityNa
   panel_claims: "Panel claim",
   panel_payments: "Panel payment",
   petty_cash_transactions: "Petty cash transaction",
+  supplier_payment_entries: "Supplier payment",
   supplier_payments: "Supplier payment",
   supplier_purchase_entries: "Supplier purchase",
   supplier_purchases: "Supplier purchase"
@@ -94,7 +95,7 @@ function reportRange(filters: DocumentReportFilters) {
 function pathForEntity(entityName: TransactionDocumentEntityName) {
   if (entityName === "expenses") return "/expenses";
   if (entityName === "supplier_purchases" || entityName === "supplier_purchase_entries") return "/purchases";
-  if (entityName === "supplier_payments") return "/suppliers/payments";
+  if (entityName === "supplier_payments" || entityName === "supplier_payment_entries") return "/suppliers/payments";
   if (entityName === "panel_claims" || entityName === "panel_payments") return "/panels";
   if (entityName === "cash_bank_ins") return "/cash-bank-ins";
   if (entityName === "petty_cash_transactions") return "/petty-cash";
@@ -180,6 +181,14 @@ export async function getTransactionDocumentContext(entityName: TransactionDocum
     const { data } = await supabase.from("supplier_payments").select("id, branch_id, bank_account_id").eq("id", entityId).maybeSingle();
     return data ? { bankAccountId: data.bank_account_id ?? null, branchId: data.branch_id, entityId: data.id, entityName } : null;
   }
+  if (entityName === "supplier_payment_entries") {
+    const { data } = await supabase
+      .from("supplier_payment_entries")
+      .select("id, branch_id, bank_account_id")
+      .eq("id", entityId)
+      .maybeSingle();
+    return data ? { bankAccountId: data.bank_account_id ?? null, branchId: data.branch_id, entityId: data.id, entityName } : null;
+  }
   if (entityName === "expenses" || entityName === "supplier_purchases" || entityName === "supplier_purchase_entries" || entityName === "panel_claims") {
     const { data } = await supabase.from(entityName).select("id, branch_id").eq("id", entityId).maybeSingle();
     return data ? { bankAccountId: null, branchId: data.branch_id, entityId: data.id, entityName } : null;
@@ -245,7 +254,7 @@ export async function getDocumentReportRows(filters: DocumentReportFilters = {})
       description: purchase.invoice_no ?? purchase.suppliers?.name ?? "Supplier purchase",
       documents: [],
       entityId: purchase.id,
-      entityName: "supplier_purchases" as const
+      entityName: "supplier_purchase_entries" as const
     })),
     ...dashboardData.supplierPayments.map((payment) => ({
       amount: Number(payment.amount ?? 0),
@@ -255,7 +264,7 @@ export async function getDocumentReportRows(filters: DocumentReportFilters = {})
       description: payment.reference_no ?? payment.suppliers?.name ?? "Supplier payment",
       documents: [],
       entityId: payment.id,
-      entityName: "supplier_payments" as const
+      entityName: "supplier_payment_entries" as const
     })),
     ...dashboardData.panels.map((claim) => ({
       amount: Number(claim.amount ?? 0),

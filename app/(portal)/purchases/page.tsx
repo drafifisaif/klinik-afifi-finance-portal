@@ -5,7 +5,7 @@ import { MetricCard } from "@/components/metric-card";
 import { ModuleHeader } from "@/components/module-header";
 import { SupplierPurchaseForm } from "@/components/supplier-purchase-form";
 import { purchaseCategories } from "@/lib/constants";
-import { getBranches, getSupplierPurchaseEntries, getSuppliers, totalBy } from "@/lib/data";
+import { getBranches, getSupplierOutstanding, getSupplierPurchaseEntries, getSuppliers, totalBy } from "@/lib/data";
 import { formatCurrency, formatDate, formatDateTime, labelize } from "@/lib/format";
 import { canEditBranch, normalizeRole, requirePermission } from "@/lib/permissions";
 import { getTransactionDocuments } from "@/lib/transaction-documents";
@@ -27,11 +27,13 @@ export default async function PurchasesPage({ searchParams }: PurchasesPageProps
     getSuppliers(),
     getSupplierPurchaseEntries()
   ]);
+  const outstandingRows = await getSupplierOutstanding();
   const documentMap = await getTransactionDocuments("supplier_purchase_entries", purchases.map((purchase) => purchase.id));
   const canDeleteDocuments = normalizeRole(profile.role) !== "branch_pic";
   const activePurchases = purchases.filter((purchase) => !purchase.is_void);
   const params = searchParams ? await searchParams : {};
   const errorMessage = searchValue(params.error);
+  const outstandingByPurchaseId = new Map(outstandingRows.map((row) => [row.id, row]));
 
   return (
     <>
@@ -74,6 +76,9 @@ export default async function PurchasesPage({ searchParams }: PurchasesPageProps
             "Consumables",
             "Other",
             "Total",
+            "Paid",
+            "Balance",
+            "Payment",
             "Notes",
             "Documents",
             "Status",
@@ -83,6 +88,16 @@ export default async function PurchasesPage({ searchParams }: PurchasesPageProps
           rows={purchases.map((purchase) => {
             const canManage = canEditBranch(profile, purchase.branch_id);
             const documents = documentMap.get(purchase.id) ?? [];
+            const outstanding = outstandingByPurchaseId.get(purchase.id);
+            const paidAmount = outstanding?.paid_amount ?? 0;
+            const balanceAmount = outstanding?.outstanding_amount ?? (purchase.is_void ? 0 : purchase.total_amount);
+            const paymentStatus = purchase.is_void
+              ? "Voided"
+              : balanceAmount <= 0
+                ? "Paid"
+                : paidAmount > 0
+                  ? "Partial"
+                  : "Unpaid";
 
             return [
               formatDate(purchase.invoice_date ?? purchase.purchase_date),
@@ -96,6 +111,9 @@ export default async function PurchasesPage({ searchParams }: PurchasesPageProps
               formatCurrency(purchase.consumables_cost),
               formatCurrency(purchase.other_cost),
               formatCurrency(purchase.total_amount),
+              formatCurrency(paidAmount),
+              formatCurrency(balanceAmount),
+              paymentStatus,
               purchase.notes ?? "-",
               <DocumentManager
                 canDelete={canDeleteDocuments}

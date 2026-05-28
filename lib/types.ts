@@ -172,6 +172,31 @@ export type SupplierPayment = {
   bank_accounts?: Pick<BankAccount, "name" | "bank_name" | "account_no"> | null;
 };
 
+export type SupplierPaymentEntry = {
+  id: string;
+  supplier_purchase_entry_id?: string | null;
+  supplier_id: string;
+  branch_id: string;
+  payment_date: string;
+  payment_method?: PaymentType | string | null;
+  bank_account_id?: string | null;
+  amount: number;
+  reference_no?: string | null;
+  notes?: string | null;
+  is_void: boolean;
+  void_reason?: string | null;
+  voided_at?: string | null;
+  voided_by?: string | null;
+  created_by?: string | null;
+  updated_by?: string | null;
+  created_at: string;
+  updated_at: string;
+  suppliers?: Pick<Supplier, "name"> | null;
+  branches?: Pick<Branch, "name" | "code"> | null;
+  bank_accounts?: Pick<BankAccount, "name" | "bank_name" | "account_no"> | null;
+  supplier_purchase_entries?: Pick<SupplierPurchaseEntry, "id" | "invoice_no" | "branch_id" | "supplier_id" | "due_date" | "total_amount"> | null;
+};
+
 export type PanelCompany = {
   id: string;
   name: string;
@@ -392,6 +417,7 @@ export type TransactionDocumentEntityName =
   | "supplier_purchases"
   | "supplier_purchase_entries"
   | "supplier_payments"
+  | "supplier_payment_entries"
   | "cash_bank_ins"
   | "panel_claims"
   | "panel_payments"
@@ -424,8 +450,8 @@ export type DashboardData = {
   openingBalances: OpeningBalance[];
   sales: DailySale[];
   expenses: Expense[];
-  purchases: SupplierPurchase[];
-  supplierPayments: SupplierPayment[];
+  purchases: SupplierPurchaseEntry[];
+  supplierPayments: SupplierPaymentEntry[];
   panels: PanelClaim[];
   panelPayments: PanelPayment[];
 };

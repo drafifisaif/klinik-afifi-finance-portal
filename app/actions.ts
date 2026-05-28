@@ -281,6 +281,24 @@ type SupplierPaymentAuditRow = {
   supplier_id: string;
 };
 
+type SupplierPaymentEntryAuditRow = {
+  amount: number;
+  bank_account_id: string | null;
+  branch_id: string;
+  created_by?: string | null;
+  is_void: boolean;
+  notes: string | null;
+  payment_date: string;
+  payment_method: string | null;
+  reference_no: string | null;
+  supplier_id: string;
+  supplier_purchase_entry_id: string | null;
+  updated_by?: string | null;
+  void_reason?: string | null;
+  voided_at?: string | null;
+  voided_by?: string | null;
+};
+
 type PanelPaymentAuditRow = {
   amount: number;
   bank_account_id: string | null;
@@ -526,6 +544,26 @@ function supplierPaymentAuditData(payment: SupplierPaymentAuditRow) {
     receipt_path: payment.receipt_path,
     reference_no: payment.reference_no,
     supplier_id: payment.supplier_id
+  };
+}
+
+function supplierPaymentEntryAuditData(payment: SupplierPaymentEntryAuditRow) {
+  return {
+    amount: payment.amount,
+    bank_account_id: payment.bank_account_id,
+    branch_id: payment.branch_id,
+    created_by: payment.created_by ?? null,
+    is_void: payment.is_void,
+    notes: payment.notes,
+    payment_date: payment.payment_date,
+    payment_method: payment.payment_method,
+    reference_no: payment.reference_no,
+    supplier_id: payment.supplier_id,
+    supplier_purchase_entry_id: payment.supplier_purchase_entry_id,
+    updated_by: payment.updated_by ?? null,
+    void_reason: payment.void_reason ?? null,
+    voided_at: payment.voided_at ?? null,
+    voided_by: payment.voided_by ?? null
   };
 }
 
@@ -827,6 +865,48 @@ function canManageSupplierPurchaseEntry(profile: Awaited<ReturnType<typeof requi
 function isSupplierPurchaseEntryManager(profile: Awaited<ReturnType<typeof requirePermission>>) {
   const role = normalizeRole(profile.role);
   return role === "owner" || role === "admin" || role === "finance" || role === "branch_pic";
+}
+
+function failSupplierPaymentEntry(message: string): never {
+  redirect(`/suppliers/payments?error=${encodeURIComponent(message)}`);
+}
+
+function supplierPaymentEntryInput(formData: FormData) {
+  const supplierId = text(formData, "supplier_id");
+  const branchId = text(formData, "branch_id");
+  const paymentDate = text(formData, "payment_date");
+  const paymentMethod = text(formData, "payment_method");
+  const bankAccountId = text(formData, "bank_account_id");
+  const amount = number(formData, "amount");
+
+  if (!supplierId) failSupplierPaymentEntry("Supplier is required.");
+  if (!branchId) failSupplierPaymentEntry("Branch is required.");
+  if (!paymentDate) failSupplierPaymentEntry("Payment date is required.");
+  if (amount <= 0) failSupplierPaymentEntry("Amount must be greater than zero.");
+  if (paymentMethod && paymentUsesBankAccount(paymentMethod as PaymentType) && !bankAccountId) {
+    failSupplierPaymentEntry("Paid from bank account is required for bank-based supplier payments.");
+  }
+
+  return {
+    amount,
+    bank_account_id: bankAccountId,
+    branch_id: branchId,
+    notes: text(formData, "notes"),
+    payment_date: paymentDate,
+    payment_method: paymentMethod,
+    reference_no: text(formData, "reference_no"),
+    supplier_id: supplierId,
+    supplier_purchase_entry_id: text(formData, "supplier_purchase_entry_id")
+  };
+}
+
+function isSupplierPaymentEntryManager(profile: Awaited<ReturnType<typeof requirePermission>>) {
+  const role = normalizeRole(profile.role);
+  return role === "owner" || role === "admin" || role === "finance" || role === "branch_pic";
+}
+
+function canManageSupplierPaymentEntry(profile: Awaited<ReturnType<typeof requirePermission>>, branchId: string) {
+  return canEditBranch(profile, branchId);
 }
 
 export async function signIn(formData: FormData) {
@@ -2248,6 +2328,295 @@ export async function voidSupplierPurchaseEntry(formData: FormData) {
 
   revalidatePath("/purchases");
   revalidatePath("/dashboard");
+}
+
+export async function createSupplierPaymentEntry(formData: FormData) {
+  if (!hasSupabaseEnv()) return;
+
+  const profile = await requirePermission("view_supplier_payments");
+  if (!isSupplierPaymentEntryManager(profile)) {
+    failSupplierPaymentEntry("You do not have permission to create supplier payments.");
+  }
+
+  const adminSupabase = createAdminClient();
+  const payload = supplierPaymentEntryInput(formData);
+  let nextSupplierId = payload.supplier_id;
+  let nextBranchId = payload.branch_id;
+
+  if (payload.supplier_purchase_entry_id) {
+    const { data: linkedPurchase, error: linkedPurchaseError } = await adminSupabase
+      .from("supplier_purchase_entries")
+      .select("id, supplier_id, branch_id, is_void")
+      .eq("id", payload.supplier_purchase_entry_id)
+      .maybeSingle();
+
+    if (linkedPurchaseError || !linkedPurchase) failSupplierPaymentEntry("Linked supplier purchase was not found.");
+    if (linkedPurchase.is_void) failSupplierPaymentEntry("Voided supplier purchases cannot receive supplier payments.");
+    nextSupplierId = linkedPurchase.supplier_id;
+    nextBranchId = linkedPurchase.branch_id;
+  }
+
+  if (!canManageSupplierPaymentEntry(profile, nextBranchId)) {
+    failSupplierPaymentEntry("You do not have permission to record supplier payments for this branch.");
+  }
+
+  if (payload.bank_account_id) {
+    const { data: bankAccount, error: bankAccountError } = await adminSupabase
+      .from("bank_accounts")
+      .select("id, is_active")
+      .eq("id", payload.bank_account_id)
+      .eq("is_active", true)
+      .maybeSingle();
+    if (bankAccountError || !bankAccount) failSupplierPaymentEntry("Selected bank account is not active or not available.");
+  }
+
+  const timestamp = new Date().toISOString();
+  const { data: createdPayment, error } = await adminSupabase
+    .from("supplier_payment_entries")
+    .insert({
+      amount: payload.amount,
+      bank_account_id: payload.bank_account_id,
+      branch_id: nextBranchId,
+      created_at: timestamp,
+      created_by: profile.id,
+      notes: payload.notes,
+      payment_date: payload.payment_date,
+      payment_method: payload.payment_method,
+      reference_no: payload.reference_no,
+      supplier_id: nextSupplierId,
+      supplier_purchase_entry_id: payload.supplier_purchase_entry_id,
+      updated_at: timestamp,
+      updated_by: profile.id
+    })
+    .select("id, supplier_purchase_entry_id, supplier_id, branch_id, payment_date, payment_method, bank_account_id, amount, reference_no, notes, is_void, void_reason, voided_at, voided_by, created_by, updated_by, created_at, updated_at")
+    .single();
+
+  if (error || !createdPayment) {
+    console.error("createSupplierPaymentEntry failed", {
+      action: "createSupplierPaymentEntry",
+      branchId: nextBranchId,
+      linkedPurchaseId: payload.supplier_purchase_entry_id,
+      role: normalizeRole(profile.role),
+      profileBranchId: profile.branch_id,
+      code: error?.code,
+      error: error?.message,
+      details: error?.details,
+      hint: error?.hint
+    });
+    failSupplierPaymentEntry("Supplier payment could not be created.");
+  }
+
+  await logAuditEvent({
+    action: "create",
+    afterData: supplierPaymentEntryAuditData(createdPayment),
+    bankAccountId: createdPayment.bank_account_id,
+    branchId: createdPayment.branch_id,
+    description: "Created supplier payment entry.",
+    entityId: createdPayment.id,
+    entityName: "supplier_payment_entries"
+  });
+
+  revalidatePath("/suppliers/payments");
+  revalidatePath("/purchases");
+  revalidatePath("/dashboard");
+  revalidatePath("/bank");
+  revalidatePath("/reports/cashflow");
+}
+
+export async function updateSupplierPaymentEntry(formData: FormData) {
+  if (!hasSupabaseEnv()) return;
+
+  const profile = await requirePermission("view_supplier_payments");
+  if (!isSupplierPaymentEntryManager(profile)) {
+    failSupplierPaymentEntry("You do not have permission to edit supplier payments.");
+  }
+
+  const paymentEntryId = String(formData.get("payment_entry_id") || "").trim();
+  if (!paymentEntryId) failSupplierPaymentEntry("Supplier payment entry is required.");
+
+  const adminSupabase = createAdminClient();
+  const payload = supplierPaymentEntryInput(formData);
+  const { data: existingPayment, error: loadError } = await adminSupabase
+    .from("supplier_payment_entries")
+    .select("id, supplier_purchase_entry_id, supplier_id, branch_id, payment_date, payment_method, bank_account_id, amount, reference_no, notes, is_void, void_reason, voided_at, voided_by, created_by, updated_by, created_at, updated_at")
+    .eq("id", paymentEntryId)
+    .maybeSingle();
+
+  if (loadError || !existingPayment) failSupplierPaymentEntry("Supplier payment not found.");
+  if (!canManageSupplierPaymentEntry(profile, existingPayment.branch_id)) {
+    failSupplierPaymentEntry("You do not have permission to edit this supplier payment.");
+  }
+  if (existingPayment.is_void) failSupplierPaymentEntry("Voided supplier payments cannot be edited.");
+
+  let nextSupplierId = payload.supplier_id;
+  let nextBranchId = normalizeRole(profile.role) === "branch_pic" ? existingPayment.branch_id : payload.branch_id;
+
+  if (payload.supplier_purchase_entry_id) {
+    const { data: linkedPurchase, error: linkedPurchaseError } = await adminSupabase
+      .from("supplier_purchase_entries")
+      .select("id, supplier_id, branch_id, is_void")
+      .eq("id", payload.supplier_purchase_entry_id)
+      .maybeSingle();
+    if (linkedPurchaseError || !linkedPurchase) failSupplierPaymentEntry("Linked supplier purchase was not found.");
+    if (linkedPurchase.is_void) failSupplierPaymentEntry("Voided supplier purchases cannot receive supplier payments.");
+    if (normalizeRole(profile.role) === "branch_pic" && linkedPurchase.branch_id !== existingPayment.branch_id) {
+      failSupplierPaymentEntry("Branch PIC cannot move supplier payments to another branch.");
+    }
+    nextSupplierId = linkedPurchase.supplier_id;
+    nextBranchId = normalizeRole(profile.role) === "branch_pic" ? existingPayment.branch_id : linkedPurchase.branch_id;
+  }
+
+  if (!canManageSupplierPaymentEntry(profile, nextBranchId)) {
+    failSupplierPaymentEntry(
+      normalizeRole(profile.role) === "branch_pic"
+        ? "Branch PIC cannot move supplier payments to another branch."
+        : "You do not have permission to edit this supplier payment."
+    );
+  }
+
+  if (payload.bank_account_id) {
+    const { data: bankAccount, error: bankAccountError } = await adminSupabase
+      .from("bank_accounts")
+      .select("id, is_active")
+      .eq("id", payload.bank_account_id)
+      .eq("is_active", true)
+      .maybeSingle();
+    if (bankAccountError || !bankAccount) failSupplierPaymentEntry("Selected bank account is not active or not available.");
+  }
+
+  const timestamp = new Date().toISOString();
+  const { data: updatedPayment, error } = await adminSupabase
+    .from("supplier_payment_entries")
+    .update({
+      amount: payload.amount,
+      bank_account_id: payload.bank_account_id,
+      branch_id: nextBranchId,
+      notes: payload.notes,
+      payment_date: payload.payment_date,
+      payment_method: payload.payment_method,
+      reference_no: payload.reference_no,
+      supplier_id: nextSupplierId,
+      supplier_purchase_entry_id: payload.supplier_purchase_entry_id,
+      updated_at: timestamp,
+      updated_by: profile.id
+    })
+    .eq("id", existingPayment.id)
+    .eq("is_void", false)
+    .select("id, supplier_purchase_entry_id, supplier_id, branch_id, payment_date, payment_method, bank_account_id, amount, reference_no, notes, is_void, void_reason, voided_at, voided_by, created_by, updated_by, created_at, updated_at")
+    .single();
+
+  if (error || !updatedPayment) {
+    console.error("updateSupplierPaymentEntry failed", {
+      action: "updateSupplierPaymentEntry",
+      paymentEntryId,
+      linkedPurchaseId: payload.supplier_purchase_entry_id,
+      role: normalizeRole(profile.role),
+      profileBranchId: profile.branch_id,
+      paymentBranchId: existingPayment.branch_id,
+      submittedBranchId: payload.branch_id,
+      code: error?.code,
+      error: error?.message,
+      details: error?.details,
+      hint: error?.hint
+    });
+    failSupplierPaymentEntry("Supplier payment could not be updated.");
+  }
+
+  const beforeData = supplierPaymentEntryAuditData(existingPayment);
+  const afterData = supplierPaymentEntryAuditData(updatedPayment);
+  if (hasAuditChanges(beforeData, afterData)) {
+    await logAuditEvent({
+      action: "update",
+      afterData,
+      beforeData,
+      bankAccountId: updatedPayment.bank_account_id,
+      branchId: updatedPayment.branch_id,
+      description: "Updated supplier payment entry.",
+      entityId: updatedPayment.id,
+      entityName: "supplier_payment_entries"
+    });
+  }
+
+  revalidatePath("/suppliers/payments");
+  revalidatePath("/purchases");
+  revalidatePath("/dashboard");
+  revalidatePath("/bank");
+  revalidatePath("/reports/cashflow");
+}
+
+export async function voidSupplierPaymentEntry(formData: FormData) {
+  if (!hasSupabaseEnv()) return;
+
+  const profile = await requirePermission("view_supplier_payments");
+  if (!isSupplierPaymentEntryManager(profile)) {
+    failSupplierPaymentEntry("You do not have permission to void supplier payments.");
+  }
+
+  const paymentEntryId = String(formData.get("payment_entry_id") || "").trim();
+  const reason = text(formData, "void_reason");
+  if (!paymentEntryId) failSupplierPaymentEntry("Supplier payment entry is required.");
+  if (!reason) failSupplierPaymentEntry("Void reason is required.");
+
+  const adminSupabase = createAdminClient();
+  const { data: existingPayment, error: loadError } = await adminSupabase
+    .from("supplier_payment_entries")
+    .select("id, supplier_purchase_entry_id, supplier_id, branch_id, payment_date, payment_method, bank_account_id, amount, reference_no, notes, is_void, void_reason, voided_at, voided_by, created_by, updated_by, created_at, updated_at")
+    .eq("id", paymentEntryId)
+    .maybeSingle();
+
+  if (loadError || !existingPayment) failSupplierPaymentEntry("Supplier payment not found.");
+  if (!canManageSupplierPaymentEntry(profile, existingPayment.branch_id)) {
+    failSupplierPaymentEntry("You do not have permission to void this supplier payment.");
+  }
+  if (existingPayment.is_void) failSupplierPaymentEntry("Supplier payment is already voided.");
+
+  const timestamp = new Date().toISOString();
+  const { data: voidedPayment, error } = await adminSupabase
+    .from("supplier_payment_entries")
+    .update({
+      is_void: true,
+      updated_at: timestamp,
+      updated_by: profile.id,
+      void_reason: reason,
+      voided_at: timestamp,
+      voided_by: profile.id
+    })
+    .eq("id", existingPayment.id)
+    .eq("is_void", false)
+    .select("id, supplier_purchase_entry_id, supplier_id, branch_id, payment_date, payment_method, bank_account_id, amount, reference_no, notes, is_void, void_reason, voided_at, voided_by, created_by, updated_by, created_at, updated_at")
+    .single();
+
+  if (error || !voidedPayment) {
+    console.error("voidSupplierPaymentEntry failed", {
+      action: "voidSupplierPaymentEntry",
+      paymentEntryId,
+      role: normalizeRole(profile.role),
+      profileBranchId: profile.branch_id,
+      paymentBranchId: existingPayment.branch_id,
+      code: error?.code,
+      error: error?.message,
+      details: error?.details,
+      hint: error?.hint
+    });
+    failSupplierPaymentEntry("Supplier payment could not be voided.");
+  }
+
+  await logAuditEvent({
+    action: "void",
+    afterData: supplierPaymentEntryAuditData(voidedPayment),
+    beforeData: supplierPaymentEntryAuditData(existingPayment),
+    bankAccountId: voidedPayment.bank_account_id,
+    branchId: voidedPayment.branch_id,
+    description: `Voided supplier payment entry. Reason: ${reason}`,
+    entityId: voidedPayment.id,
+    entityName: "supplier_payment_entries"
+  });
+
+  revalidatePath("/suppliers/payments");
+  revalidatePath("/purchases");
+  revalidatePath("/dashboard");
+  revalidatePath("/bank");
+  revalidatePath("/reports/cashflow");
 }
 
 export async function createSupplierPurchase(formData: FormData) {

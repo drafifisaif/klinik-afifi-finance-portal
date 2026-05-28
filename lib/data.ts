@@ -20,11 +20,12 @@ import type {
   PurchaseCategory,
   Supplier,
   SupplierPayment,
+  SupplierPaymentEntry,
   SupplierPurchase,
   SupplierPurchaseEntry
 } from "@/lib/types";
 
-export type SupplierOutstandingRow = SupplierPurchase & {
+export type SupplierOutstandingRow = SupplierPurchaseEntry & {
   supplier_name?: string;
   branch_name?: string;
   paid_amount: number;
@@ -200,6 +201,44 @@ const supplierPayments: SupplierPayment[] = [
   }
 ];
 
+const supplierPurchaseEntriesDemo: SupplierPurchaseEntry[] = purchases.map((purchase, index) => ({
+  ...purchase,
+  category: purchase.category ?? "other",
+  created_at: `2026-05-${String(index + 8).padStart(2, "0")}T08:00:00.000Z`,
+  created_by: null,
+  credit_term_days: purchase.credit_term_days ?? 0,
+  is_void: purchase.is_void ?? false,
+  updated_at: `2026-05-${String(index + 8).padStart(2, "0")}T08:00:00.000Z`,
+  updated_by: null,
+  void_reason: purchase.void_reason ?? null,
+  voided_at: purchase.voided_at ?? null,
+  voided_by: purchase.voided_by ?? null
+}));
+
+const supplierPaymentEntriesDemo: SupplierPaymentEntry[] = supplierPayments.map((payment, index) => ({
+  id: payment.id,
+  amount: payment.amount,
+  bank_account_id: payment.bank_account_id ?? null,
+  branch_id: payment.branch_id ?? "putatan",
+  created_at: `2026-05-${String(index + 18).padStart(2, "0")}T09:00:00.000Z`,
+  created_by: null,
+  is_void: false,
+  notes: payment.notes ?? null,
+  payment_date: payment.payment_date,
+  payment_method: payment.payment_type,
+  reference_no: payment.reference_no ?? null,
+  supplier_id: payment.supplier_id,
+  supplier_purchase_entry_id: payment.purchase_id ?? null,
+  suppliers: payment.suppliers ?? null,
+  branches: payment.branches ?? null,
+  bank_accounts: payment.bank_accounts ?? null,
+  updated_at: `2026-05-${String(index + 18).padStart(2, "0")}T09:00:00.000Z`,
+  updated_by: null,
+  void_reason: null,
+  voided_at: null,
+  voided_by: null
+}));
+
 const panels: PanelClaim[] = [
   {
     id: "pc1",
@@ -302,8 +341,8 @@ export const demoData: DashboardData = {
   openingBalances,
   sales,
   expenses,
-  purchases,
-  supplierPayments,
+  purchases: supplierPurchaseEntriesDemo,
+  supplierPayments: supplierPaymentEntriesDemo,
   panels,
   panelPayments
 };
@@ -338,6 +377,7 @@ export async function getDashboardData(): Promise<DashboardData> {
   if (!hasSupabaseEnv()) return filterDashboardDataForProfile(demoData, profile);
 
   const supabase = await createClient();
+  const adminSupabase = createAdminClient();
 
   const [branchRows, openingBalanceRows, salesRows, expenseRows, purchaseRows, paymentRows, panelRows, panelPaymentRows] = await Promise.all([
     fetchOrDemo(supabase.from("branches").select("*").order("name"), demoData.branches),
@@ -374,12 +414,13 @@ export async function getDashboardData(): Promise<DashboardData> {
       "supplier_purchase_entries_dashboard"
     ),
     fetchOrDemo(
-      supabase
-        .from("supplier_payments")
-        .select("*, suppliers(name), branches(name, code), bank_accounts(name, bank_name, account_no)")
+      adminSupabase
+        .from("supplier_payment_entries")
+        .select("*, suppliers(name), branches(name, code), bank_accounts(name, bank_name, account_no), supplier_purchase_entries(id, invoice_no, branch_id, supplier_id, due_date, total_amount)")
         .order("payment_date", { ascending: false })
         .limit(50),
-      demoData.supplierPayments
+      demoData.supplierPayments,
+      "supplier_payment_entries_dashboard"
     ),
     fetchOrDemo(
       supabase
@@ -413,8 +454,8 @@ export async function getDashboardData(): Promise<DashboardData> {
     openingBalances: openingBalanceRows as OpeningBalance[],
     sales: salesRows as DailySale[],
     expenses: expenseRows as Expense[],
-    purchases: purchaseRows as SupplierPurchase[],
-    supplierPayments: paymentRows as SupplierPayment[],
+    purchases: purchaseRows as SupplierPurchaseEntry[],
+    supplierPayments: paymentRows as SupplierPaymentEntry[],
     panels: panelRows as PanelClaim[],
     panelPayments: normalizedPanelPayments
   }, profile);
@@ -747,19 +788,9 @@ export async function getSupplierPurchaseEntries() {
   if (!profile?.is_active) return [] as SupplierPurchaseEntry[];
 
   if (!hasSupabaseEnv()) {
-    const demoEntries = purchases.map((purchase, index) => ({
-      ...purchase,
-      created_at: `2026-05-${String(index + 10).padStart(2, "0")}T08:00:00.000Z`,
-      created_by: null,
-      credit_term_days: purchase.credit_term_days ?? 0,
-      is_void: purchase.is_void ?? false,
-      updated_at: `2026-05-${String(index + 10).padStart(2, "0")}T08:00:00.000Z`,
-      updated_by: null
-    })) as SupplierPurchaseEntry[];
-
     return canViewAllBranches(profile)
-      ? demoEntries
-      : demoEntries.filter((entry) => entry.branch_id === profile.branch_id);
+      ? supplierPurchaseEntriesDemo
+      : supplierPurchaseEntriesDemo.filter((entry) => entry.branch_id === profile.branch_id);
   }
 
   const supabase = createAdminClient();
@@ -774,6 +805,33 @@ export async function getSupplierPurchaseEntries() {
   );
 
   const entries = rows as SupplierPurchaseEntry[];
+  return canViewAllBranches(profile)
+    ? entries
+    : entries.filter((entry) => entry.branch_id === profile.branch_id);
+}
+
+export async function getSupplierPaymentEntries() {
+  const profile = await getCurrentProfile();
+  if (!profile?.is_active) return [] as SupplierPaymentEntry[];
+
+  if (!hasSupabaseEnv()) {
+    return canViewAllBranches(profile)
+      ? supplierPaymentEntriesDemo
+      : supplierPaymentEntriesDemo.filter((entry) => entry.branch_id === profile.branch_id);
+  }
+
+  const supabase = createAdminClient();
+  const rows = await fetchOrDemo(
+    supabase
+      .from("supplier_payment_entries")
+      .select("*, suppliers(name), branches(name, code), bank_accounts(name, bank_name, account_no), supplier_purchase_entries(id, invoice_no, branch_id, supplier_id, due_date, total_amount)")
+      .order("payment_date", { ascending: false })
+      .order("created_at", { ascending: false }),
+    [] as SupplierPaymentEntry[],
+    "supplier_payment_entries"
+  );
+
+  const entries = rows as SupplierPaymentEntry[];
   return canViewAllBranches(profile)
     ? entries
     : entries.filter((entry) => entry.branch_id === profile.branch_id);
@@ -849,28 +907,70 @@ export function branchName(data: DashboardData, branchId: string) {
 
 export async function getSupplierOutstanding() {
   if (!hasSupabaseEnv()) {
-    return [] as SupplierOutstandingRow[];
+    const profile = await getCurrentProfile();
+    const rows = supplierPurchaseEntriesDemo.map((row) => {
+      const paidAmount = supplierPaymentEntriesDemo
+        .filter((payment) => !payment.is_void && payment.supplier_purchase_entry_id === row.id)
+        .reduce((sum, payment) => sum + Number(payment.amount ?? 0), 0);
+      const outstandingAmount = Math.max(0, Number(row.total_amount ?? 0) - paidAmount);
+      return {
+        ...row,
+        paid_amount: paidAmount,
+        outstanding_amount: outstandingAmount,
+        status: outstandingAmount <= 0 ? "paid" : paidAmount > 0 ? "partial" : "unpaid",
+        aging_bucket: "not_due",
+        days_overdue: 0,
+        supplier_name: row.suppliers?.name,
+        branch_name: row.branches?.name
+      } as SupplierOutstandingRow;
+    });
+    if (!profile || canViewAllBranches(profile)) return rows;
+    if (!profile.branch_id) return [];
+    return rows.filter((row) => row.branch_id === profile.branch_id);
   }
 
   const profile = await getCurrentProfile();
-  const supabase = await createClient();
-  const rows = await fetchOrDemo(
-    supabase
-      .from("supplier_purchase_entries")
-      .select("id, supplier_id, branch_id, invoice_no, invoice_date, purchase_date, credit_term_days, due_date, category, medicine_cost, consumables_cost, other_cost, total_amount, notes, is_void, void_reason, voided_at, voided_by, created_at, updated_at, suppliers(name), branches(name, code)")
-      .is("is_void", false)
-      .order("due_date", { ascending: true }),
-    [] as unknown[],
-    "supplier_purchase_entries_outstanding"
-  );
+  const supabase = createAdminClient();
+  const [purchaseRows, paymentRows] = await Promise.all([
+    fetchOrDemo(
+      supabase
+        .from("supplier_purchase_entries")
+        .select("id, supplier_id, branch_id, invoice_no, invoice_date, purchase_date, credit_term_days, due_date, category, medicine_cost, consumables_cost, other_cost, total_amount, notes, is_void, void_reason, voided_at, voided_by, created_at, updated_at, suppliers(name), branches(name, code)")
+        .is("is_void", false)
+        .order("due_date", { ascending: true }),
+      [] as unknown[],
+      "supplier_purchase_entries_outstanding"
+    ),
+    fetchOrDemo(
+      supabase
+        .from("supplier_payment_entries")
+        .select("id, supplier_purchase_entry_id, branch_id, amount, is_void")
+        .is("is_void", false),
+      [] as unknown[],
+      "supplier_payment_entries_outstanding"
+    )
+  ]);
+
+  const paidByPurchaseId = new Map<string, number>();
+  (paymentRows as Pick<SupplierPaymentEntry, "supplier_purchase_entry_id" | "amount">[]).forEach((payment) => {
+    if (!payment.supplier_purchase_entry_id) return;
+    paidByPurchaseId.set(
+      payment.supplier_purchase_entry_id,
+      (paidByPurchaseId.get(payment.supplier_purchase_entry_id) ?? 0) + Number(payment.amount ?? 0)
+    );
+  });
 
   const today = new Date().toISOString().slice(0, 10);
-  const outstandingRows = (rows as unknown as SupplierPurchaseEntry[]).map((row) => {
+  const outstandingRows = (purchaseRows as unknown as SupplierPurchaseEntry[]).map((row) => {
     const dueDate = row.due_date;
+    const paidAmount = paidByPurchaseId.get(row.id) ?? 0;
+    const outstandingAmount = Math.max(0, Number(row.total_amount ?? 0) - paidAmount);
     let agingBucket = "not_due";
     let daysOverdue = 0;
 
-    if (dueDate && dueDate < today) {
+    if (outstandingAmount <= 0) {
+      agingBucket = "paid";
+    } else if (dueDate && dueDate < today) {
       const dueMs = new Date(`${dueDate}T00:00:00Z`).getTime();
       const todayMs = new Date(`${today}T00:00:00Z`).getTime();
       daysOverdue = Math.max(0, Math.floor((todayMs - dueMs) / 86400000));
@@ -888,9 +988,9 @@ export async function getSupplierOutstanding() {
     return {
       ...row,
       category: (row.category as PurchaseCategory | null | undefined) ?? "other",
-      paid_amount: 0,
-      outstanding_amount: Number(row.total_amount ?? 0),
-      status: dueDate && dueDate < today ? "overdue" : "unpaid",
+      paid_amount: paidAmount,
+      outstanding_amount: outstandingAmount,
+      status: outstandingAmount <= 0 ? "paid" : paidAmount > 0 ? "partial" : dueDate && dueDate < today ? "overdue" : "unpaid",
       aging_bucket: agingBucket,
       days_overdue: daysOverdue,
       supplier_name: row.suppliers?.name,

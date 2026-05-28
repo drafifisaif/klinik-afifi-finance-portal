@@ -66,7 +66,7 @@ function revalidateDocumentPaths(entityName: Parameters<typeof documentEntityPat
 }
 
 function shouldUseAdminDocumentFlow(entityName: TransactionDocumentEntityName) {
-  return entityName === "supplier_purchase_entries";
+  return entityName === "supplier_purchase_entries" || entityName === "supplier_payment_entries";
 }
 
 export async function uploadTransactionDocument(formData: FormData) {
@@ -86,32 +86,57 @@ export async function uploadTransactionDocument(formData: FormData) {
   let context = await getTransactionDocumentContext(entityName, entityId);
   if (shouldUseAdminDocumentFlow(entityName)) {
     const adminSupabase = createAdminClient();
-    const { data: entry, error: entryError } = await adminSupabase
-      .from("supplier_purchase_entries")
-      .select("id, branch_id")
-      .eq("id", entityId)
-      .maybeSingle();
-
-    if (entryError || !entry) {
-      console.error("uploadTransactionDocument supplier purchase lookup failed", {
-        action: "uploadTransactionDocument",
-        entityId,
-        entityName,
-        error: entryError?.message ?? "no row returned"
-      });
-      throw new Error("Transaction document target was not found or is not accessible.");
+    if (entityName === "supplier_payment_entries") {
+      const { data: entry, error: entryError } = await adminSupabase
+        .from("supplier_payment_entries")
+        .select("id, branch_id, bank_account_id")
+        .eq("id", entityId)
+        .maybeSingle();
+      if (entryError || !entry) {
+        console.error("uploadTransactionDocument entry lookup failed", {
+          action: "uploadTransactionDocument",
+          entityId,
+          entityName,
+          error: entryError?.message ?? "no row returned"
+        });
+        throw new Error("Transaction document target was not found or is not accessible.");
+      }
+      context = {
+        bankAccountId: entry.bank_account_id ?? null,
+        branchId: entry.branch_id,
+        entityId: entry.id,
+        entityName
+      };
+    } else {
+      const { data: entry, error: entryError } = await adminSupabase
+        .from("supplier_purchase_entries")
+        .select("id, branch_id")
+        .eq("id", entityId)
+        .maybeSingle();
+      if (entryError || !entry) {
+        console.error("uploadTransactionDocument entry lookup failed", {
+          action: "uploadTransactionDocument",
+          entityId,
+          entityName,
+          error: entryError?.message ?? "no row returned"
+        });
+        throw new Error("Transaction document target was not found or is not accessible.");
+      }
+      context = {
+        bankAccountId: null,
+        branchId: entry.branch_id,
+        entityId: entry.id,
+        entityName
+      };
     }
-
-    context = {
-      bankAccountId: null,
-      branchId: entry.branch_id,
-      entityId: entry.id,
-      entityName
-    };
   }
   if (!context) throw new Error("Transaction document target was not found or is not accessible.");
   if (!canEditBranch(profile, context.branchId)) {
-    throw new Error("You do not have permission to upload documents for this supplier purchase.");
+    throw new Error(
+      entityName === "supplier_payment_entries"
+        ? "You do not have permission to upload documents for this supplier payment."
+        : "You do not have permission to upload documents for this supplier purchase."
+    );
   }
 
   const supabase = shouldUseAdminDocumentFlow(context.entityName) ? createAdminClient() : await createClient();
