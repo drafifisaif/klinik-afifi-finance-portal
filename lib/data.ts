@@ -626,7 +626,7 @@ export async function getBankingDataForScope(options: BankingDataOptions = {}): 
     fetchOrDemo(
       supabase
         .from("bank_transactions")
-        .select("*, branches(name, code), bank_accounts(name, bank_name, account_no)")
+        .select("*, branches(name, code), bank_accounts:bank_accounts!bank_transactions_bank_account_id_fkey(id, name, bank_name, account_no)")
         .order("transaction_date", { ascending: false })
         .limit(2000),
       demoBankingData.bankTransactions,
