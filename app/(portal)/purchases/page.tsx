@@ -38,7 +38,7 @@ export default async function PurchasesPage() {
         <MetricCard icon={PackagePlus} label="Other purchase cost" value={formatCurrency(totalPurchases - medicine - consumables)} tone="rose" />
       </section>
 
-      <section className="section-grid">
+      <section className="table-section mt-section">
         <DataTable
           columns={["Invoice Date", "Due Date", "Credit Term", "Branch", "Supplier", "Invoice", "Category", "Medicine", "Consumables", "Other", "Total", "Edit", "Documents"]}
           rows={data.purchases.map((purchase) => [
@@ -136,7 +136,9 @@ export default async function PurchasesPage() {
             />
           ])}
         />
+      </section>
 
+      <section className="section-grid mt-section">
         <div className="cards-grid single-column">
           <SupplierPurchaseForm branches={data.branches} suppliers={activeSuppliers} />
 
