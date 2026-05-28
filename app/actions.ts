@@ -39,6 +39,39 @@ function addDays(dateString: string, days: number) {
   return date.toISOString().slice(0, 10);
 }
 
+function supplierPurchaseRpcErrorMessage(error: {
+  code?: string | null;
+  details?: string | null;
+  hint?: string | null;
+  message?: string | null;
+}) {
+  const message = error.message ?? "";
+  const details = error.details ?? "";
+  const hint = error.hint ?? "";
+  const haystack = `${message} ${details} ${hint}`.toLowerCase();
+
+  if (error.code === "PGRST202" || haystack.includes("could not find the function public.update_supplier_purchase")) {
+    return "Supplier purchase update function is unavailable. Run the latest Supabase migration.";
+  }
+  if (haystack.includes("stack depth limit exceeded")) {
+    return "Supplier purchase update policy is still recursive. Run the latest supplier purchase RPC migration.";
+  }
+  if (error.code === "42501" || haystack.includes("permission")) {
+    return "You do not have permission to edit this supplier purchase.";
+  }
+  if (error.code === "P0002" || haystack.includes("supplier purchase not found")) {
+    return "Supplier purchase not found.";
+  }
+  if (error.code === "22007" || haystack.includes("date/time field value out of range") || haystack.includes("invalid input syntax for type date")) {
+    return "Supplier purchase dates are invalid.";
+  }
+  if (error.code === "22P02" || haystack.includes("invalid input syntax for type uuid")) {
+    return "Supplier purchase record contains an invalid branch, supplier, or purchase id.";
+  }
+
+  return "Supplier purchase update failed. Please try again.";
+}
+
 function booleanText(formData: FormData, key: string, fallback = true) {
   const value = text(formData, key);
   if (value === "true") return true;
@@ -1999,7 +2032,7 @@ export async function updateSupplierPurchase(formData: FormData) {
       : "You do not have permission to edit this supplier purchase.");
   }
 
-  const { data: updatedPurchase, error } = await supabase.rpc("update_supplier_purchase", {
+  const rpcParams = {
     p_purchase_id: existingPurchase.id,
     p_supplier_id: safeSupplierId,
     p_branch_id: nextBranchId,
@@ -2013,18 +2046,26 @@ export async function updateSupplierPurchase(formData: FormData) {
     p_consumables_cost: number(formData, "consumables_cost"),
     p_other_cost: number(formData, "other_cost"),
     p_notes: text(formData, "notes")
-  });
+  };
+
+  const { data: updatedPurchase, error } = await supabase.rpc("update_supplier_purchase", rpcParams);
 
   if (error) {
     console.error("updateSupplierPurchase update failed", {
       action: "updateSupplierPurchase",
       purchaseId: safePurchaseId,
+      rpcParamKeys: Object.keys(rpcParams),
+      role,
+      profileBranchId: profile.branch_id,
+      purchaseBranchId: existingPurchase.branch_id,
+      submittedBranchId: safeBranchId,
+      attemptedBranchId: nextBranchId,
       code: error.code,
       error: error.message,
       details: error.details,
       hint: error.hint
     });
-    failPurchaseEdit("Supplier purchase update failed. Please try again.");
+    failPurchaseEdit(supplierPurchaseRpcErrorMessage(error));
   }
   if (!updatedPurchase) {
     console.error("updateSupplierPurchase update returned no rows", {
