@@ -80,16 +80,24 @@ export default async function PurchasesPage({ searchParams }: { searchParams: Pr
                       ))}
                     </select>
                   </label>
-                  <label>
-                    Branch
-                    <select defaultValue={purchase.branch_id} name="branch_id" required>
-                      {data.branches.map((branch) => (
-                        <option key={branch.id} value={branch.id}>
-                          {branch.name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
+                  {role === "branch_pic" ? (
+                    <label>
+                      Branch
+                      <input readOnly value={purchase.branches?.name ?? "-"} />
+                      <input name="branch_id" type="hidden" value={purchase.branch_id} />
+                    </label>
+                  ) : (
+                    <label>
+                      Branch
+                      <select defaultValue={purchase.branch_id} name="branch_id" required>
+                        {data.branches.map((branch) => (
+                          <option key={branch.id} value={branch.id}>
+                            {branch.name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
                   <label>
                     Invoice no.
                     <input defaultValue={purchase.invoice_no ?? ""} name="invoice_no" />
