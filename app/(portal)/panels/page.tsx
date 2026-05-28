@@ -48,7 +48,7 @@ export default async function PanelsPage() {
         <MetricCard icon={Building} label="Panel companies" value={String(panelCompanies.length)} tone="rose" />
       </section>
 
-      <section className="section-grid">
+      <section className="table-section mt-section">
         <DataTable
           columns={["Claim month", "Panel", "Branch", "Claim no.", "Due", "Status", "Amount", "Edit", "Documents"]}
           rows={data.panels.map((claim) => [
@@ -134,7 +134,28 @@ export default async function PanelsPage() {
             />
           ])}
         />
+      </section>
 
+      <section className="table-section mt-section">
+        <div className="report-toolbar">
+          <h2>Panel payment records</h2>
+        </div>
+        <DataTable
+          columns={["Date", "Panel Company", "Claim", "Branch", "Method", "Received Into", "Reference", "Amount"]}
+          rows={data.panelPayments.map((payment) => [
+            formatDate(payment.payment_date),
+            payment.panel_companies?.name ?? "-",
+            payment.panel_claims?.claim_no ?? payment.panel_claim_id,
+            payment.branches?.name ?? "-",
+            labelize(payment.payment_type),
+            payment.bank_accounts?.name ?? "-",
+            payment.reference_no ?? "-",
+            formatCurrency(payment.amount)
+          ])}
+        />
+      </section>
+
+      <section className="section-grid mt-section">
         <div className="cards-grid single-column">
           <form action={createPanelClaim} className="form-card">
             <h2>Record panel claim</h2>
@@ -195,25 +216,6 @@ export default async function PanelsPage() {
               Save panel claim
             </button>
           </form>
-
-          <div className="table-section">
-            <div className="report-toolbar">
-              <h2>Panel payment records</h2>
-            </div>
-            <DataTable
-              columns={["Date", "Panel Company", "Claim", "Branch", "Method", "Received Into", "Reference", "Amount"]}
-              rows={data.panelPayments.map((payment) => [
-                formatDate(payment.payment_date),
-                payment.panel_companies?.name ?? "-",
-                payment.panel_claims?.claim_no ?? payment.panel_claim_id,
-                payment.branches?.name ?? "-",
-                labelize(payment.payment_type),
-                payment.bank_accounts?.name ?? "-",
-                payment.reference_no ?? "-",
-                formatCurrency(payment.amount)
-              ])}
-            />
-          </div>
 
           <PanelPaymentForm
             claims={data.panels}

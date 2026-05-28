@@ -66,89 +66,20 @@ export default async function PettyCashPage() {
         <MetricCard icon={WalletCards} label="Petty cash balance" value={formatCurrency(totalBalance)} detail="Separate from cash in hand" tone="teal" />
       </section>
 
-      <section className="section-grid">
-        <form action={createPettyCashTransaction} className="form-card">
-          <h2>Record petty cash transaction</h2>
-          <div className="form-grid">
-            <label>
-              Branch
-              <select name="branch_id" defaultValue={profile.branch_id ?? ""} required>
-                {data.branches.map((branch) => (
-                  <option key={branch.id} value={branch.id}>
-                    {branch.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Date
-              <input name="transaction_date" type="date" defaultValue={todayInput()} required />
-            </label>
-            <label>
-              Transaction type
-              <select name="transaction_type" defaultValue={typeOptions[0]?.value} required>
-                {typeOptions.map((type) => (
-                  <option key={type.value} value={type.value}>
-                    {type.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Related bank account
-              <select name="bank_account_id" defaultValue="">
-                <option value="">Not bank-linked</option>
-                {data.bankAccounts.map((account) => (
-                  <option key={account.id} value={account.id}>
-                    {bankAccountLabel(account)}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Spending category
-              <select name="category" defaultValue="">
-                <option value="">No category</option>
-                {pettyCashCategories.map((category) => (
-                  <option key={category.value} value={category.value}>
-                    {category.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Amount
-              <input name="amount" step="0.01" type="number" required />
-            </label>
-            <label>
-              Reference number
-              <input name="reference_no" />
-            </label>
-            <label className="full-span">
-              Notes
-              <textarea name="description" />
-            </label>
-          </div>
-          <button className="primary-button" disabled={!data.branches.length || !typeOptions.length} type="submit">
-            Save petty cash transaction
-          </button>
-        </form>
-
-        <div className="table-section">
-          <h2>Petty cash balance by branch</h2>
-          <DataTable
-            columns={["Branch", "Opening balance", "Total issued", "Total spent", "Total returned", "Adjustments", "Current petty cash balance"]}
-            rows={balanceRows.map((row) => [
-              row.branch.name,
-              formatCurrency(row.openingBalance),
-              formatCurrency(row.issued),
-              formatCurrency(row.spent),
-              formatCurrency(row.returned),
-              formatCurrency(row.adjustments),
-              formatCurrency(row.balance)
-            ])}
-          />
-        </div>
+      <section className="table-section mt-section">
+        <h2>Petty cash balance by branch</h2>
+        <DataTable
+          columns={["Branch", "Opening balance", "Total issued", "Total spent", "Total returned", "Adjustments", "Current petty cash balance"]}
+          rows={balanceRows.map((row) => [
+            row.branch.name,
+            formatCurrency(row.openingBalance),
+            formatCurrency(row.issued),
+            formatCurrency(row.spent),
+            formatCurrency(row.returned),
+            formatCurrency(row.adjustments),
+            formatCurrency(row.balance)
+          ])}
+        />
       </section>
 
       <section className="table-section mt-section">
@@ -253,6 +184,75 @@ export default async function PettyCashPage() {
             ];
           })}
         />
+      </section>
+
+      <section className="section-grid mt-section">
+        <form action={createPettyCashTransaction} className="form-card">
+          <h2>Record petty cash transaction</h2>
+          <div className="form-grid">
+            <label>
+              Branch
+              <select name="branch_id" defaultValue={profile.branch_id ?? ""} required>
+                {data.branches.map((branch) => (
+                  <option key={branch.id} value={branch.id}>
+                    {branch.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Date
+              <input name="transaction_date" type="date" defaultValue={todayInput()} required />
+            </label>
+            <label>
+              Transaction type
+              <select name="transaction_type" defaultValue={typeOptions[0]?.value} required>
+                {typeOptions.map((type) => (
+                  <option key={type.value} value={type.value}>
+                    {type.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Related bank account
+              <select name="bank_account_id" defaultValue="">
+                <option value="">Not bank-linked</option>
+                {data.bankAccounts.map((account) => (
+                  <option key={account.id} value={account.id}>
+                    {bankAccountLabel(account)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Spending category
+              <select name="category" defaultValue="">
+                <option value="">No category</option>
+                {pettyCashCategories.map((category) => (
+                  <option key={category.value} value={category.value}>
+                    {category.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Amount
+              <input name="amount" step="0.01" type="number" required />
+            </label>
+            <label>
+              Reference number
+              <input name="reference_no" />
+            </label>
+            <label className="full-span">
+              Notes
+              <textarea name="description" />
+            </label>
+          </div>
+          <button className="primary-button" disabled={!data.branches.length || !typeOptions.length} type="submit">
+            Save petty cash transaction
+          </button>
+        </form>
       </section>
     </>
   );

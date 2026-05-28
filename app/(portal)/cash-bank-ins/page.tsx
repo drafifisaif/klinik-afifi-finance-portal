@@ -86,7 +86,24 @@ export default async function CashBankInsPage({ searchParams }: { searchParams: 
         <MetricCard icon={WalletCards} label="Cash in hand" value={formatCurrency(totalCashInHand)} detail="Cash sales minus bank-ins" tone={totalCashInHand >= 0 ? "teal" : "rose"} />
       </section>
 
-      <section className="section-grid">
+      <section className="table-section mt-section">
+        <div className="report-toolbar">
+          <h2>Cash in hand report</h2>
+          <ExportCsvLink label="Export cash CSV" report="cash-in-hand" searchParams={params} />
+        </div>
+        <DataTable
+          columns={["Branch", "Opening balance", "Total cash sales", "Total cash banked in", "Remaining cash in hand"]}
+          rows={cashInHandRows.map((row) => [
+            row.branch.name,
+            formatCurrency(row.openingBalance),
+            formatCurrency(row.cashSales),
+            formatCurrency(row.bankedIn),
+            formatCurrency(row.remaining)
+          ])}
+        />
+      </section>
+
+      <section className="section-grid mt-section">
         <form action={createCashBankIn} className="form-card">
           <h2>Record cash bank-in</h2>
           <label>
@@ -156,23 +173,6 @@ export default async function CashBankInsPage({ searchParams }: { searchParams: 
             Apply
           </button>
         </form>
-      </section>
-
-      <section className="table-section mt-section">
-        <div className="report-toolbar">
-          <h2>Cash in hand report</h2>
-          <ExportCsvLink label="Export cash CSV" report="cash-in-hand" searchParams={params} />
-        </div>
-        <DataTable
-          columns={["Branch", "Opening balance", "Total cash sales", "Total cash banked in", "Remaining cash in hand"]}
-          rows={cashInHandRows.map((row) => [
-            row.branch.name,
-            formatCurrency(row.openingBalance),
-            formatCurrency(row.cashSales),
-            formatCurrency(row.bankedIn),
-            formatCurrency(row.remaining)
-          ])}
-        />
       </section>
 
       <section className="table-section mt-section">
