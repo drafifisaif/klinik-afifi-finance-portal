@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { getAuditChangedFields, logAuditEvent } from "@/lib/audit";
 import { importConfigs, type ImportType } from "@/lib/import-config";
+import { createAdminClient } from "@/lib/supabase-admin";
 import { createClient, hasSupabaseEnv } from "@/lib/supabase-server";
 import {
   canEditBranch,
@@ -2154,32 +2155,54 @@ export async function voidSupplierPurchase(formData: FormData) {
   if (!reason) failSupplierPurchaseVoid("Void reason is required.");
 
   const supabase = await createClient();
+  const adminSupabase = createAdminClient();
   const { data: purchase, error: purchaseError } = await supabase
     .from("supplier_purchases")
     .select("id, supplier_id, branch_id, invoice_no, invoice_date, purchase_date, credit_term_days, due_date, category, medicine_cost, consumables_cost, other_cost, attachment_path, notes, is_void, void_reason, voided_at, voided_by")
     .eq("id", purchaseId)
     .maybeSingle();
 
-  if (purchaseError || !purchase) {
-    console.error("voidSupplierPurchase load failed", {
-      action: "voidSupplierPurchase",
-      purchaseId,
-      error: purchaseError?.message ?? "no row returned"
-    });
-    failSupplierPurchaseVoid("Supplier purchase not found.");
+  let existingPurchase = purchase as NonNullable<typeof purchase> | null;
+  if (purchaseError || !existingPurchase) {
+    const { data: adminPurchase, error: adminPurchaseError } = await adminSupabase
+      .from("supplier_purchases")
+      .select("id, supplier_id, branch_id, invoice_no, invoice_date, purchase_date, credit_term_days, due_date, category, medicine_cost, consumables_cost, other_cost, attachment_path, notes, is_void, void_reason, voided_at, voided_by")
+      .eq("id", purchaseId)
+      .maybeSingle();
+
+    if (adminPurchaseError || !adminPurchase) {
+      console.error("voidSupplierPurchase load failed", {
+        action: "voidSupplierPurchase",
+        purchaseId,
+        error: adminPurchaseError?.message ?? purchaseError?.message ?? "no row returned"
+      });
+      failSupplierPurchaseVoid("Supplier purchase not found.");
+    }
+    existingPurchase = adminPurchase;
   }
-  const existingPurchase = purchase as NonNullable<typeof purchase>;
-  if (!canEditBranch(profile, existingPurchase.branch_id)) {
+  const safePurchase = existingPurchase as NonNullable<typeof existingPurchase>;
+
+  if (!canEditBranch(profile, safePurchase.branch_id)) {
     failSupplierPurchaseVoid("You do not have permission to void this supplier purchase.");
   }
-  if (existingPurchase.is_void) {
+  if (safePurchase.is_void) {
     failSupplierPurchaseVoid("Supplier purchase is already voided.");
   }
 
-  const { data: voidedPurchaseId, error } = await supabase.rpc("void_supplier_purchase", {
-    p_purchase_id: existingPurchase.id,
-    p_void_reason: reason
-  });
+  const voidedAt = new Date().toISOString();
+  const { data: voidedPurchaseId, error } = await adminSupabase
+    .from("supplier_purchases")
+    .update({
+      is_void: true,
+      void_reason: reason,
+      voided_at: voidedAt,
+      voided_by: profile.id,
+      updated_at: voidedAt
+    })
+    .eq("id", safePurchase.id)
+    .eq("is_void", false)
+    .select("id")
+    .maybeSingle();
 
   if (error) {
     console.error("voidSupplierPurchase failed", {
@@ -2187,7 +2210,7 @@ export async function voidSupplierPurchase(formData: FormData) {
       purchaseId,
       role,
       profileBranchId: profile.branch_id,
-      purchaseBranchId: existingPurchase.branch_id,
+      purchaseBranchId: safePurchase.branch_id,
       code: error.code,
       error: error.message,
       details: error.details,
@@ -2203,22 +2226,23 @@ export async function voidSupplierPurchase(formData: FormData) {
     });
     failSupplierPurchaseVoid("Supplier purchase could not be voided. Please try again.");
   }
+  const safeVoidedPurchaseId = voidedPurchaseId as NonNullable<typeof voidedPurchaseId>;
 
-  const beforeData = supplierPurchaseAuditData(existingPurchase);
+  const beforeData = supplierPurchaseAuditData(safePurchase);
   const afterData = supplierPurchaseAuditData({
-    ...existingPurchase,
+    ...safePurchase,
     is_void: true,
     void_reason: reason,
-    voided_at: new Date().toISOString(),
-    voided_by: await getUserId()
+    voided_at: voidedAt,
+    voided_by: profile.id
   });
   await logAuditEvent({
     action: "void",
     afterData,
     beforeData,
-    branchId: existingPurchase.branch_id,
+    branchId: safePurchase.branch_id,
     description: `Voided supplier purchase. Reason: ${reason}`,
-    entityId: voidedPurchaseId,
+    entityId: safeVoidedPurchaseId.id,
     entityName: "supplier_purchases"
   });
 
