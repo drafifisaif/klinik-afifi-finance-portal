@@ -70,7 +70,6 @@ export const rolePermissions: Record<UserRole, PermissionKey[]> = {
     "view_branches",
     "edit_finance",
     "view_supplier_records",
-    "view_supplier_payments",
     "view_panel_records",
     "view_bank_position",
     "record_cash_bank_in",

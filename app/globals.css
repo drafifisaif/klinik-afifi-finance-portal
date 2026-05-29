@@ -1092,10 +1092,14 @@ textarea {
   color: var(--teal-deep);
 }
 
-.status-partial,
-.status-unpaid {
+.status-partial {
   background: #fff3da;
   color: var(--amber);
+}
+
+.status-unpaid {
+  background: #ffe8ed;
+  color: var(--rose);
 }
 
 .status-overdue {
@@ -1104,8 +1108,55 @@ textarea {
 }
 
 .status-voided {
-  background: #ffe8ed;
-  color: var(--rose);
+  background: #f1f3f5;
+  color: #6b7280;
+}
+
+.ledger-group-list {
+  display: grid;
+  gap: 18px;
+}
+
+.ledger-group-card {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+}
+
+.ledger-group-header {
+  align-items: flex-start;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 18px;
+  justify-content: space-between;
+}
+
+.ledger-group-header h3 {
+  margin: 0;
+}
+
+.ledger-group-header p {
+  color: var(--muted);
+  margin: 4px 0 0;
+}
+
+.ledger-group-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ledger-summary-chip {
+  background: #f7fbfb;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: #325656;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 6px 10px;
 }
 
 .import-workspace {
