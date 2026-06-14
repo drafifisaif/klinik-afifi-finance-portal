@@ -6,11 +6,12 @@ import { FinanceRecordDetails } from "@/components/finance-record-details";
 import { MetricCard } from "@/components/metric-card";
 import { ModuleHeader } from "@/components/module-header";
 import { isActiveFinancialRecord } from "@/lib/bank-reporting";
+import { resolveSelectedBranchIds } from "@/lib/branch-reporting";
 import { expenseCategories, paymentTypes } from "@/lib/constants";
 import { getDashboardData, totalBy } from "@/lib/data";
 import { userDisplayLabel } from "@/lib/display";
 import { formatCurrency, formatDate, labelize } from "@/lib/format";
-import { hasPermission, normalizeRole, requirePermission } from "@/lib/permissions";
+import { canViewAllBranches, hasPermission, normalizeRole, requirePermission } from "@/lib/permissions";
 import { getTransactionDocuments } from "@/lib/transaction-documents";
 import { getVisibleProfilesById } from "@/lib/users";
 import { BadgeDollarSign, Building2, ReceiptText, Truck, Wrench } from "lucide-react";
@@ -29,7 +30,19 @@ export default async function ExpensesPage({ searchParams }: ExpensesPageProps) 
   const params = searchParams ? await searchParams : {};
   const selectedMonth = searchValue(params.month) ?? new Date().toISOString().slice(0, 7);
   const canViewSupplierPayments = hasPermission(profile, "view_supplier_payments");
+  const canSelectMultipleBranches = canViewAllBranches(profile);
   const data = await getDashboardData();
+  const selectedBranchIds = resolveSelectedBranchIds({
+    allowedBranches: data.branches,
+    branchParam: params.branch,
+    branchesParam: params.branches,
+    canSelectMultiple: canSelectMultipleBranches
+  });
+  const selectedBranchIdSet = new Set(selectedBranchIds);
+  const selectedBranches = data.branches.filter((branch) => selectedBranchIdSet.has(branch.id));
+  const selectedBranchLabel = selectedBranches.length === data.branches.length
+    ? "All Branches"
+    : selectedBranches.map((branch) => branch.name).join(", ");
   const expenseDocuments = await getTransactionDocuments("expenses", data.expenses.map((expense) => expense.id));
   const supplierPaymentDocuments = canViewSupplierPayments
     ? await getTransactionDocuments("supplier_payment_entries", data.supplierPayments.map((payment) => payment.id))
@@ -37,8 +50,8 @@ export default async function ExpensesPage({ searchParams }: ExpensesPageProps) 
   const visibleUsers = await getVisibleProfilesById(data.expenses.flatMap((expense) => [expense.entered_by, expense.voided_by]));
   const userById = new Map(visibleUsers.map((user) => [user.id, user]));
   const canDeleteDocuments = normalizeRole(profile.role) !== "branch_pic";
-  const filteredExpenses = data.expenses.filter((expense) => expense.expense_date.slice(0, 7) === selectedMonth);
-  const filteredSupplierPayments = data.supplierPayments.filter((payment) => payment.payment_date.slice(0, 7) === selectedMonth);
+  const filteredExpenses = data.expenses.filter((expense) => selectedBranchIdSet.has(expense.branch_id) && expense.expense_date.slice(0, 7) === selectedMonth);
+  const filteredSupplierPayments = data.supplierPayments.filter((payment) => selectedBranchIdSet.has(payment.branch_id) && payment.payment_date.slice(0, 7) === selectedMonth);
   const activeExpenses = filteredExpenses.filter(isActiveFinancialRecord);
   const activeSupplierPayments = filteredSupplierPayments.filter((payment) => !payment.is_void);
   const operatingTotal = totalBy(activeExpenses, (expense) => expense.amount);
@@ -76,16 +89,41 @@ export default async function ExpensesPage({ searchParams }: ExpensesPageProps) 
       <section className="table-section mt-section">
         <div className="report-toolbar">
           <h2>Expenses report</h2>
-          <ExportCsvLink label="Export expenses CSV" report="expenses" searchParams={{ month: selectedMonth }} />
+          <ExportCsvLink
+            label="Export expenses CSV"
+            report="expenses"
+            searchParams={{
+              month: selectedMonth,
+              branches: selectedBranchIds
+            }}
+          />
         </div>
         <form className="reporting-filter" method="get">
           <label>
             Report month
             <input defaultValue={selectedMonth} name="month" type="month" />
           </label>
+          <fieldset>
+            <legend>Branches</legend>
+            <div className="checkbox-grid">
+              {data.branches.map((branch) => (
+                <label key={branch.id}>
+                  <input
+                    defaultChecked={selectedBranchIdSet.has(branch.id)}
+                    disabled={!canSelectMultipleBranches}
+                    name="branches"
+                    type="checkbox"
+                    value={branch.id}
+                  />
+                  <span>{branch.name}</span>
+                </label>
+              ))}
+            </div>
+          </fieldset>
           <button className="primary-button" type="submit">
             Apply
           </button>
+          <p className="selected-branches">Showing {selectedMonth} for {selectedBranchLabel}</p>
         </form>
       </section>
 

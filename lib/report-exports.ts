@@ -499,15 +499,21 @@ export async function expensesCsv(searchParams: URLSearchParams): Promise<CsvExp
   const profile = await requirePermission("edit_finance");
   const data = await getDashboardData();
   const canViewSupplierPayments = ["owner", "admin", "finance"].includes(normalizeRole(profile.role));
-  const selectedBranchId = param(searchParams, "branch_id") ?? "all";
   const selectedMonth = param(searchParams, "month");
   const matchesMonth = (date: string) => !selectedMonth || date.slice(0, 7) === selectedMonth;
+  const selectedBranchIds = resolveSelectedBranchIds({
+    allowedBranches: data.branches,
+    branchParam: paramValues(searchParams, "branch"),
+    branchesParam: paramValues(searchParams, "branches"),
+    canSelectMultiple: canViewAllBranches(profile)
+  });
+  const selectedBranchIdSet = new Set(selectedBranchIds);
 
   const expenseRows: CsvCell[][] = data.expenses.filter((expense) => {
     return isActiveFinancialRecord(expense)
       && matchesOptionalDate(expense.expense_date, searchParams)
       && matchesMonth(expense.expense_date)
-      && (selectedBranchId === "all" || expense.branch_id === selectedBranchId);
+      && selectedBranchIdSet.has(expense.branch_id);
   }).map((expense) => [
     "Operating Expense",
     expense.expense_date,
@@ -527,7 +533,7 @@ export async function expensesCsv(searchParams: URLSearchParams): Promise<CsvExp
         return !payment.is_void
           && matchesOptionalDate(payment.payment_date, searchParams)
           && matchesMonth(payment.payment_date)
-          && (selectedBranchId === "all" || payment.branch_id === selectedBranchId);
+          && selectedBranchIdSet.has(payment.branch_id);
       }).map((payment) => [
         "Supplier Payment",
         payment.payment_date,
