@@ -14,7 +14,7 @@ import { formatCurrency, formatDate, labelize } from "@/lib/format";
 import { canViewAllBranches, hasPermission, normalizeRole, requirePermission } from "@/lib/permissions";
 import { getTransactionDocuments } from "@/lib/transaction-documents";
 import { getVisibleProfilesById } from "@/lib/users";
-import { BadgeDollarSign, Building2, ReceiptText, Truck, Wrench } from "lucide-react";
+import { BadgeDollarSign, Building2, ReceiptText, Stethoscope, Truck, Wrench } from "lucide-react";
 
 type ExpensesPageProps = {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
@@ -60,10 +60,15 @@ export default async function ExpensesPage({ searchParams }: ExpensesPageProps) 
     activeExpenses.filter((expense) => expense.category === "salary"),
     (expense) => expense.amount
   );
+  const locumDoctorTotal = totalBy(
+    activeExpenses.filter((expense) => expense.category.trim().toLowerCase() === "locum_doctor"),
+    (expense) => expense.amount
+  );
   const rentalTotal = totalBy(
     activeExpenses.filter((expense) => expense.category === "rental"),
     (expense) => expense.amount
   );
+  const otherCategoriesTotal = operatingTotal - salaryTotal - locumDoctorTotal - rentalTotal;
 
   return (
     <>
@@ -82,8 +87,9 @@ export default async function ExpensesPage({ searchParams }: ExpensesPageProps) 
           <MetricCard icon={BadgeDollarSign} label="Total Paid Out" value={formatCurrency(operatingTotal + supplierPaymentTotal)} tone="amber" />
         ) : null}
         <MetricCard icon={BadgeDollarSign} label="Salary" value={formatCurrency(salaryTotal)} tone="blue" />
+        <MetricCard icon={Stethoscope} label="Locum Doctor" value={formatCurrency(locumDoctorTotal)} tone="amber" />
         <MetricCard icon={Building2} label="Rental" value={formatCurrency(rentalTotal)} tone="rose" />
-        <MetricCard icon={Wrench} label="Other categories" value={formatCurrency(operatingTotal - salaryTotal - rentalTotal)} tone="rose" />
+        <MetricCard icon={Wrench} label="Other categories" value={formatCurrency(otherCategoriesTotal)} tone="rose" />
       </section>
 
       <section className="table-section mt-section">
