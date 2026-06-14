@@ -9,6 +9,7 @@ export type PermissionKey =
   | "delete_records"
   | "view_supplier_records"
   | "view_supplier_payments"
+  | "manage_suppliers"
   | "view_panel_records"
   | "view_reports"
   | "import_data"
@@ -28,6 +29,7 @@ export const rolePermissions: Record<UserRole, PermissionKey[]> = {
     "delete_records",
     "view_supplier_records",
     "view_supplier_payments",
+    "manage_suppliers",
     "view_panel_records",
     "view_reports",
     "import_data",
@@ -45,6 +47,7 @@ export const rolePermissions: Record<UserRole, PermissionKey[]> = {
     "edit_finance",
     "view_supplier_records",
     "view_supplier_payments",
+    "manage_suppliers",
     "view_panel_records",
     "view_reports",
     "import_data",
@@ -58,6 +61,7 @@ export const rolePermissions: Record<UserRole, PermissionKey[]> = {
     "edit_finance",
     "view_supplier_records",
     "view_supplier_payments",
+    "manage_suppliers",
     "view_panel_records",
     "view_reports",
     "import_data",

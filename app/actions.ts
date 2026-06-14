@@ -221,7 +221,9 @@ type ExpenseAuditRow = {
 
 type SupplierAuditRow = {
   address?: string | null;
+  code?: string | null;
   contact_person: string | null;
+  default_credit_term_days?: number | null;
   email: string | null;
   is_active: boolean;
   name: string;
@@ -480,7 +482,9 @@ function expenseAuditData(expense: ExpenseAuditRow) {
 function supplierAuditData(supplier: SupplierAuditRow) {
   return {
     address: supplier.address ?? null,
+    code: supplier.code ?? null,
     contact_person: supplier.contact_person,
+    default_credit_term_days: supplier.default_credit_term_days ?? supplier.payment_terms_days,
     email: supplier.email,
     is_active: supplier.is_active,
     name: supplier.name,
@@ -2023,6 +2027,7 @@ export async function createSupplier(formData: FormData) {
   await requireMasterDataManager();
   const supabase = await createClient();
   const { data: supplier, error } = await supabase.from("suppliers").insert({
+    code: text(formData, "code"),
     name: text(formData, "name"),
     contact_person: text(formData, "contact_person"),
     phone: text(formData, "phone"),
@@ -2030,9 +2035,9 @@ export async function createSupplier(formData: FormData) {
     address: text(formData, "address"),
     notes: text(formData, "notes"),
     is_active: booleanText(formData, "is_active", true),
-    payment_terms_days: number(formData, "payment_terms_days") || 30,
-    default_credit_term_days: number(formData, "payment_terms_days") || 30
-  }).select("id, name, contact_person, phone, email, address, notes, payment_terms_days, is_active").single();
+    payment_terms_days: number(formData, "default_credit_term_days") || 30,
+    default_credit_term_days: number(formData, "default_credit_term_days") || 30
+  }).select("id, code, name, contact_person, phone, email, address, notes, default_credit_term_days, payment_terms_days, is_active").single();
 
   if (error || !supplier) throw error ?? new Error("Supplier could not be loaded after creation.");
 
@@ -2045,6 +2050,7 @@ export async function createSupplier(formData: FormData) {
   });
   revalidatePath("/purchases");
   revalidatePath("/suppliers/payments");
+  revalidatePath("/suppliers");
 }
 
 export async function updateSupplier(formData: FormData) {
@@ -2057,7 +2063,7 @@ export async function updateSupplier(formData: FormData) {
   const supabase = await createClient();
   const { data: supplier, error: supplierError } = await supabase
     .from("suppliers")
-    .select("id, name, contact_person, phone, email, address, notes, payment_terms_days, is_active")
+    .select("id, code, name, contact_person, phone, email, address, notes, default_credit_term_days, payment_terms_days, is_active")
     .eq("id", supplierId)
     .maybeSingle();
 
@@ -2067,16 +2073,18 @@ export async function updateSupplier(formData: FormData) {
     .from("suppliers")
     .update({
       address: text(formData, "address"),
+      code: text(formData, "code"),
       contact_person: text(formData, "contact_person"),
       email: text(formData, "email"),
       is_active: booleanText(formData, "is_active", true),
       name: text(formData, "name"),
       notes: text(formData, "notes"),
-      payment_terms_days: number(formData, "payment_terms_days") || 30,
+      default_credit_term_days: number(formData, "default_credit_term_days") || 30,
+      payment_terms_days: number(formData, "default_credit_term_days") || 30,
       phone: text(formData, "phone")
     })
     .eq("id", supplier.id)
-    .select("id, name, contact_person, phone, email, address, notes, payment_terms_days, is_active")
+    .select("id, code, name, contact_person, phone, email, address, notes, default_credit_term_days, payment_terms_days, is_active")
     .single();
 
   if (error || !updatedSupplier) throw error ?? new Error("Updated supplier could not be loaded.");
@@ -2096,6 +2104,7 @@ export async function updateSupplier(formData: FormData) {
 
   revalidatePath("/purchases");
   revalidatePath("/suppliers/payments");
+  revalidatePath("/suppliers");
 }
 
 export async function createSupplierPurchaseEntry(formData: FormData) {

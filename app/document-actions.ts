@@ -66,7 +66,15 @@ function revalidateDocumentPaths(entityName: Parameters<typeof documentEntityPat
 }
 
 function shouldUseAdminDocumentFlow(entityName: TransactionDocumentEntityName) {
-  return entityName === "supplier_purchase_entries" || entityName === "supplier_payment_entries";
+  return [
+    "expenses",
+    "cash_bank_ins",
+    "petty_cash_transactions",
+    "panel_claims",
+    "supplier_purchases",
+    "supplier_purchase_entries",
+    "supplier_payment_entries"
+  ].includes(entityName);
 }
 
 export async function uploadTransactionDocument(formData: FormData) {
@@ -86,49 +94,40 @@ export async function uploadTransactionDocument(formData: FormData) {
   let context = await getTransactionDocumentContext(entityName, entityId);
   if (shouldUseAdminDocumentFlow(entityName)) {
     const adminSupabase = createAdminClient();
-    if (entityName === "supplier_payment_entries") {
-      const { data: entry, error: entryError } = await adminSupabase
-        .from("supplier_payment_entries")
-        .select("id, branch_id, bank_account_id")
-        .eq("id", entityId)
-        .maybeSingle();
-      if (entryError || !entry) {
-        console.error("uploadTransactionDocument entry lookup failed", {
-          action: "uploadTransactionDocument",
-          entityId,
-          entityName,
-          error: entryError?.message ?? "no row returned"
-        });
-        throw new Error("Transaction document target was not found or is not accessible.");
+    const loadContext = async () => {
+      if (entityName === "supplier_payment_entries") {
+        return adminSupabase.from("supplier_payment_entries").select("id, branch_id, bank_account_id").eq("id", entityId).maybeSingle();
       }
-      context = {
-        bankAccountId: entry.bank_account_id ?? null,
-        branchId: entry.branch_id,
-        entityId: entry.id,
-        entityName
-      };
-    } else {
-      const { data: entry, error: entryError } = await adminSupabase
-        .from("supplier_purchase_entries")
-        .select("id, branch_id")
-        .eq("id", entityId)
-        .maybeSingle();
-      if (entryError || !entry) {
-        console.error("uploadTransactionDocument entry lookup failed", {
-          action: "uploadTransactionDocument",
-          entityId,
-          entityName,
-          error: entryError?.message ?? "no row returned"
-        });
-        throw new Error("Transaction document target was not found or is not accessible.");
+      if (entityName === "cash_bank_ins") {
+        return adminSupabase.from("cash_bank_ins").select("id, branch_id, bank_account_id").eq("id", entityId).maybeSingle();
       }
-      context = {
-        bankAccountId: null,
-        branchId: entry.branch_id,
-        entityId: entry.id,
-        entityName
-      };
+      if (entityName === "petty_cash_transactions") {
+        return adminSupabase.from("petty_cash_transactions").select("id, branch_id, bank_account_id").eq("id", entityId).maybeSingle();
+      }
+      if (entityName === "supplier_purchase_entries" || entityName === "supplier_purchases" || entityName === "expenses" || entityName === "panel_claims") {
+        return adminSupabase.from(entityName).select("id, branch_id").eq("id", entityId).maybeSingle();
+      }
+      return null;
+    };
+
+    const contextRow = await loadContext();
+    const entry = contextRow?.data ?? null;
+    const entryError = contextRow?.error ?? null;
+    if (entryError || !entry) {
+      console.error("uploadTransactionDocument entry lookup failed", {
+        action: "uploadTransactionDocument",
+        entityId,
+        entityName,
+        error: entryError?.message ?? "no row returned"
+      });
+      throw new Error("Transaction document target was not found or is not accessible.");
     }
+    context = {
+      bankAccountId: ("bank_account_id" in entry ? entry.bank_account_id : null) as string | null,
+      branchId: (entry.branch_id ?? null) as string | null,
+      entityId: entry.id as string,
+      entityName
+    };
   }
   if (!context) throw new Error("Transaction document target was not found or is not accessible.");
   if (!canEditBranch(profile, context.branchId)) {

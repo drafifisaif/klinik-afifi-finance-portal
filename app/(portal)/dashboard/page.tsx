@@ -60,6 +60,7 @@ type BankAccountSummary = {
   ownerDrawing: number;
   pettyCashIssued: number;
   pettyCashReturned: number;
+  supplierPayments: number;
   transferIn: number;
   transferOut: number;
 };
@@ -95,6 +96,7 @@ function createBankAccountSummary(account: BankAccount): BankAccountSummary {
     ownerDrawing: 0,
     pettyCashIssued: 0,
     pettyCashReturned: 0,
+    supplierPayments: 0,
     transferIn: 0,
     transferOut: 0
   };
@@ -255,6 +257,11 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       && selectedBankBranchIds.has(transaction.branch_id)
       && isWithinDateRange(transaction.transaction_date, range);
   }) ?? [];
+  const selectedSupplierPayments = bankingData?.supplierPayments.filter((payment) => {
+    return !payment.is_void
+      && selectedBankBranchIds.has(payment.branch_id)
+      && isWithinDateRange(payment.payment_date, range);
+  }) ?? [];
   const selectedBankLinkedPettyCash = selectedPettyCashTransactions.filter((transaction) => {
     return transaction.bank_account_id
       && (transaction.transaction_type === "petty_cash_issued" || transaction.transaction_type === "petty_cash_returned");
@@ -306,6 +313,14 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   selectedBankLinkedPettyCash.forEach((transaction) => {
     if (transaction.bank_account_id) addPettyCashBankMovement(bankAccountSummaries.get(transaction.bank_account_id), transaction);
   });
+  selectedSupplierPayments.forEach((payment) => {
+    if (!payment.bank_account_id) return;
+    const summary = bankAccountSummaries.get(payment.bank_account_id);
+    if (!summary) return;
+    const amount = money(payment.amount);
+    summary.outflow += amount;
+    summary.supplierPayments += amount;
+  });
   const bankSummaryRows = Array.from(bankAccountSummaries.values());
   const totalBankInflow = totalBy(bankSummaryRows, (row) => row.inflow);
   const totalBankOutflow = totalBy(bankSummaryRows, (row) => row.outflow);
@@ -316,6 +331,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const totalManualMoneyOut = totalBy(bankSummaryRows, (row) => row.manualMoneyOut);
   const totalPettyCashIssued = totalBy(bankSummaryRows, (row) => row.pettyCashIssued);
   const totalPettyCashReturned = totalBy(bankSummaryRows, (row) => row.pettyCashReturned);
+  const totalSupplierPaymentsOutflow = totalBy(bankSummaryRows, (row) => row.supplierPayments);
 
   const branchMetrics = selectedBranches.map((branch) => {
     const branchSalesRows = sales.filter((sale) => sale.branch_id === branch.id);
@@ -447,7 +463,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
             <MetricCard icon={ReceiptText} label="Total Expenses" value={formatCurrency(totalExpenses)} detail="Operating expenses and purchases" tone="amber" />
             <MetricCard icon={TrendingUp} label="Estimated Net Profit" value={formatCurrency(profit)} detail={selectedGroup.label} tone={profit >= 0 ? "teal" : "rose"} />
             <MetricCard icon={Landmark} label="Total Bank Inflow" value={formatCurrency(totalBankInflow)} detail="Direct inflow, bank-ins, and bank movements" tone="blue" />
-            <MetricCard icon={WalletCards} label="Total Bank Outflow" value={formatCurrency(totalBankOutflow)} detail="Manual outflow, drawings, transfers, and petty cash" tone="rose" />
+            <MetricCard icon={WalletCards} label="Total Bank Outflow" value={formatCurrency(totalBankOutflow)} detail="Includes supplier payments by payment date" tone="rose" />
             <MetricCard icon={Banknote} label="Cash in Hand" value={formatCurrency(totalCashInHand)} detail="Cash sales less bank-ins" tone={totalCashInHand >= 0 ? "teal" : "rose"} />
             <MetricCard icon={Coins} label="Petty Cash" value={formatCurrency(totalPettyCash)} detail="Selected-period petty cash balance" tone={totalPettyCash >= 0 ? "teal" : "rose"} />
             <MetricCard icon={BadgeDollarSign} label="Total Physical Cash" value={formatCurrency(totalPhysicalCash)} detail="Cash in hand plus petty cash" tone={totalPhysicalCash >= 0 ? "teal" : "rose"} />
@@ -514,6 +530,10 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
                   <dd>{formatCurrency(totalPettyCashIssued)} / {formatCurrency(totalPettyCashReturned)}</dd>
                 </div>
                 <div>
+                  <dt>Supplier payments</dt>
+                  <dd>{formatCurrency(totalSupplierPaymentsOutflow)}</dd>
+                </div>
+                <div>
                   <dt>Owner drawing</dt>
                   <dd>{formatCurrency(totalOwnerDrawing)}</dd>
                 </div>
@@ -550,7 +570,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           <section className="table-section mt-section">
             <h2>Bank summary by account</h2>
             <DataTable
-              columns={["Bank account", "Opening balance", "Opening plus movement", "Inflow", "Outflow", "Direct sales inflow", "Cash bank-in", "Manual money in", "Manual money out", "Transfer in", "Transfer out", "Petty cash issued", "Petty cash returned", "Owner drawing"]}
+              columns={["Bank account", "Opening balance", "Opening plus movement", "Inflow", "Outflow", "Direct sales inflow", "Cash bank-in", "Manual money in", "Manual money out", "Supplier payments", "Transfer in", "Transfer out", "Petty cash issued", "Petty cash returned", "Owner drawing"]}
               rows={bankSummaryRows.map((row) => [
                 bankAccountLabel(row.account),
                 formatCurrency(row.openingBalance),
@@ -561,6 +581,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
                 formatCurrency(row.cashBankIn),
                 formatCurrency(row.manualMoneyIn),
                 formatCurrency(row.manualMoneyOut),
+                formatCurrency(row.supplierPayments),
                 formatCurrency(row.transferIn),
                 formatCurrency(row.transferOut),
                 formatCurrency(row.pettyCashIssued),

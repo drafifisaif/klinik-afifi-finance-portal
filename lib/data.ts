@@ -357,7 +357,7 @@ export const demoBankingData: BankingData = {
   branchBankMappings,
   cashBankIns,
   pettyCashTransactions,
-  supplierPayments,
+  supplierPayments: supplierPaymentEntriesDemo,
   panelPayments
 };
 
@@ -703,12 +703,12 @@ export async function getBankingDataForScope(options: BankingDataOptions = {}): 
     ),
     fetchOrDemo(
       supabase
-        .from("supplier_payments")
-        .select("*, suppliers(name), branches(name, code), bank_accounts(name, bank_name, account_no)")
+        .from("supplier_payment_entries")
+        .select("*, suppliers(name), branches(name, code), bank_accounts(name, bank_name, account_no), supplier_purchase_entries(id, invoice_no, branch_id, supplier_id, due_date, total_amount)")
         .order("payment_date", { ascending: false })
         .limit(2000),
       demoBankingData.supplierPayments,
-      "supplier_payments"
+      "supplier_payment_entries"
     ),
     fetchOrDemo(
       supabase
@@ -769,7 +769,7 @@ export async function getBankingDataForScope(options: BankingDataOptions = {}): 
       branchBankMappings: mappingRows as BranchBankMapping[],
       cashBankIns: cashBankInRows as CashBankIn[],
       pettyCashTransactions: pettyCashRows as PettyCashTransaction[],
-      supplierPayments: supplierPaymentRows as SupplierPayment[],
+      supplierPayments: supplierPaymentRows as SupplierPaymentEntry[],
       panelPayments: normalizedPanelPayments
     },
     profile,
@@ -777,10 +777,11 @@ export async function getBankingDataForScope(options: BankingDataOptions = {}): 
   );
 }
 
-export async function getSuppliers() {
+export async function getSuppliers(options: { includeInactive?: boolean } = {}) {
   if (!hasSupabaseEnv()) return suppliers;
   const supabase = await createClient();
-  return fetchOrDemo(supabase.from("suppliers").select("*").order("name"), suppliers);
+  const query = supabase.from("suppliers").select("*").order("name");
+  return fetchOrDemo(options.includeInactive ? query : query.eq("is_active", true), suppliers);
 }
 
 export async function getSupplierPurchaseEntries() {

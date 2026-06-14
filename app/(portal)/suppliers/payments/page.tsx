@@ -47,13 +47,14 @@ export default async function SupplierPaymentsPage({ searchParams }: SupplierPay
   ]);
   const paymentDocuments = await getTransactionDocuments("supplier_payment_entries", payments.map((payment) => payment.id));
   const canDeleteDocuments = normalizeRole(profile.role) !== "branch_pic";
-  const activePayments = payments.filter((payment) => !payment.is_void);
-  const voidedPayments = payments.filter((payment) => payment.is_void);
-  const todayMonth = new Date().toISOString().slice(0, 7);
-  const paymentsThisMonth = activePayments.filter((payment) => payment.payment_date.slice(0, 7) === todayMonth);
   const outstandingLinkedPurchases = totalBy(outstandingRows.filter((row) => row.outstanding_amount > 0), (row) => row.outstanding_amount);
   const params = searchParams ? await searchParams : {};
   const errorMessage = searchValue(params.error);
+  const selectedMonth = searchValue(params.month) ?? new Date().toISOString().slice(0, 7);
+  const visiblePayments = payments.filter((payment) => payment.payment_date.slice(0, 7) === selectedMonth);
+  const visibleActivePayments = visiblePayments.filter((payment) => !payment.is_void);
+  const visibleVoidedPayments = visiblePayments.filter((payment) => payment.is_void);
+  const paymentsInMonth = visibleActivePayments;
 
   return (
     <>
@@ -64,10 +65,10 @@ export default async function SupplierPaymentsPage({ searchParams }: SupplierPay
       />
 
       <section className="dashboard-grid">
-        <MetricCard icon={Truck} label="Total Payments" value={formatCurrency(totalBy(activePayments, (payment) => payment.amount))} />
-        <MetricCard icon={BadgeCheck} label="Payments This Month" value={formatCurrency(totalBy(paymentsThisMonth, (payment) => payment.amount))} tone="blue" />
+        <MetricCard icon={Truck} label="Total Payments" value={formatCurrency(totalBy(visibleActivePayments, (payment) => payment.amount))} detail={selectedMonth} />
+        <MetricCard icon={BadgeCheck} label="Payments In Selected Month" value={formatCurrency(totalBy(paymentsInMonth, (payment) => payment.amount))} tone="blue" />
         <MetricCard icon={CircleDollarSign} label="Outstanding Linked Purchases" value={formatCurrency(outstandingLinkedPurchases)} detail="Purchases less supplier payments" tone="amber" />
-        <MetricCard icon={Banknote} label="Voided Payments" value={String(voidedPayments.length)} tone="rose" />
+        <MetricCard icon={Banknote} label="Voided Payments" value={String(visibleVoidedPayments.length)} tone="rose" />
       </section>
 
       {errorMessage ? (
@@ -77,10 +78,22 @@ export default async function SupplierPaymentsPage({ searchParams }: SupplierPay
       ) : null}
 
       <section className="table-section mt-section">
+        <form className="reporting-filter" method="get">
+          <label>
+            Payment month
+            <input defaultValue={selectedMonth} name="month" type="month" />
+          </label>
+          <button className="primary-button" type="submit">
+            Apply
+          </button>
+        </form>
+      </section>
+
+      <section className="table-section mt-section">
         <h2>Supplier payment ledger</h2>
         <DataTable
           columns={["Date", "Branch", "Supplier", "Linked purchase", "Method", "Paid from", "Amount", "Reference", "Notes", "Documents", "Status", "Edit", "Void / details"]}
-          rows={payments.map((payment) => {
+          rows={visiblePayments.map((payment) => {
             const canManage = canEditBranch(profile, payment.branch_id);
             const documents = paymentDocuments.get(payment.id) ?? [];
             const linkedPurchaseLabel = payment.supplier_purchase_entries?.invoice_no ?? payment.supplier_purchase_entry_id ?? "General payment";

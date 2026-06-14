@@ -93,6 +93,7 @@ export type Expense = {
 
 export type Supplier = {
   id: string;
+  code?: string | null;
   name: string;
   contact_person?: string | null;
   phone?: string | null;
@@ -466,6 +467,6 @@ export type BankingData = {
   branchBankMappings: BranchBankMapping[];
   cashBankIns: CashBankIn[];
   pettyCashTransactions: PettyCashTransaction[];
-  supplierPayments: SupplierPayment[];
+  supplierPayments: SupplierPaymentEntry[];
   panelPayments: PanelPayment[];
 };

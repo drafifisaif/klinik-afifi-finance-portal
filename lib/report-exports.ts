@@ -349,7 +349,7 @@ export async function bankMovementCsv(searchParams: URLSearchParams): Promise<Cs
       -Number(payment.amount ?? 0),
       payment.reference_no ?? "",
       payment.notes ?? "",
-      payment.entered_by ?? ""
+      payment.created_by ?? ""
     ]);
   });
   selectedPanelPayments.forEach((payment) => {
