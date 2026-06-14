@@ -19,6 +19,7 @@ import { resolveSelectedBranchIds } from "@/lib/branch-reporting";
 import { bankTransactionTypes } from "@/lib/constants";
 import type { CsvCell } from "@/lib/csv";
 import { getBankingData, getBankingDataForScope, getDashboardData, totalBy } from "@/lib/data";
+import { labelize } from "@/lib/format";
 import { outstandingOpeningBalanceTotal } from "@/lib/opening-balances";
 import { canViewAllBranches, normalizeRole, requireBankPositionAccess, requirePermission } from "@/lib/permissions";
 import type { BankTransactionType, BankingData, Profile } from "@/lib/types";
@@ -495,25 +496,56 @@ export async function dailySalesCsv(searchParams: URLSearchParams): Promise<CsvE
 }
 
 export async function expensesCsv(searchParams: URLSearchParams): Promise<CsvExport> {
-  await requirePermission("edit_finance");
+  const profile = await requirePermission("edit_finance");
   const data = await getDashboardData();
+  const canViewSupplierPayments = ["owner", "admin", "finance"].includes(normalizeRole(profile.role));
   const selectedBranchId = param(searchParams, "branch_id") ?? "all";
+  const selectedMonth = param(searchParams, "month");
+  const matchesMonth = (date: string) => !selectedMonth || date.slice(0, 7) === selectedMonth;
+
+  const expenseRows: CsvCell[][] = data.expenses.filter((expense) => {
+    return isActiveFinancialRecord(expense)
+      && matchesOptionalDate(expense.expense_date, searchParams)
+      && matchesMonth(expense.expense_date)
+      && (selectedBranchId === "all" || expense.branch_id === selectedBranchId);
+  }).map((expense) => [
+    "Operating Expense",
+    expense.expense_date,
+    expense.branches?.name ?? "",
+    expense.category,
+    expense.vendor_name ?? "",
+    expense.description,
+    expense.payment_type,
+    "",
+    expense.amount,
+    "",
+    "Active"
+  ]);
+
+  const supplierPaymentRows: CsvCell[][] = canViewSupplierPayments
+    ? data.supplierPayments.filter((payment) => {
+        return !payment.is_void
+          && matchesOptionalDate(payment.payment_date, searchParams)
+          && matchesMonth(payment.payment_date)
+          && (selectedBranchId === "all" || payment.branch_id === selectedBranchId);
+      }).map((payment) => [
+        "Supplier Payment",
+        payment.payment_date,
+        payment.branches?.name ?? "",
+        labelize(payment.payment_method ?? "bank_transfer"),
+        payment.suppliers?.name ?? "",
+        payment.supplier_purchase_entries?.invoice_no ?? payment.supplier_purchase_entry_id ?? "General payment",
+        labelize(payment.payment_method ?? "bank_transfer"),
+        payment.bank_accounts?.name ?? "",
+        payment.amount,
+        payment.reference_no ?? "",
+        "Active"
+      ])
+    : [];
 
   return {
     filename: "expenses-report.csv",
-    headers: ["Date", "Branch", "Category", "Vendor", "Payment Type", "Amount", "Description"],
-    rows: data.expenses.filter((expense) => {
-      return isActiveFinancialRecord(expense)
-        && matchesOptionalDate(expense.expense_date, searchParams)
-        && (selectedBranchId === "all" || expense.branch_id === selectedBranchId);
-    }).map((expense) => [
-      expense.expense_date,
-      expense.branches?.name ?? "",
-      expense.category,
-      expense.vendor_name ?? "",
-      expense.payment_type,
-      expense.amount,
-      expense.description
-    ])
+    headers: ["Source", "Date", "Branch", "Category / Type", "Vendor / Supplier", "Description / Invoice", "Payment Method", "Paid From / Bank Account", "Amount", "Reference", "Status"],
+    rows: [...expenseRows, ...supplierPaymentRows].sort((first, second) => String(second[1]).localeCompare(String(first[1])))
   };
 }

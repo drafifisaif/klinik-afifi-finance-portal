@@ -10,20 +10,39 @@ import { expenseCategories, paymentTypes } from "@/lib/constants";
 import { getDashboardData, totalBy } from "@/lib/data";
 import { userDisplayLabel } from "@/lib/display";
 import { formatCurrency, formatDate, labelize } from "@/lib/format";
-import { normalizeRole, requirePermission } from "@/lib/permissions";
+import { hasPermission, normalizeRole, requirePermission } from "@/lib/permissions";
 import { getTransactionDocuments } from "@/lib/transaction-documents";
 import { getVisibleProfilesById } from "@/lib/users";
-import { BadgeDollarSign, Building2, ReceiptText, Wrench } from "lucide-react";
+import { BadgeDollarSign, Building2, ReceiptText, Truck, Wrench } from "lucide-react";
 
-export default async function ExpensesPage() {
+type ExpensesPageProps = {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+};
+
+function searchValue(value: string | string[] | undefined) {
+  if (Array.isArray(value)) return value[0] ?? null;
+  return value ?? null;
+}
+
+export default async function ExpensesPage({ searchParams }: ExpensesPageProps) {
   const profile = await requirePermission("edit_finance");
+  const params = searchParams ? await searchParams : {};
+  const selectedMonth = searchValue(params.month) ?? new Date().toISOString().slice(0, 7);
+  const canViewSupplierPayments = hasPermission(profile, "view_supplier_payments");
   const data = await getDashboardData();
   const expenseDocuments = await getTransactionDocuments("expenses", data.expenses.map((expense) => expense.id));
+  const supplierPaymentDocuments = canViewSupplierPayments
+    ? await getTransactionDocuments("supplier_payment_entries", data.supplierPayments.map((payment) => payment.id))
+    : new Map();
   const visibleUsers = await getVisibleProfilesById(data.expenses.flatMap((expense) => [expense.entered_by, expense.voided_by]));
   const userById = new Map(visibleUsers.map((user) => [user.id, user]));
   const canDeleteDocuments = normalizeRole(profile.role) !== "branch_pic";
-  const activeExpenses = data.expenses.filter(isActiveFinancialRecord);
+  const filteredExpenses = data.expenses.filter((expense) => expense.expense_date.slice(0, 7) === selectedMonth);
+  const filteredSupplierPayments = data.supplierPayments.filter((payment) => payment.payment_date.slice(0, 7) === selectedMonth);
+  const activeExpenses = filteredExpenses.filter(isActiveFinancialRecord);
+  const activeSupplierPayments = filteredSupplierPayments.filter((payment) => !payment.is_void);
   const operatingTotal = totalBy(activeExpenses, (expense) => expense.amount);
+  const supplierPaymentTotal = totalBy(activeSupplierPayments, (payment) => payment.amount);
   const salaryTotal = totalBy(
     activeExpenses.filter((expense) => expense.category === "salary"),
     (expense) => expense.amount
@@ -42,20 +61,39 @@ export default async function ExpensesPage() {
       />
 
       <section className="dashboard-grid">
-        <MetricCard icon={ReceiptText} label="Total expenses" value={formatCurrency(operatingTotal)} />
+        <MetricCard icon={ReceiptText} label="Operating Expenses" value={formatCurrency(operatingTotal)} detail={selectedMonth} />
+        {canViewSupplierPayments ? (
+          <MetricCard icon={Truck} label="Supplier Payments" value={formatCurrency(supplierPaymentTotal)} tone="blue" />
+        ) : null}
+        {canViewSupplierPayments ? (
+          <MetricCard icon={BadgeDollarSign} label="Total Paid Out" value={formatCurrency(operatingTotal + supplierPaymentTotal)} tone="amber" />
+        ) : null}
         <MetricCard icon={BadgeDollarSign} label="Salary" value={formatCurrency(salaryTotal)} tone="blue" />
-        <MetricCard icon={Building2} label="Rental" value={formatCurrency(rentalTotal)} tone="amber" />
+        <MetricCard icon={Building2} label="Rental" value={formatCurrency(rentalTotal)} tone="rose" />
         <MetricCard icon={Wrench} label="Other categories" value={formatCurrency(operatingTotal - salaryTotal - rentalTotal)} tone="rose" />
       </section>
 
       <section className="table-section mt-section">
         <div className="report-toolbar">
           <h2>Expenses report</h2>
-          <ExportCsvLink label="Export expenses CSV" report="expenses" />
+          <ExportCsvLink label="Export expenses CSV" report="expenses" searchParams={{ month: selectedMonth }} />
         </div>
+        <form className="reporting-filter" method="get">
+          <label>
+            Report month
+            <input defaultValue={selectedMonth} name="month" type="month" />
+          </label>
+          <button className="primary-button" type="submit">
+            Apply
+          </button>
+        </form>
+      </section>
+
+      <section className="table-section mt-section">
+        <h2>Operating Expenses</h2>
         <DataTable
           columns={["Date", "Branch", "Category", "Vendor", "Description", "Payment", "Amount", "Status", "View details", "Edit", "Void", "Documents"]}
-          rows={data.expenses.map((expense) => [
+          rows={filteredExpenses.map((expense) => [
             formatDate(expense.expense_date),
             expense.branches?.name ?? "-",
             labelize(expense.category),
@@ -163,6 +201,36 @@ export default async function ExpensesPage() {
           ])}
         />
       </section>
+
+      {canViewSupplierPayments ? (
+        <section className="table-section mt-section">
+          <h2>Supplier Payments</h2>
+          <DataTable
+            columns={["Payment Date", "Branch", "Supplier", "Linked Invoice / Purchase", "Payment Method", "Paid From", "Amount", "Reference", "Notes", "Documents", "Status"]}
+            rows={filteredSupplierPayments.map((payment) => [
+              formatDate(payment.payment_date),
+              payment.branches?.name ?? "-",
+              payment.suppliers?.name ?? "-",
+              payment.supplier_purchase_entries?.invoice_no ?? payment.supplier_purchase_entry_id ?? "General payment",
+              labelize(payment.payment_method ?? "bank_transfer"),
+              payment.bank_accounts?.name ?? "-",
+              formatCurrency(payment.amount),
+              payment.reference_no ?? "-",
+              payment.notes ?? "-",
+              <DocumentManager
+                canDelete={canDeleteDocuments}
+                documents={supplierPaymentDocuments.get(payment.id) ?? []}
+                entityId={payment.id}
+                entityName="supplier_payment_entries"
+                key={`${payment.id}-payment-documents`}
+              />,
+              <span className={`status-pill ${payment.is_void ? "status-voided" : "status-paid"}`} key={`${payment.id}-payment-status`}>
+                {payment.is_void ? "Voided" : "Active"}
+              </span>
+            ])}
+          />
+        </section>
+      ) : null}
 
       <section className="section-grid mt-section">
         <form action={createExpense} className="form-card">
