@@ -27,10 +27,6 @@ type DocumentManagerProps = {
   entityName: TransactionDocumentEntityName;
 };
 
-function extensionlessName(name: string) {
-  return name.replace(/\.[^.]+$/, "");
-}
-
 function dateTime(value: string) {
   return new Intl.DateTimeFormat("en-MY", {
     dateStyle: "medium",
@@ -49,32 +45,7 @@ function documentStatusLabel(count: number) {
 }
 
 async function compressImage(file: File) {
-  if (!imageTypes.has(file.type)) {
-    return { compressed: file, originalSize: file.size };
-  }
-
-  const bitmap = await createImageBitmap(file);
-  const maxDimension = 1600;
-  const scale = Math.min(1, maxDimension / Math.max(bitmap.width, bitmap.height));
-  const canvas = document.createElement("canvas");
-  canvas.width = Math.max(1, Math.round(bitmap.width * scale));
-  canvas.height = Math.max(1, Math.round(bitmap.height * scale));
-  const context = canvas.getContext("2d");
-  if (!context) throw new Error("Image compression is unavailable in this browser.");
-  context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-  bitmap.close();
-
-  const blob = await new Promise<Blob>((resolve, reject) => {
-    canvas.toBlob((value) => {
-      if (value) resolve(value);
-      else reject(new Error("Image compression failed."));
-    }, "image/webp", 0.7);
-  });
-
-  return {
-    compressed: new File([blob], `${extensionlessName(file.name)}.webp`, { type: "image/webp" }),
-    originalSize: file.size
-  };
+  return { compressed: file, originalSize: file.size };
 }
 
 function isImage(document: TransactionDocument) {
@@ -202,7 +173,7 @@ export function DocumentManager({ canDelete = false, documents, entityId, entity
               </label>
               <label>
                 Files
-                <input accept="application/pdf,image/jpeg,image/png,image/webp" multiple name="files" ref={fileInput} type="file" />
+                <input accept="application/pdf,image/png,image/jpeg,.pdf,.png,.jpg,.jpeg" multiple name="files" ref={fileInput} type="file" />
               </label>
               <label>
                 Notes

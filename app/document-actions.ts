@@ -13,7 +13,8 @@ import {
 } from "@/lib/transaction-documents";
 import type { TransactionDocument, TransactionDocumentEntityName, TransactionDocumentUploadResult } from "@/lib/types";
 
-const allowedDocumentMimeTypes = new Set(["application/pdf", "image/jpeg", "image/png", "image/webp"]);
+const allowedDocumentMimeTypes = new Set(["application/pdf", "image/jpeg", "image/png"]);
+const allowedDocumentExtensions = new Set(["pdf", "png", "jpg", "jpeg"]);
 const allowedDocumentTypes = new Set([
   "receipt",
   "invoice",
@@ -100,6 +101,26 @@ function normalizeDocumentType(value: string | null) {
   return allowedDocumentTypes.has(normalized) ? normalized : null;
 }
 
+function fileExtension(name: string) {
+  const match = name.toLowerCase().match(/\.([a-z0-9]+)$/);
+  return match?.[1] ?? null;
+}
+
+function inferredMimeType(file: File) {
+  const normalizedType = file.type.trim().toLowerCase();
+  if (allowedDocumentMimeTypes.has(normalizedType)) {
+    return normalizedType;
+  }
+
+  const extension = fileExtension(file.name);
+  if (!extension || !allowedDocumentExtensions.has(extension)) {
+    return null;
+  }
+  if (extension === "pdf") return "application/pdf";
+  if (extension === "png") return "image/png";
+  return "image/jpeg";
+}
+
 function friendlyUploadMessage(error: unknown) {
   const message = error instanceof Error ? error.message : "";
   if (message.includes("SUPABASE_SERVICE_ROLE_KEY")) {
@@ -139,8 +160,9 @@ export async function uploadTransactionDocument(formData: FormData): Promise<Tra
     if (!documentType) {
       return uploadFailure("This document type is not allowed for this transaction.");
     }
-    if (!allowedDocumentMimeTypes.has(file.type)) {
-      return uploadFailure("Upload a PDF, JPG, PNG, or WebP document.");
+    const mimeType = inferredMimeType(file);
+    if (!mimeType) {
+      return uploadFailure("Only PDF, PNG, JPG, and JPEG files are allowed.");
     }
 
     let context = await getTransactionDocumentContext(entityName, entityId);
@@ -223,12 +245,13 @@ export async function uploadTransactionDocument(formData: FormData): Promise<Tra
       fileCount: 1,
       fileName: file.name,
       fileSizeBytes: file.size,
+      mimeType,
       storagePath: filePath
     });
 
     const { error: storageError } = await supabase.storage.from(bucketName).upload(filePath, file, {
       cacheControl: "3600",
-      contentType: file.type,
+      contentType: mimeType,
       upsert: false
     });
     if (storageError) {
@@ -240,6 +263,7 @@ export async function uploadTransactionDocument(formData: FormData): Promise<Tra
         entityName: context.entityName,
         documentType,
         bucket: bucketName,
+        mimeType,
         storagePath: filePath,
         error: storageError.message,
         statusCode: storageError.statusCode
@@ -264,7 +288,7 @@ export async function uploadTransactionDocument(formData: FormData): Promise<Tra
         file_name: safeFileName(file.name),
         file_path: filePath,
         file_size_bytes: fileSizeBytes,
-        mime_type: file.type,
+        mime_type: mimeType,
         notes: field(formData, "notes"),
         uploaded_by: profile.id
       })
@@ -283,6 +307,7 @@ export async function uploadTransactionDocument(formData: FormData): Promise<Tra
         entityName: context.entityName,
         documentType,
         bucket: bucketName,
+        mimeType,
         storagePath: filePath,
         error: error?.message ?? "no row returned"
       });
@@ -313,6 +338,7 @@ export async function uploadTransactionDocument(formData: FormData): Promise<Tra
       entityId: context.entityId,
       documentType,
       bucket: bucketName,
+      mimeType,
       storagePath: filePath
     });
 
