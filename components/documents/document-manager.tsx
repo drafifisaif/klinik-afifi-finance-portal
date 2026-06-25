@@ -9,6 +9,10 @@ import { documentUploadLabel } from "@/lib/transaction-document-config";
 import type { TransactionDocument, TransactionDocumentEntityName, TransactionDocumentUploadResult } from "@/lib/types";
 
 const imageTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
+const maxUploadSizeBytes = 10 * 1024 * 1024;
+const optimizationTriggerBytes = 1024 * 1024;
+const imageOptimizationMaxDimension = 1800;
+const optimizedImageQuality = 0.78;
 
 const documentTypes = [
   { label: "Receipt", value: "receipt" },
@@ -44,8 +48,99 @@ function documentStatusLabel(count: number) {
   return `${count} documents`;
 }
 
-async function compressImage(file: File) {
-  return { compressed: file, originalSize: file.size };
+type OptimizationResult = {
+  file: File;
+  message?: string | null;
+  originalSize: number;
+};
+
+function fileExtension(name: string) {
+  const match = name.match(/\.([^.]+)$/);
+  return match?.[1]?.toLowerCase() ?? null;
+}
+
+function replaceFileExtension(name: string, nextExtension: string) {
+  const cleanExtension = nextExtension.replace(/^\./, "");
+  return name.replace(/\.[^.]+$/, "") + `.${cleanExtension}`;
+}
+
+async function optimizeUploadFile(file: File): Promise<OptimizationResult> {
+  if (file.size > maxUploadSizeBytes) {
+    throw new Error("File is too large. Maximum allowed size is 10MB.");
+  }
+
+  if (file.size <= optimizationTriggerBytes) {
+    return { file, originalSize: file.size };
+  }
+
+  if (!imageTypes.has(file.type)) {
+    const extension = fileExtension(file.name);
+    if (extension === "pdf") {
+      // Browser-safe PDF compression is not reliable here, so we keep readable PDFs intact.
+      return {
+        file,
+        originalSize: file.size,
+        message: "Could not reduce file size, uploaded original file."
+      };
+    }
+    return {
+      file,
+      originalSize: file.size,
+      message: "Could not reduce file size, uploaded original file."
+    };
+  }
+
+  const bitmap = await createImageBitmap(file);
+  const scale = Math.min(1, imageOptimizationMaxDimension / Math.max(bitmap.width, bitmap.height));
+  const width = Math.max(1, Math.round(bitmap.width * scale));
+  const height = Math.max(1, Math.round(bitmap.height * scale));
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d");
+  if (!context) {
+    bitmap.close();
+    return {
+      file,
+      originalSize: file.size,
+      message: "Could not reduce file size, uploaded original file."
+    };
+  }
+  context.drawImage(bitmap, 0, 0, width, height);
+  bitmap.close();
+
+  const outputMimeType = file.type === "image/png" ? "image/jpeg" : file.type;
+  const blob = await new Promise<Blob | null>((resolve) => {
+    canvas.toBlob((value) => resolve(value), outputMimeType, optimizedImageQuality);
+  });
+
+  if (!blob) {
+    return {
+      file,
+      originalSize: file.size,
+      message: "Could not reduce file size, uploaded original file."
+    };
+  }
+
+  const optimizedFile = new File(
+    [blob],
+    outputMimeType === "image/jpeg" ? replaceFileExtension(file.name, "jpg") : file.name,
+    { type: outputMimeType }
+  );
+
+  if (optimizedFile.size >= file.size || optimizedFile.size > maxUploadSizeBytes) {
+    return {
+      file,
+      originalSize: file.size,
+      message: "Could not reduce file size, uploaded original file."
+    };
+  }
+
+  return {
+    file: optimizedFile,
+    originalSize: file.size,
+    message: `File optimized from ${byteSize(file.size)} to ${byteSize(optimizedFile.size)}.`
+  };
 }
 
 function isImage(document: TransactionDocument) {
@@ -108,16 +203,24 @@ export function DocumentManager({ canDelete = false, documents, entityId, entity
     try {
       const uploadedFileNames: string[] = [];
       const uploadedDocuments: TransactionDocument[] = [];
+      const uploadMessages: string[] = [];
       for (const file of selectedFiles) {
-        const { compressed, originalSize } = await compressImage(file);
+        if (file.size > maxUploadSizeBytes) {
+          throw new Error("File is too large. Maximum allowed size is 10MB.");
+        }
+        if (file.size > optimizationTriggerBytes) {
+          setMessageTone(null);
+          setMessage(`Optimizing file before upload... (${file.name})`);
+        }
+        const { file: preparedFile, originalSize, message: optimizationMessage } = await optimizeUploadFile(file);
         const uploadData = new FormData();
         uploadData.set("entity_name", entityName);
         uploadData.set("entity_id", entityId);
         uploadData.set("document_type", String(formData.get("document_type") ?? ""));
         uploadData.set("notes", String(formData.get("notes") ?? ""));
         uploadData.set("original_size_bytes", String(originalSize));
-        uploadData.set("compressed_size_bytes", String(compressed.size));
-        uploadData.set("file", compressed);
+        uploadData.set("compressed_size_bytes", String(preparedFile.size));
+        uploadData.set("file", preparedFile);
         const result = await uploadTransactionDocument(uploadData);
         if (!isUploadResult(result)) {
           console.error("uploadTransactionDocument returned unexpected shape", {
@@ -132,6 +235,9 @@ export function DocumentManager({ canDelete = false, documents, entityId, entity
         }
         uploadedFileNames.push(file.name);
         uploadedDocuments.push(result.document);
+        if (optimizationMessage) {
+          uploadMessages.push(`${file.name}: ${optimizationMessage}`);
+        }
       }
       if (fileInput.current) fileInput.current.value = "";
       if (uploadedDocuments.length) {
@@ -144,7 +250,7 @@ export function DocumentManager({ canDelete = false, documents, entityId, entity
       setLastUploadedFiles(uploadedFileNames);
       setIsViewDocumentsOpen(true);
       setMessageTone("success");
-      setMessage(uploadedFileNames.length > 1 ? "Documents uploaded." : "Document uploaded.");
+      setMessage(uploadMessages.length ? uploadMessages.join(" ") : uploadedFileNames.length > 1 ? "Documents uploaded." : "Document uploaded.");
       startTransition(() => router.refresh());
     } catch (error) {
       setMessageTone("error");
@@ -173,7 +279,7 @@ export function DocumentManager({ canDelete = false, documents, entityId, entity
               </label>
               <label>
                 Files
-                <input accept="application/pdf,image/png,image/jpeg,.pdf,.png,.jpg,.jpeg" multiple name="files" ref={fileInput} type="file" />
+                <input accept="application/pdf,image/png,image/jpeg,image/webp,.pdf,.png,.jpg,.jpeg,.webp" multiple name="files" ref={fileInput} type="file" />
               </label>
               <label>
                 Notes

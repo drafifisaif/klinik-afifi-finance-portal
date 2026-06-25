@@ -13,8 +13,9 @@ import {
 } from "@/lib/transaction-documents";
 import type { TransactionDocument, TransactionDocumentEntityName, TransactionDocumentUploadResult } from "@/lib/types";
 
-const allowedDocumentMimeTypes = new Set(["application/pdf", "image/jpeg", "image/png"]);
-const allowedDocumentExtensions = new Set(["pdf", "png", "jpg", "jpeg"]);
+const maxDocumentSizeBytes = 10 * 1024 * 1024;
+const allowedDocumentMimeTypes = new Set(["application/pdf", "image/jpeg", "image/png", "image/webp"]);
+const allowedDocumentExtensions = new Set(["pdf", "png", "jpg", "jpeg", "webp"]);
 const allowedDocumentTypes = new Set([
   "receipt",
   "invoice",
@@ -118,6 +119,7 @@ function inferredMimeType(file: File) {
   }
   if (extension === "pdf") return "application/pdf";
   if (extension === "png") return "image/png";
+  if (extension === "webp") return "image/webp";
   return "image/jpeg";
 }
 
@@ -157,12 +159,15 @@ export async function uploadTransactionDocument(formData: FormData): Promise<Tra
     if (!(file instanceof File) || file.size <= 0) {
       return uploadFailure("No file selected.");
     }
+    if (file.size > maxDocumentSizeBytes) {
+      return uploadFailure("File is too large. Maximum allowed size is 10MB.");
+    }
     if (!documentType) {
       return uploadFailure("This document type is not allowed for this transaction.");
     }
     const mimeType = inferredMimeType(file);
     if (!mimeType) {
-      return uploadFailure("Only PDF, PNG, JPG, and JPEG files are allowed.");
+      return uploadFailure("Only PDF, PNG, JPG, JPEG, and WEBP files are allowed.");
     }
 
     let context = await getTransactionDocumentContext(entityName, entityId);
