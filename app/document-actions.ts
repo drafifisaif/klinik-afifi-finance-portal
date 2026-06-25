@@ -11,9 +11,18 @@ import {
   getTransactionDocumentContext,
   isTransactionDocumentEntity
 } from "@/lib/transaction-documents";
-import type { TransactionDocument, TransactionDocumentEntityName } from "@/lib/types";
+import type { TransactionDocument, TransactionDocumentEntityName, TransactionDocumentUploadResult } from "@/lib/types";
 
 const allowedDocumentMimeTypes = new Set(["application/pdf", "image/jpeg", "image/png", "image/webp"]);
+const allowedDocumentTypes = new Set([
+  "receipt",
+  "invoice",
+  "payment_proof",
+  "bank_slip",
+  "claim_document",
+  "supporting_document",
+  "other"
+]);
 
 function field(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -77,134 +86,261 @@ function shouldUseAdminDocumentFlow(entityName: TransactionDocumentEntityName) {
   ].includes(entityName);
 }
 
-export async function uploadTransactionDocument(formData: FormData) {
-  if (!hasSupabaseEnv()) return;
+function uploadFailure(message: string): TransactionDocumentUploadResult {
+  return { ok: false, message };
+}
 
-  const profile = await requireDocumentActor();
-  const entityName = field(formData, "entity_name");
-  const entityId = field(formData, "entity_id");
-  const file = formData.get("file");
-  if (!isTransactionDocumentEntity(entityName) || !entityId || !(file instanceof File) || file.size <= 0) {
-    throw new Error("Choose a transaction and a document file.");
+function uploadSuccess(document: TransactionDocument): TransactionDocumentUploadResult {
+  return { ok: true, message: "Document uploaded successfully.", document };
+}
+
+function normalizeDocumentType(value: string | null) {
+  if (!value) return "supporting_document";
+  const normalized = value.trim().toLowerCase().replaceAll(" ", "_");
+  return allowedDocumentTypes.has(normalized) ? normalized : null;
+}
+
+function friendlyUploadMessage(error: unknown) {
+  const message = error instanceof Error ? error.message : "";
+  if (message.includes("SUPABASE_SERVICE_ROLE_KEY")) {
+    return "Server upload configuration is missing. Please check SUPABASE_SERVICE_ROLE_KEY.";
   }
-  if (!allowedDocumentMimeTypes.has(file.type)) {
-    throw new Error("Upload a PDF, JPG, PNG, or WebP document.");
+  if (message.includes("Bucket not found")) {
+    return "Upload storage is not configured for this document type.";
+  }
+  if (message.includes("row-level security")) {
+    return "Upload failed. Please try again.";
+  }
+  return message || "Upload failed. Please try again.";
+}
+
+export async function uploadTransactionDocument(formData: FormData): Promise<TransactionDocumentUploadResult> {
+  if (!hasSupabaseEnv()) {
+    return uploadFailure("Server upload configuration is missing.");
   }
 
-  let context = await getTransactionDocumentContext(entityName, entityId);
-  if (shouldUseAdminDocumentFlow(entityName)) {
-    const adminSupabase = createAdminClient();
-    const loadContext = async () => {
-      if (entityName === "supplier_payment_entries") {
-        return adminSupabase.from("supplier_payment_entries").select("id, branch_id, bank_account_id").eq("id", entityId).maybeSingle();
-      }
-      if (entityName === "cash_bank_ins") {
-        return adminSupabase.from("cash_bank_ins").select("id, branch_id, bank_account_id").eq("id", entityId).maybeSingle();
-      }
-      if (entityName === "petty_cash_transactions") {
-        return adminSupabase.from("petty_cash_transactions").select("id, branch_id, bank_account_id").eq("id", entityId).maybeSingle();
-      }
-      if (entityName === "supplier_purchase_entries" || entityName === "supplier_purchases" || entityName === "expenses" || entityName === "panel_claims") {
-        return adminSupabase.from(entityName).select("id, branch_id").eq("id", entityId).maybeSingle();
-      }
-      return null;
-    };
+  let uploadedPath: string | null = null;
+  let uploadedBucket: string | null = null;
 
-    const contextRow = await loadContext();
-    const entry = contextRow?.data ?? null;
-    const entryError = contextRow?.error ?? null;
-    if (entryError || !entry) {
-      console.error("uploadTransactionDocument entry lookup failed", {
-        action: "uploadTransactionDocument",
-        entityId,
-        entityName,
-        error: entryError?.message ?? "no row returned"
-      });
-      throw new Error("Transaction document target was not found or is not accessible.");
+  try {
+    const profile = await requireDocumentActor();
+    const entityName = field(formData, "entity_name");
+    const entityId = field(formData, "entity_id");
+    const file = formData.get("file");
+    const rawDocumentType = field(formData, "document_type");
+    const documentType = normalizeDocumentType(rawDocumentType);
+
+    if (!isTransactionDocumentEntity(entityName) || !entityId) {
+      return uploadFailure("Choose a valid transaction before uploading a document.");
     }
-    context = {
-      bankAccountId: ("bank_account_id" in entry ? entry.bank_account_id : null) as string | null,
-      branchId: (entry.branch_id ?? null) as string | null,
-      entityId: entry.id as string,
-      entityName
-    };
-  }
-  if (!context) throw new Error("Transaction document target was not found or is not accessible.");
-  if (!canEditBranch(profile, context.branchId)) {
-    throw new Error(
-      entityName === "supplier_payment_entries"
-        ? "You do not have permission to upload documents for this supplier payment."
-        : "You do not have permission to upload documents for this supplier purchase."
-    );
-  }
+    if (!(file instanceof File) || file.size <= 0) {
+      return uploadFailure("No file selected.");
+    }
+    if (!documentType) {
+      return uploadFailure("This document type is not allowed for this transaction.");
+    }
+    if (!allowedDocumentMimeTypes.has(file.type)) {
+      return uploadFailure("Upload a PDF, JPG, PNG, or WebP document.");
+    }
 
-  const supabase = shouldUseAdminDocumentFlow(context.entityName) ? createAdminClient() : await createClient();
-  const bucketName = documentBucketForEntity(context.entityName);
-  const filePath = shouldUseAdminDocumentFlow(context.entityName)
-    ? `${entityName}/${context.entityId}/${Date.now()}-${safeFileName(file.name)}`
-    : `${profile.id}/${entityName}/${entityId}/${crypto.randomUUID()}-${safeFileName(file.name)}`;
-  const { error: storageError } = await supabase.storage.from(bucketName).upload(filePath, file, {
-    cacheControl: "3600",
-    contentType: file.type,
-    upsert: false
-  });
-  if (storageError) {
-    console.error("uploadTransactionDocument storage upload failed", {
+    let context = await getTransactionDocumentContext(entityName, entityId);
+    if (shouldUseAdminDocumentFlow(entityName)) {
+      const adminSupabase = createAdminClient();
+      const loadContext = async () => {
+        if (entityName === "supplier_payment_entries") {
+          return adminSupabase
+            .from("supplier_payment_entries")
+            .select("id, branch_id, bank_account_id")
+            .eq("id", entityId)
+            .maybeSingle();
+        }
+        if (entityName === "cash_bank_ins") {
+          return adminSupabase.from("cash_bank_ins").select("id, branch_id, bank_account_id").eq("id", entityId).maybeSingle();
+        }
+        if (entityName === "petty_cash_transactions") {
+          return adminSupabase
+            .from("petty_cash_transactions")
+            .select("id, branch_id, bank_account_id")
+            .eq("id", entityId)
+            .maybeSingle();
+        }
+        if (
+          entityName === "supplier_purchase_entries" ||
+          entityName === "supplier_purchases" ||
+          entityName === "expenses" ||
+          entityName === "panel_claims"
+        ) {
+          return adminSupabase.from(entityName).select("id, branch_id").eq("id", entityId).maybeSingle();
+        }
+        return null;
+      };
+
+      const contextRow = await loadContext();
+      const entry = contextRow?.data ?? null;
+      const entryError = contextRow?.error ?? null;
+      if (entryError || !entry) {
+        console.error("uploadTransactionDocument entry lookup failed", {
+          action: "uploadTransactionDocument",
+          entityId,
+          entityName,
+          error: entryError?.message ?? "no row returned"
+        });
+        return uploadFailure("Transaction document target was not found or is not accessible.");
+      }
+      context = {
+        bankAccountId: ("bank_account_id" in entry ? entry.bank_account_id : null) as string | null,
+        branchId: (entry.branch_id ?? null) as string | null,
+        entityId: entry.id as string,
+        entityName
+      };
+    }
+
+    if (!context) {
+      return uploadFailure("Transaction document target was not found or is not accessible.");
+    }
+    if (context.entityName === "supplier_payment_entries" && !["owner", "admin", "finance"].includes(normalizeRole(profile.role))) {
+      return uploadFailure("You do not have permission to upload documents for this record.");
+    }
+    if (!canEditBranch(profile, context.branchId)) {
+      return uploadFailure("You do not have permission to upload documents for this record.");
+    }
+
+    const useAdminFlow = shouldUseAdminDocumentFlow(context.entityName);
+    const supabase = useAdminFlow ? createAdminClient() : await createClient();
+    const bucketName = documentBucketForEntity(context.entityName);
+    const filePath = useAdminFlow
+      ? `${entityName}/${context.entityId}/${Date.now()}-${safeFileName(file.name)}`
+      : `${profile.id}/${entityName}/${entityId}/${crypto.randomUUID()}-${safeFileName(file.name)}`;
+
+    console.info("uploadTransactionDocument starting", {
       action: "uploadTransactionDocument",
-      entityId: context.entityId,
+      userId: profile.id,
+      role: normalizeRole(profile.role),
       entityName: context.entityName,
+      entityId: context.entityId,
+      documentType,
       bucket: bucketName,
-      error: storageError.message,
-      statusCode: storageError.statusCode
+      fileCount: 1,
+      fileName: file.name,
+      fileSizeBytes: file.size,
+      storagePath: filePath
     });
-    throw storageError;
-  }
 
-  const fileSizeBytes = integerField(formData, "original_size_bytes") ?? file.size;
-  const compressedSizeBytes = integerField(formData, "compressed_size_bytes") ?? file.size;
-  const { data: document, error } = await supabase.from("transaction_documents").insert({
-    bank_account_id: context.bankAccountId,
-    branch_id: context.branchId,
-    compressed_size_bytes: compressedSizeBytes,
-    document_type: field(formData, "document_type"),
-    entity_id: context.entityId,
-    entity_name: context.entityName,
-    file_name: safeFileName(file.name),
-    file_path: filePath,
-    file_size_bytes: fileSizeBytes,
-    mime_type: file.type,
-    notes: field(formData, "notes"),
-    uploaded_by: profile.id
-  }).select("id, entity_name, entity_id, branch_id, bank_account_id, document_type, file_name, file_path, file_size_bytes, compressed_size_bytes, mime_type, notes, uploaded_by, created_at, deleted_at, deleted_by, delete_reason, profiles:profiles!transaction_documents_uploaded_by_fkey(full_name)").single();
+    const { error: storageError } = await supabase.storage.from(bucketName).upload(filePath, file, {
+      cacheControl: "3600",
+      contentType: file.type,
+      upsert: false
+    });
+    if (storageError) {
+      console.error("uploadTransactionDocument storage upload failed", {
+        action: "uploadTransactionDocument",
+        userId: profile.id,
+        role: normalizeRole(profile.role),
+        entityId: context.entityId,
+        entityName: context.entityName,
+        documentType,
+        bucket: bucketName,
+        storagePath: filePath,
+        error: storageError.message,
+        statusCode: storageError.statusCode
+      });
+      return uploadFailure(friendlyUploadMessage(storageError));
+    }
 
-  if (error || !document) {
-    await supabase.storage.from(bucketName).remove([filePath]);
-    console.error("uploadTransactionDocument metadata insert failed", {
+    uploadedBucket = bucketName;
+    uploadedPath = filePath;
+
+    const fileSizeBytes = integerField(formData, "original_size_bytes") ?? file.size;
+    const compressedSizeBytes = integerField(formData, "compressed_size_bytes") ?? file.size;
+    const { data: document, error } = await supabase
+      .from("transaction_documents")
+      .insert({
+        bank_account_id: context.bankAccountId,
+        branch_id: context.branchId,
+        compressed_size_bytes: compressedSizeBytes,
+        document_type: documentType,
+        entity_id: context.entityId,
+        entity_name: context.entityName,
+        file_name: safeFileName(file.name),
+        file_path: filePath,
+        file_size_bytes: fileSizeBytes,
+        mime_type: file.type,
+        notes: field(formData, "notes"),
+        uploaded_by: profile.id
+      })
+      .select(
+        "id, entity_name, entity_id, branch_id, bank_account_id, document_type, file_name, file_path, file_size_bytes, compressed_size_bytes, mime_type, notes, uploaded_by, created_at, deleted_at, deleted_by, delete_reason, profiles:profiles!transaction_documents_uploaded_by_fkey(full_name)"
+      )
+      .single();
+
+    if (error || !document) {
+      await supabase.storage.from(bucketName).remove([filePath]);
+      console.error("uploadTransactionDocument metadata insert failed", {
+        action: "uploadTransactionDocument",
+        userId: profile.id,
+        role: normalizeRole(profile.role),
+        entityId: context.entityId,
+        entityName: context.entityName,
+        documentType,
+        bucket: bucketName,
+        storagePath: filePath,
+        error: error?.message ?? "no row returned"
+      });
+      return uploadFailure("Document metadata could not be saved.");
+    }
+
+    const normalizedDocument = {
+      ...document,
+      profiles: normalizeDocumentProfile(document)
+    } as TransactionDocument;
+
+    await logAuditEvent({
+      action: "document_upload",
+      afterData: documentAuditData(document),
+      bankAccountId: document.bank_account_id,
+      branchId: document.branch_id,
+      description: `Uploaded document ${document.file_name}.`,
+      entityId: document.entity_id,
+      entityName: document.entity_name
+    });
+    revalidateDocumentPaths(context.entityName);
+
+    console.info("uploadTransactionDocument completed", {
       action: "uploadTransactionDocument",
-      entityId: context.entityId,
+      userId: profile.id,
+      role: normalizeRole(profile.role),
       entityName: context.entityName,
+      entityId: context.entityId,
+      documentType,
       bucket: bucketName,
-      error: error?.message ?? "no row returned"
+      storagePath: filePath
     });
-    throw error ?? new Error("Uploaded document record could not be loaded.");
+
+    return uploadSuccess(normalizedDocument);
+  } catch (error) {
+    if (uploadedBucket && uploadedPath) {
+      try {
+        const adminSupabase = createAdminClient();
+        await adminSupabase.storage.from(uploadedBucket).remove([uploadedPath]);
+      } catch (cleanupError) {
+        console.error("uploadTransactionDocument cleanup failed", {
+          action: "uploadTransactionDocument",
+          bucket: uploadedBucket,
+          storagePath: uploadedPath,
+          error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError)
+        });
+      }
+    }
+
+    console.error("uploadTransactionDocument unexpected failure", {
+      action: "uploadTransactionDocument",
+      entityName: field(formData, "entity_name"),
+      entityId: field(formData, "entity_id"),
+      documentType: field(formData, "document_type"),
+      error: error instanceof Error ? error.message : String(error)
+    });
+    return uploadFailure(friendlyUploadMessage(error));
   }
-
-  const normalizedDocument = {
-    ...document,
-    profiles: normalizeDocumentProfile(document)
-  } as TransactionDocument;
-
-  await logAuditEvent({
-    action: "document_upload",
-    afterData: documentAuditData(document),
-    bankAccountId: document.bank_account_id,
-    branchId: document.branch_id,
-    description: `Uploaded document ${document.file_name}.`,
-    entityId: document.entity_id,
-    entityName: document.entity_name
-  });
-  revalidateDocumentPaths(context.entityName);
-  return normalizedDocument;
 }
 
 export async function deleteTransactionDocument(formData: FormData) {

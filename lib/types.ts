@@ -446,6 +446,17 @@ export type TransactionDocument = {
   profiles?: Pick<Profile, "full_name"> | null;
 };
 
+export type TransactionDocumentUploadResult =
+  | {
+      ok: true;
+      message: string;
+      document: TransactionDocument;
+    }
+  | {
+      ok: false;
+      message: string;
+    };
+
 export type DashboardData = {
   branches: Branch[];
   openingBalances: OpeningBalance[];

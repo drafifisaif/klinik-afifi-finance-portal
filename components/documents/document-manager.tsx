@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { deleteTransactionDocument, uploadTransactionDocument } from "@/app/document-actions";
 import { byteSize, userDisplayLabel } from "@/lib/display";
 import { documentUploadLabel } from "@/lib/transaction-document-config";
-import type { TransactionDocument, TransactionDocumentEntityName } from "@/lib/types";
+import type { TransactionDocument, TransactionDocumentEntityName, TransactionDocumentUploadResult } from "@/lib/types";
 
 const imageTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
 
@@ -81,6 +81,17 @@ function isImage(document: TransactionDocument) {
   return Boolean(document.mime_type && imageTypes.has(document.mime_type));
 }
 
+function isUploadResult(value: unknown): value is TransactionDocumentUploadResult {
+  return Boolean(
+    value &&
+      typeof value === "object" &&
+      "ok" in value &&
+      typeof (value as { ok?: unknown }).ok === "boolean" &&
+      "message" in value &&
+      typeof (value as { message?: unknown }).message === "string"
+  );
+}
+
 export function DocumentManager({ canDelete = false, documents, entityId, entityName }: DocumentManagerProps) {
   const router = useRouter();
   const fileInput = useRef<HTMLInputElement>(null);
@@ -136,11 +147,20 @@ export function DocumentManager({ canDelete = false, documents, entityId, entity
         uploadData.set("original_size_bytes", String(originalSize));
         uploadData.set("compressed_size_bytes", String(compressed.size));
         uploadData.set("file", compressed);
-        const uploadedDocument = await uploadTransactionDocument(uploadData);
-        uploadedFileNames.push(file.name);
-        if (uploadedDocument) {
-          uploadedDocuments.push(uploadedDocument);
+        const result = await uploadTransactionDocument(uploadData);
+        if (!isUploadResult(result)) {
+          console.error("uploadTransactionDocument returned unexpected shape", {
+            entityId,
+            entityName,
+            result
+          });
+          throw new Error("An unexpected response was received from the server.");
         }
+        if (!result.ok) {
+          throw new Error(result.message);
+        }
+        uploadedFileNames.push(file.name);
+        uploadedDocuments.push(result.document);
       }
       if (fileInput.current) fileInput.current.value = "";
       if (uploadedDocuments.length) {
