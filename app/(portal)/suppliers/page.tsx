@@ -6,8 +6,19 @@ import { getSuppliers, totalBy } from "@/lib/data";
 import { requirePermission } from "@/lib/permissions";
 import { Building2, ClipboardList, ShieldCheck, Truck } from "lucide-react";
 
-export default async function SuppliersPage() {
+type SuppliersPageProps = {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+};
+
+function searchValue(value: string | string[] | undefined) {
+  if (Array.isArray(value)) return value[0] ?? null;
+  return value ?? null;
+}
+
+export default async function SuppliersPage({ searchParams }: SuppliersPageProps) {
   await requirePermission("manage_suppliers");
+  const params = searchParams ? await searchParams : {};
+  const errorMessage = searchValue(params.error);
   const suppliers = await getSuppliers({ includeInactive: true });
   const activeSuppliers = suppliers.filter((supplier) => supplier.is_active);
 
@@ -35,6 +46,12 @@ export default async function SuppliersPage() {
           tone="amber"
         />
       </section>
+
+      {errorMessage ? (
+        <section className="table-section mt-section">
+          <p className="void-warning">{errorMessage}</p>
+        </section>
+      ) : null}
 
       <section className="table-section mt-section">
         <h2>Supplier registry</h2>

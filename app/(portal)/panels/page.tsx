@@ -1,15 +1,24 @@
-import { createPanelClaim, createPanelCompany, updatePanelClaim, updatePanelCompany } from "@/app/actions";
+import { createPanelClaim, createPanelCompany, updatePanelClaim, updatePanelCompany, updatePanelPayment } from "@/app/actions";
 import { DataTable } from "@/components/data-table";
 import { DocumentManager } from "@/components/documents/document-manager";
 import { MetricCard } from "@/components/metric-card";
 import { ModuleHeader } from "@/components/module-header";
 import { PanelPaymentForm } from "@/components/panel-payment-form";
-import { getBankingDataForScope, getDashboardData, getPanelCompanies, totalBy } from "@/lib/data";
+import { getDashboardData, getPanelCompanies, getPanelPaymentBankAccounts, totalBy } from "@/lib/data";
 import { formatCurrency, formatDate, labelize } from "@/lib/format";
 import { outstandingOpeningBalanceTotal } from "@/lib/opening-balances";
 import { canEditBranch, hasPermission, normalizeRole, requirePermission } from "@/lib/permissions";
 import { getTransactionDocuments } from "@/lib/transaction-documents";
 import { Building, CalendarClock, FileClock, ShieldCheck } from "lucide-react";
+
+type PanelsPageProps = {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+};
+
+function searchValue(value: string | string[] | undefined) {
+  if (Array.isArray(value)) return value[0] ?? null;
+  return value ?? null;
+}
 
 function StatusPill({ status }: { status: string }) {
   return <span className={`status-pill status-${status}`}>{labelize(status)}</span>;
@@ -22,11 +31,13 @@ function panelClaimPriority(status: string, dueDate?: string | null, outstanding
   return 1;
 }
 
-export default async function PanelsPage() {
+export default async function PanelsPage({ searchParams }: PanelsPageProps) {
   const profile = await requirePermission("view_panel_records");
   const data = await getDashboardData();
-  const bankingData = await getBankingDataForScope({ bankAccessOnly: true });
+  const bankAccounts = await getPanelPaymentBankAccounts();
   const panelCompanies = await getPanelCompanies();
+  const params = searchParams ? await searchParams : {};
+  const errorMessage = searchValue(params.error);
   const activePanelCompanies = panelCompanies.filter((company) => company.is_active);
   const claimDocuments = await getTransactionDocuments("panel_claims", data.panels.map((claim) => claim.id));
   const role = normalizeRole(profile.role);
@@ -98,6 +109,12 @@ export default async function PanelsPage() {
         <MetricCard icon={CalendarClock} label="Unpaid claims" value={String(unpaid)} tone="amber" />
         <MetricCard icon={Building} label="Panel companies" value={String(panelCompanies.length)} tone="rose" />
       </section>
+
+      {errorMessage ? (
+        <section className="table-section mt-section">
+          <p className="void-warning">{errorMessage}</p>
+        </section>
+      ) : null}
 
       <section className="table-section mt-section">
         <div className="ledger-group-list">
@@ -213,7 +230,7 @@ export default async function PanelsPage() {
           <h2>Panel payment records</h2>
         </div>
         <DataTable
-          columns={["Date", "Panel Company", "Claim", "Branch", "Method", "Received Into", "Reference", "Amount"]}
+          columns={["Date", "Panel Company", "Claim", "Branch", "Method", "Received Into", "Reference", "Amount", "Edit"]}
           rows={data.panelPayments.map((payment) => [
             formatDate(payment.payment_date),
             payment.panel_companies?.name ?? "-",
@@ -222,7 +239,65 @@ export default async function PanelsPage() {
             labelize(payment.payment_type),
             payment.bank_accounts?.name ?? "-",
             payment.reference_no ?? "-",
-            formatCurrency(payment.amount)
+            formatCurrency(payment.amount),
+            canEditBranch(profile, payment.branch_id ?? payment.panel_claims?.branch_id ?? null) ? (
+              <details className="manual-bank-editor" key={`${payment.id}-edit`}>
+                <summary>Edit</summary>
+                <form action={updatePanelPayment} className="manual-bank-edit-form">
+                  <input name="panel_payment_id" type="hidden" value={payment.id} />
+                  <label>
+                    Panel claim
+                    <select defaultValue={payment.panel_claim_id} name="panel_claim_id" required>
+                      {data.panels.map((claim) => (
+                        <option key={claim.id} value={claim.id}>
+                          {(claim.claim_no ?? claim.id)} · {claim.panel_companies?.name ?? "Panel company"}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    Payment date
+                    <input defaultValue={payment.payment_date} name="payment_date" required type="date" />
+                  </label>
+                  <label>
+                    Payment method
+                    <select defaultValue={payment.payment_type} name="payment_type" required>
+                      <option value="cash">Cash</option>
+                      <option value="bank_transfer">Bank transfer</option>
+                      <option value="card">Card</option>
+                      <option value="qr">QR</option>
+                      <option value="panel">Panel</option>
+                    </select>
+                  </label>
+                  <label>
+                    Received into bank account
+                    <select defaultValue={payment.bank_account_id ?? ""} name="bank_account_id">
+                      <option value="">Select bank account</option>
+                      {bankAccounts.map((account) => (
+                        <option key={account.id} value={account.id}>
+                          {account.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    Amount
+                    <input defaultValue={payment.amount} min="0.01" name="amount" required step="0.01" type="number" />
+                  </label>
+                  <label>
+                    Reference
+                    <input defaultValue={payment.reference_no ?? ""} name="reference_no" />
+                  </label>
+                  <label>
+                    Notes
+                    <textarea defaultValue={payment.notes ?? ""} name="notes" />
+                  </label>
+                  <button className="primary-button compact-button" type="submit">
+                    Save
+                  </button>
+                </form>
+              </details>
+            ) : "-",
           ])}
         />
       </section>
@@ -293,7 +368,7 @@ export default async function PanelsPage() {
             claims={data.panels}
             panelCompanies={panelCompanies}
             panelPayments={data.panelPayments}
-            bankAccounts={bankingData.bankAccounts}
+            bankAccounts={bankAccounts}
           />
 
           {canManageMasterData ? (

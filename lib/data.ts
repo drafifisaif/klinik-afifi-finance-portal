@@ -784,6 +784,25 @@ export async function getSuppliers(options: { includeInactive?: boolean } = {}) 
   return fetchOrDemo(options.includeInactive ? query : query.eq("is_active", true), suppliers);
 }
 
+export async function getPanelPaymentBankAccounts() {
+  const profile = await getCurrentProfile();
+  if (!profile?.is_active) return [] as BankAccount[];
+  if (!hasSupabaseEnv()) return bankAccounts;
+
+  const role = normalizeRole(profile.role);
+  if (role === "owner" || role === "admin" || role === "finance") {
+    const supabase = createAdminClient();
+    return fetchOrDemo(
+      supabase.from("bank_accounts").select("*").eq("is_active", true).order("name"),
+      bankAccounts,
+      "panel_payment_bank_accounts"
+    ) as Promise<BankAccount[]>;
+  }
+
+  const bankingData = await getBankingDataForScope({ bankAccessOnly: true });
+  return bankingData.bankAccounts;
+}
+
 export async function getSupplierPurchaseEntries() {
   const profile = await getCurrentProfile();
   if (!profile?.is_active) return [] as SupplierPurchaseEntry[];

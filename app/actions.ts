@@ -80,6 +80,64 @@ function booleanText(formData: FormData, key: string, fallback = true) {
   return fallback;
 }
 
+function failSupplierManager(message: string): never {
+  redirect(`/suppliers?error=${encodeURIComponent(message)}`);
+}
+
+function failPanelManager(message: string): never {
+  redirect(`/panels?error=${encodeURIComponent(message)}`);
+}
+
+async function getSupplierFieldSupport(supabase: Awaited<ReturnType<typeof createClient>>) {
+  const [{ error: codeError }, { error: creditError }] = await Promise.all([
+    supabase.from("suppliers").select("code").limit(1),
+    supabase.from("suppliers").select("default_credit_term_days").limit(1)
+  ]);
+
+  return {
+    hasCode: !codeError,
+    hasDefaultCreditTermDays: !creditError
+  };
+}
+
+function supplierMutationErrorMessage(error: { code?: string | null; message?: string | null; details?: string | null }) {
+  const code = error.code ?? "";
+  const message = `${error.message ?? ""} ${error.details ?? ""}`.toLowerCase();
+
+  if (code === "23505" && message.includes("suppliers_name_key")) {
+    return "A supplier with this name already exists.";
+  }
+  if (code === "23505" && message.includes("idx_suppliers_code_unique")) {
+    return "Supplier code is already in use. Please choose a different code.";
+  }
+  if (code === "42703" && (message.includes("default_credit_term_days") || message.includes("code"))) {
+    return "Supplier registration fields are not fully available yet. Run the latest supplier migration and try again.";
+  }
+  return "Supplier record could not be saved.";
+}
+
+async function requirePanelPaymentBankAccount(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  profile: Awaited<ReturnType<typeof requirePermission>>,
+  bankAccountId: string
+) {
+  const { data: bankAccount, error: bankError } = await supabase
+    .from("bank_accounts")
+    .select("id, name, is_active")
+    .eq("id", bankAccountId)
+    .eq("is_active", true)
+    .maybeSingle();
+  if (bankError || !bankAccount) throw new Error("Selected received into bank account is not active or not available.");
+
+  const role = normalizeRole(profile.role);
+  if (role === "owner" || role === "admin" || role === "finance") {
+    return bankAccount;
+  }
+
+  await requireBankAccountPermission(bankAccountId, "create_transaction");
+  return bankAccount;
+}
+
 function bankTransactionType(formData: FormData) {
   const value = text(formData, "transaction_type");
   if (value === "money_in" || value === "money_out" || value === "interbank_transfer" || value === "owner_drawing") {
@@ -2023,29 +2081,57 @@ export async function voidExpense(formData: FormData) {
 }
 
 export async function createSupplier(formData: FormData) {
-  if (!hasSupabaseEnv()) return;
+  if (!hasSupabaseEnv()) return failSupplierManager("Supabase environment is not configured.");
   await requireMasterDataManager();
   const supabase = await createClient();
-  const { data: supplier, error } = await supabase.from("suppliers").insert({
-    code: text(formData, "code"),
-    name: text(formData, "name"),
+  const supplierName = text(formData, "name");
+  if (!supplierName) failSupplierManager("Supplier name is required.");
+  const fieldSupport = await getSupplierFieldSupport(supabase);
+  const insertPayload: Record<string, unknown> = {
+    name: supplierName,
     contact_person: text(formData, "contact_person"),
     phone: text(formData, "phone"),
     email: text(formData, "email"),
     address: text(formData, "address"),
     notes: text(formData, "notes"),
     is_active: booleanText(formData, "is_active", true),
-    payment_terms_days: number(formData, "default_credit_term_days") || 30,
-    default_credit_term_days: number(formData, "default_credit_term_days") || 30
-  }).select("id, code, name, contact_person, phone, email, address, notes, default_credit_term_days, payment_terms_days, is_active").single();
+    payment_terms_days: number(formData, "default_credit_term_days") || 30
+  };
+  if (fieldSupport.hasCode) insertPayload.code = text(formData, "code");
+  if (fieldSupport.hasDefaultCreditTermDays) insertPayload.default_credit_term_days = number(formData, "default_credit_term_days") || 30;
 
-  if (error || !supplier) throw error ?? new Error("Supplier could not be loaded after creation.");
+  const selectColumns = [
+    "id",
+    fieldSupport.hasCode ? "code" : null,
+    "name",
+    "contact_person",
+    "phone",
+    "email",
+    "address",
+    "notes",
+    fieldSupport.hasDefaultCreditTermDays ? "default_credit_term_days" : null,
+    "payment_terms_days",
+    "is_active"
+  ].filter(Boolean).join(", ");
+
+  const { data: supplier, error } = await supabase.from("suppliers").insert(insertPayload).select(selectColumns).single();
+
+  if (error || !supplier) {
+    console.error("createSupplier failed", {
+      action: "createSupplier",
+      code: error?.code,
+      error: error?.message,
+      details: error?.details
+    });
+    failSupplierManager(supplierMutationErrorMessage(error ?? {}));
+  }
+  const createdSupplier = supplier as unknown as SupplierAuditRow & { id: string; name: string };
 
   await logAuditEvent({
     action: "create",
-    afterData: supplierAuditData(supplier),
-    description: `Created supplier ${supplier.name}.`,
-    entityId: supplier.id,
+    afterData: supplierAuditData(createdSupplier),
+    description: `Created supplier ${createdSupplier.name}.`,
+    entityId: createdSupplier.id,
     entityName: "suppliers"
   });
   revalidatePath("/purchases");
@@ -2054,50 +2140,87 @@ export async function createSupplier(formData: FormData) {
 }
 
 export async function updateSupplier(formData: FormData) {
-  if (!hasSupabaseEnv()) return;
+  if (!hasSupabaseEnv()) return failSupplierManager("Supabase environment is not configured.");
   await requireMasterDataManager();
 
   const supplierId = text(formData, "supplier_id");
-  if (!supplierId) throw new Error("Supplier record is required.");
+  if (!supplierId) failSupplierManager("Supplier record is required.");
 
   const supabase = await createClient();
+  const fieldSupport = await getSupplierFieldSupport(supabase);
   const { data: supplier, error: supplierError } = await supabase
     .from("suppliers")
-    .select("id, code, name, contact_person, phone, email, address, notes, default_credit_term_days, payment_terms_days, is_active")
+    .select([
+      "id",
+      fieldSupport.hasCode ? "code" : null,
+      "name",
+      "contact_person",
+      "phone",
+      "email",
+      "address",
+      "notes",
+      fieldSupport.hasDefaultCreditTermDays ? "default_credit_term_days" : null,
+      "payment_terms_days",
+      "is_active"
+    ].filter(Boolean).join(", "))
     .eq("id", supplierId)
     .maybeSingle();
 
-  if (supplierError || !supplier) throw new Error("Supplier record not found.");
+  if (supplierError || !supplier) failSupplierManager("Supplier record not found.");
 
+  const updatePayload: Record<string, unknown> = {
+    address: text(formData, "address"),
+    contact_person: text(formData, "contact_person"),
+    email: text(formData, "email"),
+    is_active: booleanText(formData, "is_active", true),
+    name: text(formData, "name"),
+    notes: text(formData, "notes"),
+    payment_terms_days: number(formData, "default_credit_term_days") || 30,
+    phone: text(formData, "phone")
+  };
+  if (fieldSupport.hasCode) updatePayload.code = text(formData, "code");
+  if (fieldSupport.hasDefaultCreditTermDays) updatePayload.default_credit_term_days = number(formData, "default_credit_term_days") || 30;
+  const existingSupplier = supplier as unknown as SupplierAuditRow & { id: string; name: string };
   const { data: updatedSupplier, error } = await supabase
     .from("suppliers")
-    .update({
-      address: text(formData, "address"),
-      code: text(formData, "code"),
-      contact_person: text(formData, "contact_person"),
-      email: text(formData, "email"),
-      is_active: booleanText(formData, "is_active", true),
-      name: text(formData, "name"),
-      notes: text(formData, "notes"),
-      default_credit_term_days: number(formData, "default_credit_term_days") || 30,
-      payment_terms_days: number(formData, "default_credit_term_days") || 30,
-      phone: text(formData, "phone")
-    })
-    .eq("id", supplier.id)
-    .select("id, code, name, contact_person, phone, email, address, notes, default_credit_term_days, payment_terms_days, is_active")
+    .update(updatePayload)
+    .eq("id", existingSupplier.id)
+    .select([
+      "id",
+      fieldSupport.hasCode ? "code" : null,
+      "name",
+      "contact_person",
+      "phone",
+      "email",
+      "address",
+      "notes",
+      fieldSupport.hasDefaultCreditTermDays ? "default_credit_term_days" : null,
+      "payment_terms_days",
+      "is_active"
+    ].filter(Boolean).join(", "))
     .single();
 
-  if (error || !updatedSupplier) throw error ?? new Error("Updated supplier could not be loaded.");
+  if (error || !updatedSupplier) {
+    console.error("updateSupplier failed", {
+      action: "updateSupplier",
+      supplierId,
+      code: error?.code,
+      error: error?.message,
+      details: error?.details
+    });
+    failSupplierManager(supplierMutationErrorMessage(error ?? {}));
+  }
+  const nextSupplier = updatedSupplier as unknown as SupplierAuditRow & { id: string; name: string };
 
-  const beforeData = supplierAuditData(supplier);
-  const afterData = supplierAuditData(updatedSupplier);
+  const beforeData = supplierAuditData(existingSupplier);
+  const afterData = supplierAuditData(nextSupplier);
   if (hasAuditChanges(beforeData, afterData)) {
     await logAuditEvent({
       action: "update",
       afterData,
       beforeData,
-      description: `Updated supplier ${updatedSupplier.name}.`,
-      entityId: updatedSupplier.id,
+      description: `Updated supplier ${nextSupplier.name}.`,
+      entityId: nextSupplier.id,
       entityName: "suppliers"
     });
   }
@@ -3111,8 +3234,9 @@ export async function updatePanelCompany(formData: FormData) {
 }
 
 export async function createPanelClaim(formData: FormData) {
-  if (!hasSupabaseEnv()) return;
+  if (!hasSupabaseEnv()) return failPanelManager("Supabase environment is not configured.");
   const branchId = text(formData, "branch_id");
+  if (!branchId) failPanelManager("Panel claim branch is required.");
   await requireEditableBranch(branchId);
   const supabase = await createClient();
   const { data: claim, error } = await supabase.from("panel_claims").insert({
@@ -3128,7 +3252,16 @@ export async function createPanelClaim(formData: FormData) {
     entered_by: await getUserId()
   }).select("id, panel_company_id, branch_id, claim_no, claim_month, submitted_date, due_date, amount, status, notes").single();
 
-  if (error || !claim) throw error ?? new Error("Panel claim could not be loaded after creation.");
+  if (error || !claim) {
+    console.error("createPanelClaim failed", {
+      action: "createPanelClaim",
+      branchId,
+      code: error?.code,
+      error: error?.message,
+      details: error?.details
+    });
+    failPanelManager("Panel claim could not be saved.");
+  }
 
   await logAuditEvent({
     action: "create",
@@ -3143,15 +3276,15 @@ export async function createPanelClaim(formData: FormData) {
 }
 
 export async function updatePanelClaim(formData: FormData) {
-  if (!hasSupabaseEnv()) return;
+  if (!hasSupabaseEnv()) return failPanelManager("Supabase environment is not configured.");
 
   const profile = await requirePermission("view_panel_records");
   const role = normalizeRole(profile.role);
   const claimId = text(formData, "claim_id");
   const branchId = text(formData, "branch_id");
 
-  if (!claimId) throw new Error("Panel claim record is required.");
-  if (!branchId) throw new Error("Panel claim branch is required.");
+  if (!claimId) failPanelManager("Panel claim record is required.");
+  if (!branchId) failPanelManager("Panel claim branch is required.");
 
   const supabase = await createClient();
   const { data: claim, error: claimError } = await supabase
@@ -3160,17 +3293,21 @@ export async function updatePanelClaim(formData: FormData) {
     .eq("id", claimId)
     .maybeSingle();
 
-  if (claimError || !claim) throw new Error("Panel claim record not found.");
+  if (claimError || !claim) failPanelManager("Panel claim record not found.");
   if (!canEditBranch(profile, claim.branch_id)) {
-    throw new Error(role === "branch_pic"
+    failPanelManager(role === "branch_pic"
       ? "You can only edit panel claims for your own branch."
       : "You do not have permission to edit this panel claim.");
   }
   if (!canEditBranch(profile, branchId)) {
-    throw new Error(role === "branch_pic"
+    failPanelManager(role === "branch_pic"
       ? "Branch PIC cannot move panel claims to another branch."
       : "You do not have permission to assign this panel claim to the selected branch.");
   }
+  const claimMonth = text(formData, "claim_month");
+  if (!claimMonth) failPanelManager("Claim month is required.");
+  const amount = number(formData, "amount");
+  if (amount < 0) failPanelManager("Amount must be zero or more.");
 
   const { data: updatedClaim, error } = await supabase
     .from("panel_claims")
@@ -3178,18 +3315,28 @@ export async function updatePanelClaim(formData: FormData) {
       panel_company_id: text(formData, "panel_company_id"),
       branch_id: branchId,
       claim_no: text(formData, "claim_no"),
-      claim_month: text(formData, "claim_month"),
+      claim_month: claimMonth,
       submitted_date: text(formData, "submitted_date"),
       due_date: text(formData, "due_date"),
-      amount: number(formData, "amount"),
+      amount,
       status: text(formData, "status") ?? "unpaid",
       notes: text(formData, "notes")
     })
     .eq("id", claim.id)
     .select("id, panel_company_id, branch_id, claim_no, claim_month, submitted_date, due_date, amount, status, notes")
-    .single();
+    .maybeSingle();
 
-  if (error || !updatedClaim) throw error ?? new Error("Updated panel claim could not be loaded.");
+  if (error || !updatedClaim) {
+    console.error("updatePanelClaim failed", {
+      action: "updatePanelClaim",
+      claimId,
+      branchId,
+      code: error?.code,
+      error: error?.message,
+      details: error?.details
+    });
+    failPanelManager("Panel claim could not be updated.");
+  }
 
   const beforeData = panelClaimAuditData(claim);
   const afterData = panelClaimAuditData(updatedClaim);
@@ -3210,15 +3357,15 @@ export async function updatePanelClaim(formData: FormData) {
 }
 
 export async function createPanelPayment(formData: FormData) {
-  if (!hasSupabaseEnv()) return;
+  if (!hasSupabaseEnv()) return failPanelManager("Supabase environment is not configured.");
   const panelClaimId = text(formData, "panel_claim_id");
   const paymentType = (text(formData, "payment_type") as PaymentType) ?? "bank_transfer";
   const bankAccountId = text(formData, "bank_account_id");
   const paymentDate = text(formData, "payment_date");
   const amount = number(formData, "amount");
-  if (!panelClaimId) throw new Error("Panel claim is required.");
-  if (!paymentDate) throw new Error("Payment date is required.");
-  if (amount <= 0) throw new Error("Amount must be greater than zero.");
+  if (!panelClaimId) failPanelManager("Panel claim is required.");
+  if (!paymentDate) failPanelManager("Payment date is required.");
+  if (amount <= 0) failPanelManager("Amount must be greater than zero.");
 
   const supabase = await createClient();
   const { data: claim, error: claimError } = await supabase
@@ -3226,21 +3373,15 @@ export async function createPanelPayment(formData: FormData) {
     .select("id, branch_id, panel_company_id")
     .eq("id", panelClaimId)
     .maybeSingle();
-  if (claimError || !claim) throw new Error("Selected panel claim was not found.");
+  if (claimError || !claim) failPanelManager("Selected panel claim was not found.");
 
-  await requireEditableBranch(claim.branch_id);
+  const profile = await requireEditableBranch(claim.branch_id);
   if (paymentUsesBankAccount(paymentType) && !bankAccountId) {
-    throw new Error("Received into bank account is required for bank-based panel payments.");
+    failPanelManager("Received into bank account is required for bank-based panel payments.");
   }
+  let bankAccount: { id: string; name: string; is_active: boolean } | null = null;
   if (bankAccountId) {
-    await requireBankAccountPermission(bankAccountId, "create_transaction");
-    const { data: bankAccount, error: bankError } = await supabase
-      .from("bank_accounts")
-      .select("id, name, is_active")
-      .eq("id", bankAccountId)
-      .eq("is_active", true)
-      .maybeSingle();
-    if (bankError || !bankAccount) throw new Error("Selected received into bank account is not active or not available.");
+    bankAccount = await requirePanelPaymentBankAccount(supabase, profile, bankAccountId);
   }
 
   const { data: payment, error } = await supabase.from("panel_payments").insert({
@@ -3253,7 +3394,17 @@ export async function createPanelPayment(formData: FormData) {
     notes: text(formData, "notes"),
     entered_by: await getUserId()
   }).select("id, panel_claim_id, payment_date, amount, payment_type, reference_no, notes, bank_account_id, bank_accounts(name), panel_claims(branch_id)").single();
-  if (error || !payment) throw error ?? new Error("Panel payment could not be loaded after creation.");
+  if (error || !payment) {
+    console.error("createPanelPayment failed", {
+      action: "createPanelPayment",
+      panelClaimId,
+      bankAccountId,
+      code: error?.code,
+      error: error?.message,
+      details: error?.details
+    });
+    failPanelManager("Panel payment could not be saved.");
+  }
   const panelClaimRelation = firstRelation(payment.panel_claims as { branch_id?: string | null } | { branch_id?: string | null }[] | null | undefined);
   const panelBankRelation = firstRelation(payment.bank_accounts as { name?: string } | { name?: string }[] | null | undefined);
 
@@ -3271,10 +3422,117 @@ export async function createPanelPayment(formData: FormData) {
     }),
     bankAccountId: payment.bank_account_id,
     branchId: panelClaimRelation?.branch_id ?? null,
-    description: `Panel payment received into ${panelBankRelation?.name ?? "selected bank account"}.`,
+    description: `Panel payment received into ${panelBankRelation?.name ?? bankAccount?.name ?? "selected bank account"}.`,
     entityId: payment.id,
     entityName: "panel_payments"
   });
+
+  revalidatePath("/panels");
+  revalidatePath("/bank");
+  revalidatePath("/reports/cashflow");
+  revalidatePath("/dashboard");
+}
+
+export async function updatePanelPayment(formData: FormData) {
+  if (!hasSupabaseEnv()) return failPanelManager("Supabase environment is not configured.");
+
+  const panelPaymentId = text(formData, "panel_payment_id");
+  const panelClaimId = text(formData, "panel_claim_id");
+  const paymentType = (text(formData, "payment_type") as PaymentType) ?? "bank_transfer";
+  const bankAccountId = text(formData, "bank_account_id");
+  const paymentDate = text(formData, "payment_date");
+  const amount = number(formData, "amount");
+  if (!panelPaymentId) failPanelManager("Panel payment record is required.");
+  if (!panelClaimId) failPanelManager("Panel claim is required.");
+  if (!paymentDate) failPanelManager("Payment date is required.");
+  if (amount <= 0) failPanelManager("Amount must be greater than zero.");
+
+  const supabase = await createClient();
+  const { data: existingPayment, error: paymentError } = await supabase
+    .from("panel_payments")
+    .select("id, panel_claim_id, payment_date, amount, payment_type, reference_no, notes, bank_account_id, panel_claims(branch_id)")
+    .eq("id", panelPaymentId)
+    .maybeSingle();
+  if (paymentError || !existingPayment) failPanelManager("Panel payment record not found.");
+
+  const { data: claim, error: claimError } = await supabase
+    .from("panel_claims")
+    .select("id, branch_id")
+    .eq("id", panelClaimId)
+    .maybeSingle();
+  if (claimError || !claim) failPanelManager("Selected panel claim was not found.");
+
+  const profile = await requireEditableBranch(claim.branch_id);
+  if (paymentUsesBankAccount(paymentType) && !bankAccountId) {
+    failPanelManager("Received into bank account is required for bank-based panel payments.");
+  }
+  if (bankAccountId) {
+    await requirePanelPaymentBankAccount(supabase, profile, bankAccountId);
+  }
+
+  const { data: updatedPayment, error } = await supabase
+    .from("panel_payments")
+    .update({
+      panel_claim_id: panelClaimId,
+      bank_account_id: bankAccountId,
+      payment_date: paymentDate,
+      amount,
+      payment_type: paymentType,
+      reference_no: text(formData, "reference_no"),
+      notes: text(formData, "notes")
+    })
+    .eq("id", panelPaymentId)
+    .select("id, panel_claim_id, payment_date, amount, payment_type, reference_no, notes, bank_account_id, panel_claims(branch_id)")
+    .maybeSingle();
+
+  if (error || !updatedPayment) {
+    console.error("updatePanelPayment failed", {
+      action: "updatePanelPayment",
+      panelPaymentId,
+      panelClaimId,
+      bankAccountId,
+      code: error?.code,
+      error: error?.message,
+      details: error?.details
+    });
+    failPanelManager("Panel payment could not be updated.");
+  }
+
+  const previousClaim = firstRelation(existingPayment.panel_claims as { branch_id?: string | null } | { branch_id?: string | null }[] | null | undefined);
+  const nextClaim = firstRelation(updatedPayment.panel_claims as { branch_id?: string | null } | { branch_id?: string | null }[] | null | undefined);
+  const beforeData = panelPaymentAuditData({
+    amount: existingPayment.amount,
+    bank_account_id: existingPayment.bank_account_id ?? null,
+    branch_id: previousClaim?.branch_id ?? null,
+    notes: existingPayment.notes ?? null,
+    panel_claim_id: existingPayment.panel_claim_id,
+    payment_date: existingPayment.payment_date,
+    payment_type: existingPayment.payment_type,
+    reference_no: existingPayment.reference_no ?? null
+  });
+  const afterData = panelPaymentAuditData({
+    amount: updatedPayment.amount,
+    bank_account_id: updatedPayment.bank_account_id ?? null,
+    branch_id: nextClaim?.branch_id ?? null,
+    notes: updatedPayment.notes ?? null,
+    panel_claim_id: updatedPayment.panel_claim_id,
+    payment_date: updatedPayment.payment_date,
+    payment_type: updatedPayment.payment_type,
+    reference_no: updatedPayment.reference_no ?? null
+  });
+
+  if (hasAuditChanges(beforeData, afterData)) {
+    await logAuditEvent({
+      action: "update",
+      afterData,
+      beforeData,
+      bankAccountId: updatedPayment.bank_account_id ?? null,
+      branchId: nextClaim?.branch_id ?? null,
+      description: "Updated panel payment.",
+      entityId: updatedPayment.id,
+      entityName: "panel_payments"
+    });
+  }
 
   revalidatePath("/panels");
   revalidatePath("/bank");

@@ -24,6 +24,16 @@ export function PanelPaymentForm({ claims, panelCompanies, panelPayments, bankAc
     .reduce((sum, payment) => sum + payment.amount, 0);
   const outstanding = Math.max(0, (selectedClaim?.amount ?? 0) - paidAmount);
   const panelName = selectedClaim ? (companyById.get(selectedClaim.panel_company_id)?.name ?? selectedClaim.panel_companies?.name ?? "-") : "-";
+  const sortedBankAccounts = useMemo(() => {
+    if (!selectedClaim?.branch_id) return bankAccounts;
+    const branchName = selectedClaim.branches?.name?.toLowerCase() ?? "";
+    return [...bankAccounts].sort((first, second) => {
+      const firstPriority = first.name.toLowerCase().includes(branchName) ? 0 : 1;
+      const secondPriority = second.name.toLowerCase().includes(branchName) ? 0 : 1;
+      if (firstPriority !== secondPriority) return firstPriority - secondPriority;
+      return first.name.localeCompare(second.name);
+    });
+  }, [bankAccounts, selectedClaim?.branch_id, selectedClaim?.branches?.name]);
 
   return (
     <form action={createPanelPayment} className="form-card">
@@ -66,7 +76,7 @@ export function PanelPaymentForm({ claims, panelCompanies, panelPayments, bankAc
         Received into bank account
         <select name="bank_account_id" required={paymentType === "bank_transfer" || paymentType === "card" || paymentType === "qr"}>
           <option value="">Select bank account</option>
-          {bankAccounts.map((account) => (
+          {sortedBankAccounts.map((account) => (
             <option key={account.id} value={account.id}>
               {account.name}
             </option>
