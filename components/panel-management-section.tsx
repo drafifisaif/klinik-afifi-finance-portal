@@ -10,49 +10,53 @@ type PanelManagementSectionProps = {
 
 export function PanelManagementSection({ canManageMasterData, panelCompanies }: PanelManagementSectionProps) {
   return (
-    <section className="section-grid mt-section">
-      <div className="cards-grid single-column">
+    <section className="panel-management-layout mt-section">
+      <div className="panel-management-stack">
         {canManageMasterData ? (
-          <form action={createPanelCompany} className="form-card">
+          <form action={createPanelCompany} className="form-card panel-management-form">
             <h2>Panel company management</h2>
-            <label>
-              Company name
-              <input name="name" required />
-            </label>
-            <label>
-              Contact person
-              <input name="contact_person" />
-            </label>
-            <label>
-              Phone
-              <input name="phone" />
-            </label>
-            <label>
-              Email
-              <input name="email" type="email" />
-            </label>
-            <label>
-              Address
-              <textarea name="address" />
-            </label>
-            <label>
-              Notes
-              <textarea name="notes" />
-            </label>
-            <label>
-              Status
-              <select name="is_active" defaultValue="true">
-                <option value="true">Active</option>
-                <option value="false">Inactive</option>
-              </select>
-            </label>
-            <button className="primary-button" type="submit">
-              Add Panel Company
-            </button>
+            <div className="panel-management-form-grid">
+              <label>
+                Company name
+                <input name="name" required />
+              </label>
+              <label>
+                Contact person
+                <input name="contact_person" />
+              </label>
+              <label>
+                Phone
+                <input name="phone" />
+              </label>
+              <label>
+                Email
+                <input name="email" type="email" />
+              </label>
+              <label className="panel-management-field-full">
+                Address
+                <textarea name="address" />
+              </label>
+              <label className="panel-management-field-full">
+                Notes
+                <textarea name="notes" />
+              </label>
+              <label>
+                Status
+                <select name="is_active" defaultValue="true">
+                  <option value="true">Active</option>
+                  <option value="false">Inactive</option>
+                </select>
+              </label>
+            </div>
+            <div className="panel-management-actions">
+              <button className="primary-button" type="submit">
+                Add Panel Company
+              </button>
+            </div>
           </form>
         ) : null}
 
-        <div className="table-section">
+        <div className="table-section panel-management-directory">
           <div className="report-toolbar">
             <h2>Panel company directory</h2>
           </div>

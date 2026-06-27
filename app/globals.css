@@ -557,6 +557,45 @@ textarea {
   grid-template-columns: 1fr;
 }
 
+.panel-management-layout {
+  display: grid;
+  gap: 18px;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.panel-management-stack {
+  display: grid;
+  gap: 18px;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.panel-management-form,
+.panel-management-directory {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+}
+
+.panel-management-form-grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.panel-management-field-full {
+  grid-column: 1 / -1;
+}
+
+.panel-management-actions {
+  display: flex;
+  justify-content: flex-start;
+}
+
+.panel-management-actions .primary-button {
+  min-width: 200px;
+}
+
 .branch-card {
   padding: 18px;
 }
@@ -1397,6 +1436,14 @@ button:disabled {
 
   .checkbox-grid {
     grid-template-columns: 1fr;
+  }
+
+  .panel-management-form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .panel-management-field-full {
+    grid-column: auto;
   }
 
   .nav-item,
