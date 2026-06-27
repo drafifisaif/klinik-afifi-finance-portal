@@ -8,7 +8,7 @@ import { getDashboardData, getPanelCompanies, getPanelPaymentBankAccounts, total
 import { formatCurrency, formatDate, labelize } from "@/lib/format";
 import { outstandingOpeningBalanceTotal } from "@/lib/opening-balances";
 import { activePanelClaims, panelClaimDisplayStatus, panelClaimOutstandingAmount, panelPaymentsByClaimId, panelReceivingBankAccounts, panelReceivingBankError } from "@/lib/panel-accounting";
-import { canEditBranch, hasPermission, normalizeRole, requirePermission } from "@/lib/permissions";
+import { canEditBranch, canViewAllBranches, hasPermission, normalizeRole, requirePermission } from "@/lib/permissions";
 import { getTransactionDocuments } from "@/lib/transaction-documents";
 import { Building, CalendarClock, FileClock, ShieldCheck } from "lucide-react";
 
@@ -40,32 +40,45 @@ export default async function PanelsPage({ searchParams }: PanelsPageProps) {
   const panelCompanies = await getPanelCompanies();
   const params = searchParams ? await searchParams : {};
   const errorMessage = searchValue(params.error);
+  const selectedBranchFilter = searchValue(params.branch);
+  const visibleBranchIds = canViewAllBranches(profile)
+    ? new Set(data.branches.map((branch) => branch.id))
+    : new Set(profile.branch_id ? [profile.branch_id] : []);
+  const effectiveBranchId = selectedBranchFilter && visibleBranchIds.has(selectedBranchFilter)
+    ? selectedBranchFilter
+    : null;
+  const filteredClaims = data.panels.filter((claim) => visibleBranchIds.has(claim.branch_id) && (!effectiveBranchId || claim.branch_id === effectiveBranchId));
+  const filteredPayments = data.panelPayments.filter((payment) => {
+    const branchId = payment.branch_id ?? payment.panel_claims?.branch_id ?? null;
+    return Boolean(branchId && visibleBranchIds.has(branchId) && (!effectiveBranchId || branchId === effectiveBranchId));
+  });
   const activePanelCompanies = panelCompanies.filter((company) => company.is_active);
-  const claimDocuments = await getTransactionDocuments("panel_claims", data.panels.map((claim) => claim.id));
+  const claimDocuments = await getTransactionDocuments("panel_claims", filteredClaims.map((claim) => claim.id));
   const role = normalizeRole(profile.role);
   const canManageMasterData = hasPermission(profile, "edit_finance") && role !== "branch_pic";
   const canDeleteDocuments = role !== "branch_pic";
-  const totalClaims = totalBy(activePanelClaims(data.panels), (claim) => claim.amount);
-  const claimPaidTotals = panelPaymentsByClaimId(data.panelPayments);
+  const totalClaims = totalBy(activePanelClaims(filteredClaims), (claim) => claim.amount);
+  const claimPaidTotals = panelPaymentsByClaimId(filteredPayments);
   const openingOutstanding = outstandingOpeningBalanceTotal(data.openingBalances, "panel_outstanding");
   const outstanding = openingOutstanding + totalBy(
-    activePanelClaims(data.panels),
-    (claim) => panelClaimOutstandingAmount(claim, data.panelPayments)
+    activePanelClaims(filteredClaims),
+    (claim) => panelClaimOutstandingAmount(claim, filteredPayments)
   );
-  const unpaid = activePanelClaims(data.panels).filter((claim) => panelClaimDisplayStatus(claim, data.panelPayments) === "unpaid").length;
+  const unpaid = activePanelClaims(filteredClaims).filter((claim) => panelClaimDisplayStatus(claim, filteredPayments) === "unpaid").length;
+  const uniquePanelCompanyCount = new Set(filteredClaims.map((claim) => claim.panel_company_id)).size;
   const groupedClaims = Array.from(
-    data.panels.reduce<Map<string, typeof data.panels>>((groups, claim) => {
-      const key = claim.panel_company_id;
+    filteredClaims.reduce<Map<string, typeof filteredClaims>>((groups, claim) => {
+      const key = `${claim.branch_id}::${claim.panel_company_id}`;
       const items = groups.get(key) ?? [];
       items.push(claim);
       groups.set(key, items);
       return groups;
     }, new Map())
-  ).map(([panelCompanyId, claims]) => {
+  ).map(([groupKey, claims]) => {
     const rows = claims.map((claim) => {
       const paidAmount = claimPaidTotals.get(claim.id) ?? 0;
-      const balanceAmount = panelClaimOutstandingAmount(claim, data.panelPayments);
-      const displayStatus = panelClaimDisplayStatus(claim, data.panelPayments);
+      const balanceAmount = panelClaimOutstandingAmount(claim, filteredPayments);
+      const displayStatus = panelClaimDisplayStatus(claim, filteredPayments);
       return {
         balanceAmount,
         claim,
@@ -82,9 +95,12 @@ export default async function PanelsPage({ searchParams }: PanelsPageProps) {
     });
 
     return {
+      branchId: rows[0]?.claim.branch_id ?? "",
+      branchLabel: rows[0]?.claim.branches?.name ?? "Branch",
       balanceAmount: totalBy(rows, (row) => row.balanceAmount),
       paidAmount: totalBy(rows, (row) => row.paidAmount),
-      panelCompanyId,
+      groupKey,
+      panelCompanyId: rows[0]?.claim.panel_company_id ?? "",
       panelLabel: rows[0]?.claim.panel_companies?.name ?? "Panel company",
       paidCount: rows.filter((row) => row.displayStatus === "paid").length,
       partialCount: rows.filter((row) => row.displayStatus === "partial").length,
@@ -93,7 +109,27 @@ export default async function PanelsPage({ searchParams }: PanelsPageProps) {
       unpaidCount: rows.filter((row) => row.displayStatus === "unpaid").length,
       voidedCount: rows.filter((row) => row.displayStatus === "voided").length
     };
-  }).sort((first, second) => first.panelLabel.localeCompare(second.panelLabel));
+  }).sort((first, second) => first.branchLabel.localeCompare(second.branchLabel) || first.panelLabel.localeCompare(second.panelLabel));
+
+  const branchGroups = Array.from(
+    groupedClaims.reduce<Map<string, typeof groupedClaims>>((groups, group) => {
+      const items = groups.get(group.branchId) ?? [];
+      items.push(group);
+      groups.set(group.branchId, items);
+      return groups;
+    }, new Map())
+  ).map(([branchId, groups]) => ({
+    branchId,
+    branchLabel: groups[0]?.branchLabel ?? "Branch",
+    totalAmount: totalBy(groups, (group) => group.totalAmount),
+    paidAmount: totalBy(groups, (group) => group.paidAmount),
+    balanceAmount: totalBy(groups, (group) => group.balanceAmount),
+    unpaidCount: totalBy(groups, (group) => group.unpaidCount),
+    partialCount: totalBy(groups, (group) => group.partialCount),
+    paidCount: totalBy(groups, (group) => group.paidCount),
+    voidedCount: totalBy(groups, (group) => group.voidedCount),
+    groups
+  })).sort((first, second) => first.branchLabel.localeCompare(second.branchLabel));
 
   return (
     <>
@@ -107,7 +143,7 @@ export default async function PanelsPage({ searchParams }: PanelsPageProps) {
         <MetricCard icon={ShieldCheck} label="Total claims" value={formatCurrency(totalClaims)} />
         <MetricCard icon={FileClock} label="Outstanding" value={formatCurrency(outstanding)} detail="Opening balance plus claims less linked payments" tone="blue" />
         <MetricCard icon={CalendarClock} label="Unpaid claims" value={String(unpaid)} tone="amber" />
-        <MetricCard icon={Building} label="Panel companies" value={String(panelCompanies.length)} tone="rose" />
+        <MetricCard icon={Building} label="Panel companies" value={String(uniquePanelCompanyCount)} tone="rose" />
       </section>
 
       {errorMessage ? (
@@ -116,26 +152,65 @@ export default async function PanelsPage({ searchParams }: PanelsPageProps) {
         </section>
       ) : null}
 
+      {canViewAllBranches(profile) ? (
+        <form className="reporting-filter mt-section" method="get">
+          <label>
+            Branch
+            <select defaultValue={effectiveBranchId ?? "all"} name="branch">
+              <option value="all">All Branches</option>
+              {data.branches.map((branch) => (
+                <option key={branch.id} value={branch.id}>
+                  {branch.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button className="primary-button" type="submit">
+            Apply
+          </button>
+          <p className="selected-branches">Showing {effectiveBranchId ? (data.branches.find((branch) => branch.id === effectiveBranchId)?.name ?? "Selected branch") : "All Branches"}</p>
+        </form>
+      ) : null}
+
       <section className="table-section mt-section">
         <div className="ledger-group-list">
-          {groupedClaims.map((group) => (
-            <article className="ledger-group-card" key={group.panelCompanyId}>
-              <div className="ledger-group-header">
-                <div>
-                  <h3>{group.panelLabel}</h3>
-                  <p>{group.rows.length} claims</p>
-                </div>
-                <div className="ledger-group-summary">
-                  <span className="ledger-summary-chip">Total {formatCurrency(group.totalAmount)}</span>
-                  <span className="ledger-summary-chip">Paid {formatCurrency(group.paidAmount)}</span>
-                  <span className="ledger-summary-chip">Balance {formatCurrency(group.balanceAmount)}</span>
-                  <span className="ledger-summary-chip">{group.unpaidCount} unpaid</span>
-                  <span className="ledger-summary-chip">{group.partialCount} partial</span>
-                  <span className="ledger-summary-chip">{group.paidCount} paid</span>
-                  <span className="ledger-summary-chip">{group.voidedCount} voided</span>
+          {branchGroups.map((branchGroup) => (
+            <section className="ledger-branch-section" key={branchGroup.branchId}>
+              <div className="ledger-group-card">
+                <div className="ledger-group-header">
+                  <div>
+                    <h3>{branchGroup.branchLabel}</h3>
+                    <p>{branchGroup.groups.reduce((sum, group) => sum + group.rows.length, 0)} claims</p>
+                  </div>
+                  <div className="ledger-group-summary">
+                    <span className="ledger-summary-chip">Total {formatCurrency(branchGroup.totalAmount)}</span>
+                    <span className="ledger-summary-chip">Paid {formatCurrency(branchGroup.paidAmount)}</span>
+                    <span className="ledger-summary-chip">Balance {formatCurrency(branchGroup.balanceAmount)}</span>
+                    <span className="ledger-summary-chip">{branchGroup.unpaidCount} unpaid</span>
+                    <span className="ledger-summary-chip">{branchGroup.partialCount} partial</span>
+                    <span className="ledger-summary-chip">{branchGroup.paidCount} paid</span>
+                    <span className="ledger-summary-chip">{branchGroup.voidedCount} voided</span>
+                  </div>
                 </div>
               </div>
-              <DataTable
+              {branchGroup.groups.map((group) => (
+                <article className="ledger-group-card" key={group.groupKey}>
+                  <div className="ledger-group-header">
+                    <div>
+                      <h3>{group.panelLabel}</h3>
+                      <p>{group.rows.length} claims</p>
+                    </div>
+                    <div className="ledger-group-summary">
+                      <span className="ledger-summary-chip">Total {formatCurrency(group.totalAmount)}</span>
+                      <span className="ledger-summary-chip">Paid {formatCurrency(group.paidAmount)}</span>
+                      <span className="ledger-summary-chip">Balance {formatCurrency(group.balanceAmount)}</span>
+                      <span className="ledger-summary-chip">{group.unpaidCount} unpaid</span>
+                      <span className="ledger-summary-chip">{group.partialCount} partial</span>
+                      <span className="ledger-summary-chip">{group.paidCount} paid</span>
+                      <span className="ledger-summary-chip">{group.voidedCount} voided</span>
+                    </div>
+                  </div>
+                  <DataTable
                 columns={["Claim month", "Branch", "Claim no.", "Due", "Status", "Amount", "Paid", "Balance", "Edit", "Void / details", "Documents"]}
                 rows={group.rows.map(({ claim, displayStatus, paidAmount, balanceAmount }) => [
                   formatDate(claim.claim_month),
@@ -244,8 +319,10 @@ export default async function PanelsPage({ searchParams }: PanelsPageProps) {
                     key={`${claim.id}-documents`}
                   />
                 ])}
-              />
-            </article>
+                  />
+                </article>
+              ))}
+            </section>
           ))}
         </div>
       </section>
@@ -404,9 +481,9 @@ export default async function PanelsPage({ searchParams }: PanelsPageProps) {
           </form>
 
           <PanelPaymentForm
-            claims={data.panels.filter((claim) => !claim.is_void)}
+            claims={filteredClaims.filter((claim) => !claim.is_void)}
             panelCompanies={panelCompanies}
-            panelPayments={data.panelPayments}
+            panelPayments={filteredPayments}
             bankAccounts={panelPaymentBanking.bankAccounts}
           />
 

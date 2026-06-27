@@ -89,6 +89,51 @@ function failPanelManager(message: string): never {
   redirect(`/panels?error=${encodeURIComponent(message)}`);
 }
 
+async function loadPanelClaimForMutation(
+  claimId: string,
+  profile: Awaited<ReturnType<typeof requirePermission>>,
+  action: "updatePanelClaim" | "voidPanelClaim",
+  claimNo?: string | null
+) {
+  const supabase = await createClient();
+  const admin = createAdminClient();
+  const selectClause = "id, panel_company_id, branch_id, claim_no, claim_month, submitted_date, due_date, amount, status, notes, is_void, void_reason, voided_at, voided_by";
+
+  const { data: directClaim, error: directError } = await supabase
+    .from("panel_claims")
+    .select(selectClause)
+    .eq("id", claimId)
+    .maybeSingle();
+
+  if (directClaim) {
+    return directClaim;
+  }
+
+  const { data: adminClaim, error: adminError } = await admin
+    .from("panel_claims")
+    .select(selectClause)
+    .eq("id", claimId)
+    .maybeSingle();
+
+  if (!adminClaim) {
+    console.error(`${action} load failed`, {
+      action,
+      claimId,
+      claimNo: claimNo ?? null,
+      userId: profile.id,
+      role: profile.role,
+      userBranchId: profile.branch_id ?? null,
+      code: directError?.code ?? adminError?.code,
+      error: directError?.message ?? adminError?.message,
+      details: directError?.details ?? adminError?.details,
+      hint: directError?.hint ?? adminError?.hint
+    });
+    return null;
+  }
+
+  return adminClaim;
+}
+
 async function getSupplierFieldSupport(supabase: Awaited<ReturnType<typeof createClient>>) {
   const [{ error: codeError }, { error: creditError }] = await Promise.all([
     supabase.from("suppliers").select("code").limit(1),
@@ -3394,21 +3439,15 @@ export async function updatePanelClaim(formData: FormData) {
   const claimId = text(formData, "claim_id");
   const branchId = text(formData, "branch_id");
 
-  if (!claimId) failPanelManager("Panel claim record is required.");
+  if (!claimId) failPanelManager("Panel claim id is missing.");
   if (!branchId) failPanelManager("Panel claim branch is required.");
-
-  const supabase = await createClient();
-  const { data: claim, error: claimError } = await supabase
-    .from("panel_claims")
-    .select("id, panel_company_id, branch_id, claim_no, claim_month, submitted_date, due_date, amount, status, notes, is_void, void_reason, voided_at, voided_by")
-    .eq("id", claimId)
-    .maybeSingle();
-
-  if (claimError || !claim) failPanelManager("Panel claim record not found.");
+  const claimNo = text(formData, "claim_no");
+  const claim = await loadPanelClaimForMutation(claimId, profile, "updatePanelClaim", claimNo);
+  if (!claim) failPanelManager("Panel claim record not found.");
   if (!canEditBranch(profile, claim.branch_id)) {
     failPanelManager(role === "branch_pic"
-      ? "You can only edit panel claims for your own branch."
-      : "You do not have permission to edit this panel claim.");
+      ? "You do not have permission to update this panel claim."
+      : "You do not have permission to update this panel claim.");
   }
   if (!canEditBranch(profile, branchId)) {
     failPanelManager(role === "branch_pic"
@@ -3437,7 +3476,8 @@ export async function updatePanelClaim(formData: FormData) {
     notes: text(formData, "notes")
   };
 
-  const { data: updatedClaim, error } = await supabase
+  const admin = createAdminClient();
+  const { data: updatedClaim, error } = await admin
     .from("panel_claims")
     .update(attemptedPayload)
     .eq("id", claim.id)
@@ -3450,6 +3490,8 @@ export async function updatePanelClaim(formData: FormData) {
       userId: profile.id,
       role,
       claimId,
+      claimNo: claim.claim_no ?? claimNo,
+      userBranchId: profile.branch_id ?? null,
       branchId: claim.branch_id,
       nextBranchId: branchId,
       payloadKeys: Object.keys(attemptedPayload),
@@ -3489,21 +3531,14 @@ export async function voidPanelClaim(formData: FormData) {
   const claimId = text(formData, "claim_id");
   const reason = text(formData, "void_reason");
 
-  if (!claimId) failPanelManager("Panel claim record is required.");
+  if (!claimId) failPanelManager("Panel claim id is missing.");
   if (!reason) failPanelManager("Void reason is required.");
-
-  const supabase = await createClient();
-  const { data: claim, error: claimError } = await supabase
-    .from("panel_claims")
-    .select("id, panel_company_id, branch_id, claim_no, claim_month, submitted_date, due_date, amount, status, notes, is_void, void_reason, voided_at, voided_by")
-    .eq("id", claimId)
-    .maybeSingle();
-
-  if (claimError || !claim) failPanelManager("Panel claim record not found.");
+  const claim = await loadPanelClaimForMutation(claimId, profile, "voidPanelClaim");
+  if (!claim) failPanelManager("Panel claim record not found.");
   if (!canEditBranch(profile, claim.branch_id)) {
     failPanelManager(role === "branch_pic"
-      ? "You can only void panel claims for your own branch."
-      : "You do not have permission to void this panel claim.");
+      ? "You do not have permission to update this panel claim."
+      : "You do not have permission to update this panel claim.");
   }
   if (claim.is_void) failPanelManager("Panel claim is already voided.");
 
@@ -3515,7 +3550,8 @@ export async function voidPanelClaim(formData: FormData) {
     voided_by: profile.id
   };
 
-  const { data: updatedClaim, error } = await supabase
+  const admin = createAdminClient();
+  const { data: updatedClaim, error } = await admin
     .from("panel_claims")
     .update(attemptedPayload)
     .eq("id", claim.id)
@@ -3529,6 +3565,8 @@ export async function voidPanelClaim(formData: FormData) {
       userId: profile.id,
       role,
       claimId,
+      claimNo: claim.claim_no ?? null,
+      userBranchId: profile.branch_id ?? null,
       branchId: claim.branch_id,
       payloadKeys: Object.keys(attemptedPayload),
       code: error?.code,
@@ -3537,7 +3575,7 @@ export async function voidPanelClaim(formData: FormData) {
       hint: error?.hint
     });
     failPanelManager(error?.code === "42501"
-      ? "You do not have permission to void this panel claim."
+      ? "You do not have permission to update this panel claim."
       : error?.message ?? "Panel claim could not be voided.");
   }
 
