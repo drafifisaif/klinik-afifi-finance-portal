@@ -1,4 +1,4 @@
-import { createPanelClaim, createPanelCompany, updatePanelClaim, updatePanelCompany, updatePanelPayment, voidPanelClaim } from "@/app/actions";
+import { createPanelClaim, updatePanelClaim, updatePanelPayment, voidPanelClaim } from "@/app/actions";
 import { DataTable } from "@/components/data-table";
 import { DocumentManager } from "@/components/documents/document-manager";
 import { MetricCard } from "@/components/metric-card";
@@ -8,7 +8,7 @@ import { getDashboardData, getPanelCompanies, getPanelPaymentBankAccounts, total
 import { formatCurrency, formatDate, labelize } from "@/lib/format";
 import { outstandingOpeningBalanceTotal } from "@/lib/opening-balances";
 import { activePanelClaims, panelClaimDisplayStatus, panelClaimOutstandingAmount, panelPaymentsByClaimId, panelReceivingBankAccounts, panelReceivingBankError } from "@/lib/panel-accounting";
-import { canEditBranch, canViewAllBranches, hasPermission, normalizeRole, requirePermission } from "@/lib/permissions";
+import { canEditBranch, canViewAllBranches, normalizeRole, requirePermission } from "@/lib/permissions";
 import { getTransactionDocuments } from "@/lib/transaction-documents";
 import { Building, CalendarClock, FileClock, ShieldCheck } from "lucide-react";
 
@@ -55,7 +55,6 @@ export default async function PanelsPage({ searchParams }: PanelsPageProps) {
   const activePanelCompanies = panelCompanies.filter((company) => company.is_active);
   const claimDocuments = await getTransactionDocuments("panel_claims", filteredClaims.map((claim) => claim.id));
   const role = normalizeRole(profile.role);
-  const canManageMasterData = hasPermission(profile, "edit_finance") && role !== "branch_pic";
   const canDeleteDocuments = role !== "branch_pic";
   const totalClaims = totalBy(activePanelClaims(filteredClaims), (claim) => claim.amount);
   const claimPaidTotals = panelPaymentsByClaimId(filteredPayments);
@@ -425,7 +424,6 @@ export default async function PanelsPage({ searchParams }: PanelsPageProps) {
           rowKeys={data.panelPayments.map((payment) => payment.id)}
         />
       </section>
-
       <section className="section-grid mt-section">
         <div className="cards-grid single-column">
           <form action={createPanelClaim} className="form-card">
@@ -494,108 +492,6 @@ export default async function PanelsPage({ searchParams }: PanelsPageProps) {
             panelPayments={filteredPayments}
             bankAccounts={panelPaymentBanking.bankAccounts}
           />
-
-          {canManageMasterData ? (
-          <form action={createPanelCompany} className="form-card">
-            <h2>Panel company management</h2>
-            <label>
-              Company name
-              <input name="name" required />
-            </label>
-            <label>
-              Contact person
-              <input name="contact_person" />
-            </label>
-            <label>
-              Phone
-              <input name="phone" />
-            </label>
-            <label>
-              Email
-              <input name="email" type="email" />
-            </label>
-            <label>
-              Address
-              <textarea name="address" />
-            </label>
-            <label>
-              Notes
-              <textarea name="notes" />
-            </label>
-            <label>
-              Status
-              <select name="is_active" defaultValue="true">
-                <option value="true">Active</option>
-                <option value="false">Inactive</option>
-              </select>
-            </label>
-            <button className="primary-button" type="submit">
-              Add Panel Company
-            </button>
-          </form>
-          ) : null}
-
-          <div className="table-section">
-            <div className="report-toolbar">
-              <h2>Panel company directory</h2>
-            </div>
-            <DataTable
-              columns={["Company", "Contact", "Phone", "Email", "Status", "Edit"]}
-              rows={panelCompanies.map((company) => [
-                company.name,
-                company.contact_person ?? "-",
-                company.phone ?? "-",
-                company.email ?? "-",
-                <span className={`status-pill ${company.is_active ? "status-paid" : "status-overdue"}`} key={`${company.id}-status`}>
-                  {company.is_active ? "Active" : "Inactive"}
-                </span>,
-                canManageMasterData ? (
-                  <details className="manual-bank-editor" key={`${company.id}-edit`}>
-                    <summary>Edit</summary>
-                    <form action={updatePanelCompany} className="manual-bank-edit-form">
-                      <input name="panel_company_id" type="hidden" value={company.id} />
-                      <label>
-                        Company name
-                        <input defaultValue={company.name} name="name" required />
-                      </label>
-                      <label>
-                        Contact person
-                        <input defaultValue={company.contact_person ?? ""} name="contact_person" />
-                      </label>
-                      <label>
-                        Phone
-                        <input defaultValue={company.phone ?? ""} name="phone" />
-                      </label>
-                      <label>
-                        Email
-                        <input defaultValue={company.email ?? ""} name="email" type="email" />
-                      </label>
-                      <label>
-                        Address
-                        <textarea defaultValue={company.address ?? ""} name="address" />
-                      </label>
-                      <label>
-                        Notes
-                        <textarea defaultValue={company.notes ?? ""} name="notes" />
-                      </label>
-                      <label>
-                        Status
-                        <select defaultValue={company.is_active ? "true" : "false"} name="is_active">
-                          <option value="true">Active</option>
-                          <option value="false">Inactive</option>
-                        </select>
-                      </label>
-                      <button className="primary-button compact-button" type="submit">
-                        Save
-                      </button>
-                    </form>
-                  </details>
-                ) : (
-                  "-"
-                )
-              ])}
-            />
-          </div>
         </div>
       </section>
     </>

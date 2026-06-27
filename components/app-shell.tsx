@@ -10,6 +10,7 @@ const navigation: { href: string; label: string; icon: string; permission: Permi
   { href: "/purchases", label: "Purchases", icon: "ClipboardList", permission: "view_supplier_records" },
   { href: "/suppliers", label: "Suppliers", icon: "Users", permission: "manage_suppliers" },
   { href: "/suppliers/payments", label: "Supplier Payments", icon: "Truck", permission: "view_supplier_payments" },
+  { href: "/panel-management", label: "Panel Management", icon: "Building2", permission: "view_panel_records" },
   { href: "/panels", label: "Panel Outstanding", icon: "ShieldCheck", permission: "view_panel_records" },
   { href: "/cash-bank-ins", label: "Cash Bank-In", icon: "Banknote", permission: "record_cash_bank_in" },
   { href: "/petty-cash", label: "Petty Cash", icon: "Coins", permission: "record_petty_cash" },
