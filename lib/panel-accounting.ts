@@ -20,25 +20,33 @@ function matchesAll(value: string, tokens: string[]) {
   return tokens.every((token) => haystack.includes(token));
 }
 
+export type PanelReceivingBankTarget = "ranau_panel" | "putatan_panel";
+
 export function panelReceivingBankRequirement(branch: { code?: string | null; name?: string | null } | null | undefined) {
   const family = branchFamily(branch);
   if (family === "putatan") {
     return {
-      errorLabel: "CIMB Putatan Panel",
+      errorLabel: "CIMB Panel Putatan",
+      targetType: "putatan_panel" as PanelReceivingBankTarget,
+      tokens: ["cimb", "panel", "putatan"],
       matches(account: BankAccount) {
-        return matchesAll(account.name, ["cimb", "putatan", "panel"])
-          || matchesAll(account.bank_name ?? "", ["cimb"]) && matchesAll(account.name, ["putatan", "panel"]);
+        return matchesAll(`${account.name} ${account.bank_name ?? ""}`, ["cimb", "panel", "putatan"]);
       }
     };
   }
 
   return {
     errorLabel: "CIMB Panel Ranau",
+    targetType: "ranau_panel" as PanelReceivingBankTarget,
+    tokens: ["cimb", "panel", "ranau"],
     matches(account: BankAccount) {
-      return matchesAll(account.name, ["cimb", "ranau", "panel"])
-        || matchesAll(account.bank_name ?? "", ["cimb"]) && matchesAll(account.name, ["ranau", "panel"]);
+      return matchesAll(`${account.name} ${account.bank_name ?? ""}`, ["cimb", "panel", "ranau"]);
     }
   };
+}
+
+function isBankAccountActive(account: Pick<BankAccount, "is_active"> | (Partial<BankAccount> & { is_active?: boolean | null })) {
+  return account.is_active !== false;
 }
 
 export function panelReceivingBankAccounts(
@@ -47,10 +55,10 @@ export function panelReceivingBankAccounts(
   currentBankAccountId?: string | null
 ) {
   const requirement = panelReceivingBankRequirement(branch);
-  const matched = bankAccounts.filter((account) => account.is_active && requirement.matches(account));
+  const matched = bankAccounts.filter((account) => isBankAccountActive(account) && requirement.matches(account));
   if (!currentBankAccountId) return matched;
 
-  const current = bankAccounts.find((account) => account.id === currentBankAccountId && account.is_active);
+  const current = bankAccounts.find((account) => account.id === currentBankAccountId && isBankAccountActive(account));
   if (!current || matched.some((account) => account.id === current.id)) return matched;
   return [current, ...matched];
 }

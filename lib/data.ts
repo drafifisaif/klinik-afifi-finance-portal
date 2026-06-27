@@ -799,12 +799,7 @@ export async function getPanelPaymentBankAccounts() {
   const role = normalizeRole(profile.role);
   if (role === "owner" || role === "admin" || role === "finance") {
     const supabase = createAdminClient();
-    const [bankAccountRows, mappingRows] = await Promise.all([
-      fetchOrDemo(
-        supabase.from("bank_accounts").select("*").eq("is_active", true).order("name"),
-        bankAccounts,
-        "panel_payment_bank_accounts"
-      ),
+    const [mappingRows] = await Promise.all([
       fetchOrDemo(
         supabase
           .from("branch_bank_mappings")
@@ -814,6 +809,30 @@ export async function getPanelPaymentBankAccounts() {
         "panel_payment_branch_bank_mappings"
       )
     ]);
+
+    let bankAccountRows: BankAccount[] = [];
+    const activeQuery = await supabase.from("bank_accounts").select("*").eq("is_active", true).order("name");
+    if (activeQuery.error && (activeQuery.error.code === "42703" || activeQuery.error.message?.toLowerCase().includes("is_active"))) {
+      const fallbackQuery = await supabase.from("bank_accounts").select("id, name, bank_name, account_no").order("name");
+      if (fallbackQuery.error || !fallbackQuery.data) {
+        if (fallbackQuery.error) {
+          console.error("getPanelPaymentBankAccounts fallback failed", fallbackQuery.error);
+        }
+        bankAccountRows = bankAccounts;
+      } else {
+        bankAccountRows = fallbackQuery.data.map((account) => ({
+          ...account,
+          is_active: true
+        }));
+      }
+    } else if (activeQuery.error || !activeQuery.data) {
+      if (activeQuery.error) {
+        console.error("getPanelPaymentBankAccounts failed", activeQuery.error);
+      }
+      bankAccountRows = bankAccounts;
+    } else {
+      bankAccountRows = activeQuery.data as BankAccount[];
+    }
 
     return {
       bankAccounts: bankAccountRows as BankAccount[],

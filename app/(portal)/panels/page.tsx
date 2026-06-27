@@ -256,16 +256,24 @@ export default async function PanelsPage({ searchParams }: PanelsPageProps) {
         </div>
         <DataTable
           columns={["Date", "Panel Company", "Claim", "Branch", "Method", "Received Into", "Reference", "Amount", "Edit"]}
-          rows={data.panelPayments.map((payment) => [
-            formatDate(payment.payment_date),
-            payment.panel_companies?.name ?? "-",
-            payment.panel_claims?.claim_no ?? payment.panel_claim_id,
-            payment.branches?.name ?? "-",
-            labelize(payment.payment_type),
-            payment.bank_accounts?.name ?? "-",
-            payment.reference_no ?? "-",
-            formatCurrency(payment.amount),
-            canEditBranch(profile, payment.branch_id ?? payment.panel_claims?.branch_id ?? null) ? (
+          rows={data.panelPayments.map((payment) => {
+            const receivingAccounts = panelReceivingBankAccounts(
+              payment.branches ?? payment.panel_claims?.branches ?? null,
+              panelPaymentBanking.bankAccounts,
+              payment.bank_account_id ?? null
+            );
+            const defaultReceivingAccountId = payment.bank_account_id ?? (receivingAccounts.length === 1 ? receivingAccounts[0].id : "");
+
+            return [
+              formatDate(payment.payment_date),
+              payment.panel_companies?.name ?? "-",
+              payment.panel_claims?.claim_no ?? payment.panel_claim_id,
+              payment.branches?.name ?? "-",
+              labelize(payment.payment_type),
+              payment.bank_accounts?.name ?? "-",
+              payment.reference_no ?? "-",
+              formatCurrency(payment.amount),
+              canEditBranch(profile, payment.branch_id ?? payment.panel_claims?.branch_id ?? null) ? (
               <details className="manual-bank-editor" key={`${payment.id}-edit`}>
                 <summary>Edit</summary>
                 <form action={updatePanelPayment} className="manual-bank-edit-form">
@@ -296,23 +304,15 @@ export default async function PanelsPage({ searchParams }: PanelsPageProps) {
                   </label>
                   <label>
                     Received into bank account
-                    <select defaultValue={payment.bank_account_id ?? ""} name="bank_account_id">
+                    <select defaultValue={defaultReceivingAccountId} name="bank_account_id">
                       <option value="">Select bank account</option>
-                      {panelReceivingBankAccounts(
-                        payment.branches ?? payment.panel_claims?.branches ?? null,
-                        panelPaymentBanking.bankAccounts,
-                        payment.bank_account_id ?? null
-                      ).map((account) => (
+                      {receivingAccounts.map((account) => (
                         <option key={account.id} value={account.id}>
                           {account.name}
                         </option>
                       ))}
                     </select>
-                    {!panelReceivingBankAccounts(
-                      payment.branches ?? payment.panel_claims?.branches ?? null,
-                      panelPaymentBanking.bankAccounts,
-                      payment.bank_account_id ?? null
-                    ).length ? (
+                    {!receivingAccounts.length ? (
                       <small className="void-warning">
                         {panelReceivingBankError(payment.branches ?? payment.panel_claims?.branches ?? null)}
                       </small>
@@ -335,8 +335,9 @@ export default async function PanelsPage({ searchParams }: PanelsPageProps) {
                   </button>
                 </form>
               </details>
-            ) : "-",
-          ])}
+              ) : "-",
+            ];
+          })}
         />
       </section>
 

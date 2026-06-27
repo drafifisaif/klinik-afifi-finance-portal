@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { getAuditChangedFields, logAuditEvent } from "@/lib/audit";
 import { importConfigs, type ImportType } from "@/lib/import-config";
-import { panelReceivingBankAccounts, panelReceivingBankError } from "@/lib/panel-accounting";
+import { panelReceivingBankAccounts, panelReceivingBankError, panelReceivingBankRequirement } from "@/lib/panel-accounting";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { createClient, hasSupabaseEnv } from "@/lib/supabase-server";
 import {
@@ -17,7 +17,7 @@ import {
   requireBankAccountPermission,
   requirePermission
 } from "@/lib/permissions";
-import type { BankTransactionType, ExpenseCategory, OpeningBalanceType, OpeningBalanceVerificationStatus, PaymentType, PettyCashTransactionType, PurchaseCategory, UserRole } from "@/lib/types";
+import type { BankAccount, BankTransactionType, ExpenseCategory, OpeningBalanceType, OpeningBalanceVerificationStatus, PaymentType, PettyCashTransactionType, PurchaseCategory, UserRole } from "@/lib/types";
 
 type ImportPayload = Record<string, string | number | null>;
 
@@ -118,30 +118,79 @@ function supplierMutationErrorMessage(error: { code?: string | null; message?: s
 }
 
 async function requirePanelPaymentBankAccount(
-  supabase: Awaited<ReturnType<typeof createClient>>,
   profile: Awaited<ReturnType<typeof requirePermission>>,
   bankAccountId: string,
-  branch: { code?: string | null; name?: string | null } | null | undefined
+  branch: { code?: string | null; name?: string | null } | null | undefined,
+  branchId?: string | null
 ) {
-  const { data: bankAccounts, error: bankError } = await supabase
+  const admin = createAdminClient();
+  let appliedIsActiveFilter = true;
+  let bankAccounts: Array<{
+    id: string;
+    name: string;
+    bank_name?: string | null;
+    account_no?: string | null;
+    is_active?: boolean | null;
+  }> | null = null;
+  let bankError:
+    | {
+        code?: string;
+        message?: string;
+        details?: string;
+        hint?: string;
+      }
+    | null = null;
+
+  const activeQuery = await admin
     .from("bank_accounts")
     .select("id, name, bank_name, account_no, is_active")
     .eq("is_active", true)
     .order("name");
 
+  if (activeQuery.error && (activeQuery.error.code === "42703" || activeQuery.error.message?.toLowerCase().includes("is_active"))) {
+    appliedIsActiveFilter = false;
+    const fallbackQuery = await admin
+      .from("bank_accounts")
+      .select("id, name, bank_name, account_no")
+      .order("name");
+    bankAccounts = (fallbackQuery.data ?? []).map((account) => ({ ...account, is_active: true }));
+    bankError = fallbackQuery.error;
+  } else {
+    bankAccounts = activeQuery.data ?? [];
+    bankError = activeQuery.error;
+  }
+
   if (bankError) {
+    console.error("requirePanelPaymentBankAccount lookup failed", {
+      action: "requirePanelPaymentBankAccount",
+      branchId,
+      branchName: branch?.name ?? null,
+      branchCode: branch?.code ?? null,
+      code: bankError.code,
+      error: bankError.message,
+      details: bankError.details,
+      hint: bankError.hint,
+      isActiveFilterApplied: appliedIsActiveFilter,
+      branchIdFilterApplied: false
+    });
     throw new Error("Panel receiving bank accounts could not be loaded.");
   }
 
-  const allowedAccounts = panelReceivingBankAccounts(branch, (bankAccounts ?? []) as {
-    id: string;
-    name: string;
-    bank_name?: string | null;
-    account_no?: string | null;
-    is_active: boolean;
-  }[]);
+  const requirement = panelReceivingBankRequirement(branch);
+  const allowedAccounts = panelReceivingBankAccounts(branch, (bankAccounts ?? []) as BankAccount[]);
 
   if (!allowedAccounts.length) {
+    console.error("requirePanelPaymentBankAccount no mapped account", {
+      action: "requirePanelPaymentBankAccount",
+      branchId,
+      branchName: branch?.name ?? null,
+      branchCode: branch?.code ?? null,
+      mappedTargetType: requirement.targetType,
+      tokens: requirement.tokens,
+      availableBankAccountNames: (bankAccounts ?? []).map((account) => account.name),
+      isActiveFilterApplied: appliedIsActiveFilter,
+      branchIdFilterApplied: false
+    });
     throw new Error(panelReceivingBankError(branch));
   }
 
@@ -3500,7 +3549,7 @@ export async function createPanelPayment(formData: FormData) {
   }
   let bankAccount: { id: string; name: string; is_active: boolean } | null = null;
   if (bankAccountId) {
-    bankAccount = await requirePanelPaymentBankAccount(supabase, profile, bankAccountId, claimBranch);
+    bankAccount = await requirePanelPaymentBankAccount(profile, bankAccountId, claimBranch, claim.branch_id);
   }
 
   const { data: payment, error } = await supabase.from("panel_payments").insert({
@@ -3588,7 +3637,7 @@ export async function updatePanelPayment(formData: FormData) {
     failPanelManager("Received into bank account is required for bank-based panel payments.");
   }
   if (bankAccountId) {
-    await requirePanelPaymentBankAccount(supabase, profile, bankAccountId, claimBranch);
+    await requirePanelPaymentBankAccount(profile, bankAccountId, claimBranch, claim.branch_id);
   }
 
   const { data: updatedPayment, error } = await supabase

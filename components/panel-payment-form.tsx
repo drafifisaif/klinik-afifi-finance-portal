@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createPanelPayment } from "@/app/actions";
 import { paymentTypes } from "@/lib/constants";
 import { formatCurrency, formatDate, labelize } from "@/lib/format";
@@ -16,6 +16,7 @@ type Props = {
 
 export function PanelPaymentForm({ claims, panelCompanies, panelPayments, bankAccounts }: Props) {
   const [panelClaimId, setPanelClaimId] = useState(claims[0]?.id ?? "");
+  const [bankAccountId, setBankAccountId] = useState("");
   const [paymentType, setPaymentType] = useState<PaymentType>("bank_transfer");
   const claimById = useMemo(() => new Map(claims.map((claim) => [claim.id, claim])), [claims]);
   const companyById = useMemo(() => new Map(panelCompanies.map((company) => [company.id, company])), [panelCompanies]);
@@ -28,6 +29,15 @@ export function PanelPaymentForm({ claims, panelCompanies, panelPayments, bankAc
   const sortedBankAccounts = useMemo(() => {
     return panelReceivingBankAccounts(selectedClaim?.branches, bankAccounts);
   }, [bankAccounts, selectedClaim?.branches]);
+
+  useEffect(() => {
+    if (sortedBankAccounts.length === 1) {
+      setBankAccountId(sortedBankAccounts[0].id);
+      return;
+    }
+    if (sortedBankAccounts.some((account) => account.id === bankAccountId)) return;
+    setBankAccountId("");
+  }, [bankAccountId, sortedBankAccounts]);
 
   return (
     <form action={createPanelPayment} className="form-card">
@@ -68,7 +78,12 @@ export function PanelPaymentForm({ claims, panelCompanies, panelPayments, bankAc
       </label>
       <label>
         Received into bank account
-        <select name="bank_account_id" required={paymentType === "bank_transfer" || paymentType === "card" || paymentType === "qr"}>
+        <select
+          name="bank_account_id"
+          required={paymentType === "bank_transfer" || paymentType === "card" || paymentType === "qr"}
+          value={bankAccountId}
+          onChange={(event) => setBankAccountId(event.target.value)}
+        >
           <option value="">Select bank account</option>
           {sortedBankAccounts.map((account) => (
             <option key={account.id} value={account.id}>
