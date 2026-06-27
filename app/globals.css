@@ -628,6 +628,61 @@ textarea {
   min-width: 200px;
 }
 
+.panel-outstanding-filter-section,
+.panel-outstanding-groups {
+  width: 100%;
+}
+
+.panel-outstanding-filter {
+  align-items: end;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  display: grid;
+  gap: 14px;
+  grid-template-columns: minmax(260px, 0.8fr) auto minmax(220px, 1fr);
+  padding: 18px;
+}
+
+.panel-outstanding-entry-layout {
+  display: grid;
+  gap: 18px;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.panel-outstanding-entry-stack {
+  display: grid;
+  gap: 18px;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.panel-outstanding-entry-form {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+}
+
+.panel-outstanding-entry-form-grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.panel-outstanding-field-full {
+  grid-column: 1 / -1;
+}
+
+.panel-outstanding-actions {
+  display: flex;
+  justify-content: flex-start;
+}
+
+.panel-outstanding-actions .primary-button {
+  min-width: 200px;
+}
+
 .branch-card {
   padding: 18px;
 }
@@ -1279,6 +1334,11 @@ textarea {
   gap: 8px;
 }
 
+.ledger-branch-section {
+  display: grid;
+  gap: 14px;
+}
+
 .ledger-summary-chip {
   background: #f7fbfb;
   border: 1px solid var(--line);
@@ -1483,6 +1543,18 @@ button:disabled {
   }
 
   .supplier-management-field-full {
+    grid-column: auto;
+  }
+
+  .panel-outstanding-filter {
+    grid-template-columns: 1fr;
+  }
+
+  .panel-outstanding-entry-form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .panel-outstanding-field-full {
     grid-column: auto;
   }
 
