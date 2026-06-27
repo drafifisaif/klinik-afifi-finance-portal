@@ -3438,6 +3438,9 @@ export async function updatePanelClaim(formData: FormData) {
   const role = normalizeRole(profile.role);
   const claimId = text(formData, "claim_id");
   const branchId = text(formData, "branch_id");
+  const claimNoDebug = text(formData, "claim_no_debug");
+  const branchNameDebug = text(formData, "branch_name_debug");
+  const panelCompanyNameDebug = text(formData, "panel_company_name_debug");
 
   if (!claimId) failPanelManager("Panel claim id is missing.");
   if (!branchId) failPanelManager("Panel claim branch is required.");
@@ -3491,6 +3494,9 @@ export async function updatePanelClaim(formData: FormData) {
       role,
       claimId,
       claimNo: claim.claim_no ?? claimNo,
+      claimNoDebug,
+      branchNameDebug,
+      panelCompanyNameDebug,
       userBranchId: profile.branch_id ?? null,
       branchId: claim.branch_id,
       nextBranchId: branchId,
@@ -3530,6 +3536,9 @@ export async function voidPanelClaim(formData: FormData) {
   const role = normalizeRole(profile.role);
   const claimId = text(formData, "claim_id");
   const reason = text(formData, "void_reason");
+  const claimNoDebug = text(formData, "claim_no_debug");
+  const branchNameDebug = text(formData, "branch_name_debug");
+  const panelCompanyNameDebug = text(formData, "panel_company_name_debug");
 
   if (!claimId) failPanelManager("Panel claim id is missing.");
   if (!reason) failPanelManager("Void reason is required.");
@@ -3566,6 +3575,9 @@ export async function voidPanelClaim(formData: FormData) {
       role,
       claimId,
       claimNo: claim.claim_no ?? null,
+      claimNoDebug,
+      branchNameDebug,
+      panelCompanyNameDebug,
       userBranchId: profile.branch_id ?? null,
       branchId: claim.branch_id,
       payloadKeys: Object.keys(attemptedPayload),

@@ -1,9 +1,10 @@
 type DataTableProps = {
   columns: string[];
   rows: (string | number | React.ReactNode)[][];
+  rowKeys?: (string | number)[];
 };
 
-export function DataTable({ columns, rows }: DataTableProps) {
+export function DataTable({ columns, rows, rowKeys }: DataTableProps) {
   return (
     <div className="table-wrap">
       <table>
@@ -17,9 +18,9 @@ export function DataTable({ columns, rows }: DataTableProps) {
         <tbody>
           {rows.length ? (
             rows.map((row, rowIndex) => (
-              <tr key={rowIndex}>
+              <tr key={rowKeys?.[rowIndex] ?? rowIndex}>
                 {row.map((cell, cellIndex) => (
-                  <td key={`${rowIndex}-${cellIndex}`}>{cell}</td>
+                  <td key={`${rowKeys?.[rowIndex] ?? rowIndex}-${cellIndex}`}>{cell}</td>
                 ))}
               </tr>
             ))

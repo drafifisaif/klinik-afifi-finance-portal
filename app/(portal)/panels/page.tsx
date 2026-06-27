@@ -226,6 +226,9 @@ export default async function PanelsPage({ searchParams }: PanelsPageProps) {
                       <summary>Edit</summary>
                       <form action={updatePanelClaim} className="manual-bank-edit-form">
                         <input name="claim_id" type="hidden" value={claim.id} />
+                        <input name="claim_no_debug" type="hidden" value={claim.claim_no ?? ""} />
+                        <input name="branch_name_debug" type="hidden" value={claim.branches?.name ?? ""} />
+                        <input name="panel_company_name_debug" type="hidden" value={claim.panel_companies?.name ?? ""} />
                         <label>
                           Panel company
                           <select defaultValue={claim.panel_company_id} name="panel_company_id" required>
@@ -292,6 +295,9 @@ export default async function PanelsPage({ searchParams }: PanelsPageProps) {
                       <summary>Void</summary>
                       <form action={voidPanelClaim} className="manual-bank-edit-form void-record-form">
                         <input name="claim_id" type="hidden" value={claim.id} />
+                        <input name="claim_no_debug" type="hidden" value={claim.claim_no ?? ""} />
+                        <input name="branch_name_debug" type="hidden" value={claim.branches?.name ?? ""} />
+                        <input name="panel_company_name_debug" type="hidden" value={claim.panel_companies?.name ?? ""} />
                         <p className="void-warning">Voided panel claims stay in history and are excluded from outstanding totals.</p>
                         <label>
                           Void reason
@@ -319,6 +325,7 @@ export default async function PanelsPage({ searchParams }: PanelsPageProps) {
                     key={`${claim.id}-documents`}
                   />
                 ])}
+                    rowKeys={group.rows.map(({ claim }) => claim.id)}
                   />
                 </article>
               ))}
@@ -415,6 +422,7 @@ export default async function PanelsPage({ searchParams }: PanelsPageProps) {
               ) : "-",
             ];
           })}
+          rowKeys={data.panelPayments.map((payment) => payment.id)}
         />
       </section>
 
