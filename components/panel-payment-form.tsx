@@ -4,17 +4,17 @@ import { useMemo, useState } from "react";
 import { createPanelPayment } from "@/app/actions";
 import { paymentTypes } from "@/lib/constants";
 import { formatCurrency, formatDate, labelize } from "@/lib/format";
-import type { BankAccount, BranchBankMapping, PanelClaim, PanelCompany, PanelPayment, PaymentType } from "@/lib/types";
+import { panelReceivingBankAccounts, panelReceivingBankError } from "@/lib/panel-accounting";
+import type { BankAccount, PanelClaim, PanelCompany, PanelPayment, PaymentType } from "@/lib/types";
 
 type Props = {
   claims: PanelClaim[];
   panelCompanies: PanelCompany[];
   panelPayments: PanelPayment[];
   bankAccounts: BankAccount[];
-  branchBankMappings: BranchBankMapping[];
 };
 
-export function PanelPaymentForm({ claims, panelCompanies, panelPayments, bankAccounts, branchBankMappings }: Props) {
+export function PanelPaymentForm({ claims, panelCompanies, panelPayments, bankAccounts }: Props) {
   const [panelClaimId, setPanelClaimId] = useState(claims[0]?.id ?? "");
   const [paymentType, setPaymentType] = useState<PaymentType>("bank_transfer");
   const claimById = useMemo(() => new Map(claims.map((claim) => [claim.id, claim])), [claims]);
@@ -26,14 +26,8 @@ export function PanelPaymentForm({ claims, panelCompanies, panelPayments, bankAc
   const outstanding = Math.max(0, (selectedClaim?.amount ?? 0) - paidAmount);
   const panelName = selectedClaim ? (companyById.get(selectedClaim.panel_company_id)?.name ?? selectedClaim.panel_companies?.name ?? "-") : "-";
   const sortedBankAccounts = useMemo(() => {
-    if (!selectedClaim?.branch_id) return bankAccounts;
-    const mappedIds = new Set(
-      branchBankMappings
-        .filter((mapping) => mapping.branch_id === selectedClaim.branch_id && mapping.is_active)
-        .map((mapping) => mapping.bank_account_id)
-    );
-    return bankAccounts.filter((account) => mappedIds.has(account.id) && account.is_active);
-  }, [bankAccounts, branchBankMappings, selectedClaim?.branch_id]);
+    return panelReceivingBankAccounts(selectedClaim?.branches, bankAccounts);
+  }, [bankAccounts, selectedClaim?.branches]);
 
   return (
     <form action={createPanelPayment} className="form-card">
@@ -82,9 +76,9 @@ export function PanelPaymentForm({ claims, panelCompanies, panelPayments, bankAc
             </option>
           ))}
         </select>
-        {!sortedBankAccounts.length && selectedClaim?.branches?.name ? (
+        {!sortedBankAccounts.length && selectedClaim?.branches ? (
           <small className="void-warning">
-            No active bank account found for {selectedClaim.branches.name}. Please add/activate a bank account first.
+            {panelReceivingBankError(selectedClaim.branches)}
           </small>
         ) : null}
       </label>

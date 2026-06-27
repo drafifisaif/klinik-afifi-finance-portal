@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { getAuditChangedFields, logAuditEvent } from "@/lib/audit";
 import { importConfigs, type ImportType } from "@/lib/import-config";
+import { panelReceivingBankAccounts, panelReceivingBankError } from "@/lib/panel-accounting";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { createClient, hasSupabaseEnv } from "@/lib/supabase-server";
 import {
@@ -120,33 +121,33 @@ async function requirePanelPaymentBankAccount(
   supabase: Awaited<ReturnType<typeof createClient>>,
   profile: Awaited<ReturnType<typeof requirePermission>>,
   bankAccountId: string,
-  branchId: string,
-  branchName?: string | null
+  branch: { code?: string | null; name?: string | null } | null | undefined
 ) {
-  const { data: bankAccount, error: bankError } = await supabase
+  const { data: bankAccounts, error: bankError } = await supabase
     .from("bank_accounts")
-    .select("id, name, is_active")
-    .eq("id", bankAccountId)
+    .select("id, name, bank_name, account_no, is_active")
     .eq("is_active", true)
-    .maybeSingle();
-  if (bankError || !bankAccount) throw new Error("Selected received into bank account is not active or not available.");
+    .order("name");
 
-  const { data: mappedAccounts, error: mappingError } = await supabase
-    .from("branch_bank_mappings")
-    .select("bank_account_id")
-    .eq("branch_id", branchId)
-    .eq("is_active", true);
-
-  if (mappingError) {
-    throw new Error("Branch bank account mappings could not be checked.");
+  if (bankError) {
+    throw new Error("Panel receiving bank accounts could not be loaded.");
   }
 
-  const mappedBankAccountIds = new Set((mappedAccounts ?? []).map((row) => row.bank_account_id));
-  if (!mappedBankAccountIds.size) {
-    throw new Error(`No active bank account found for ${branchName ?? "this branch"}. Please add/activate a bank account first.`);
+  const allowedAccounts = panelReceivingBankAccounts(branch, (bankAccounts ?? []) as {
+    id: string;
+    name: string;
+    bank_name?: string | null;
+    account_no?: string | null;
+    is_active: boolean;
+  }[]);
+
+  if (!allowedAccounts.length) {
+    throw new Error(panelReceivingBankError(branch));
   }
-  if (!mappedBankAccountIds.has(bankAccountId)) {
-    throw new Error(`Selected bank account is not mapped to ${branchName ?? "this branch"}.`);
+
+  const bankAccount = allowedAccounts.find((account) => account.id === bankAccountId);
+  if (!bankAccount) {
+    throw new Error("Selected bank account is not allowed for this panel payment.");
   }
 
   const role = normalizeRole(profile.role);
@@ -3486,12 +3487,12 @@ export async function createPanelPayment(formData: FormData) {
   const supabase = await createClient();
   const { data: claim, error: claimError } = await supabase
     .from("panel_claims")
-    .select("id, branch_id, panel_company_id, is_void, branches(name)")
+    .select("id, branch_id, panel_company_id, is_void, branches(name, code)")
     .eq("id", panelClaimId)
     .maybeSingle();
   if (claimError || !claim) failPanelManager("Selected panel claim was not found.");
   if (claim.is_void) failPanelManager("Voided panel claims cannot receive panel payments.");
-  const claimBranch = firstRelation(claim.branches as { name?: string | null } | { name?: string | null }[] | null | undefined);
+  const claimBranch = firstRelation(claim.branches as { name?: string | null; code?: string | null } | { name?: string | null; code?: string | null }[] | null | undefined);
 
   const profile = await requireEditableBranch(claim.branch_id);
   if (paymentUsesBankAccount(paymentType) && !bankAccountId) {
@@ -3499,7 +3500,7 @@ export async function createPanelPayment(formData: FormData) {
   }
   let bankAccount: { id: string; name: string; is_active: boolean } | null = null;
   if (bankAccountId) {
-    bankAccount = await requirePanelPaymentBankAccount(supabase, profile, bankAccountId, claim.branch_id, claimBranch?.name ?? null);
+    bankAccount = await requirePanelPaymentBankAccount(supabase, profile, bankAccountId, claimBranch);
   }
 
   const { data: payment, error } = await supabase.from("panel_payments").insert({
@@ -3575,19 +3576,19 @@ export async function updatePanelPayment(formData: FormData) {
 
   const { data: claim, error: claimError } = await supabase
     .from("panel_claims")
-    .select("id, branch_id, is_void, branches(name)")
+    .select("id, branch_id, is_void, branches(name, code)")
     .eq("id", panelClaimId)
     .maybeSingle();
   if (claimError || !claim) failPanelManager("Selected panel claim was not found.");
   if (claim.is_void) failPanelManager("Voided panel claims cannot receive panel payments.");
-  const claimBranch = firstRelation(claim.branches as { name?: string | null } | { name?: string | null }[] | null | undefined);
+  const claimBranch = firstRelation(claim.branches as { name?: string | null; code?: string | null } | { name?: string | null; code?: string | null }[] | null | undefined);
 
   const profile = await requireEditableBranch(claim.branch_id);
   if (paymentUsesBankAccount(paymentType) && !bankAccountId) {
     failPanelManager("Received into bank account is required for bank-based panel payments.");
   }
   if (bankAccountId) {
-    await requirePanelPaymentBankAccount(supabase, profile, bankAccountId, claim.branch_id, claimBranch?.name ?? null);
+    await requirePanelPaymentBankAccount(supabase, profile, bankAccountId, claimBranch);
   }
 
   const { data: updatedPayment, error } = await supabase

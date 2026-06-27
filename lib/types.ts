@@ -241,6 +241,10 @@ export type PanelPayment = {
   reference_no?: string | null;
   notes?: string | null;
   entered_by?: string | null;
+  is_void?: boolean;
+  void_reason?: string | null;
+  voided_at?: string | null;
+  voided_by?: string | null;
   panel_claims?: (Pick<PanelClaim, "claim_no" | "branch_id"> & {
     panel_company_id?: string | null;
     branches?: Pick<Branch, "name" | "code"> | null;

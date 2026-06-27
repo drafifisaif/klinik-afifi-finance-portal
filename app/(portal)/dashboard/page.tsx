@@ -19,6 +19,7 @@ import { branchGroups, getBranchGroup, resolveSelectedBranchIds, toParamArray } 
 import { getBankingData, getDashboardData, getSupplierOutstanding, totalBy } from "@/lib/data";
 import { formatCurrency, formatDate, monthKey } from "@/lib/format";
 import { bankOpeningBalanceTotal, needsOpeningBalanceCaution, outstandingOpeningBalanceTotal } from "@/lib/opening-balances";
+import { activePanelPayments, activePanelClaims, panelClaimOutstandingAmount } from "@/lib/panel-accounting";
 import { canViewAllBranches, requirePermission } from "@/lib/permissions";
 import type { BankAccount, BankTransaction, PettyCashTransaction } from "@/lib/types";
 import {
@@ -58,6 +59,7 @@ type BankAccountSummary = {
   openingBalance: number;
   outflow: number;
   ownerDrawing: number;
+  panelPaymentsReceived: number;
   pettyCashIssued: number;
   pettyCashReturned: number;
   supplierPayments: number;
@@ -94,6 +96,7 @@ function createBankAccountSummary(account: BankAccount): BankAccountSummary {
     openingBalance: 0,
     outflow: 0,
     ownerDrawing: 0,
+    panelPaymentsReceived: 0,
     pettyCashIssued: 0,
     pettyCashReturned: 0,
     supplierPayments: 0,
@@ -195,16 +198,30 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const purchases = data.purchases.filter((purchase) => {
     return isActiveFinancialRecord(purchase) && selectedBranchIdSet.has(purchase.branch_id) && isWithinDateRange(purchase.purchase_date, range);
   });
-  const panels = data.panels.filter((panel) => selectedBranchIdSet.has(panel.branch_id) && isWithinDateRange(panel.claim_month, range));
+  const panels = activePanelClaims(
+    data.panels.filter((panel) => selectedBranchIdSet.has(panel.branch_id) && isWithinDateRange(panel.claim_month, range))
+  );
+  const panelClaimsForOutstanding = activePanelClaims(
+    data.panels.filter((panel) => selectedBranchIdSet.has(panel.branch_id) && panel.claim_month <= range.endDate)
+  );
+  const panelOutstandingPayments = activePanelPayments(
+    data.panelPayments.filter((payment) => {
+      return selectedBranchIdSet.has(payment.branch_id ?? payment.panel_claims?.branch_id ?? "")
+        && payment.payment_date <= range.endDate;
+    })
+  );
   const latestSaleDate = sales[0]?.sale_date;
   const dailySales = latestSaleDate ? sales.filter((sale) => sale.sale_date === latestSaleDate) : [];
 
   const totalSales = totalBy(sales, (sale) => money(sale.total_amount));
+  const totalPanelSales = totalBy(sales, (sale) => money(sale.panel_amount));
+  const directSales = totalSales - totalPanelSales;
+  const panelClaimsIssued = totalBy(panels, (panel) => money(panel.amount));
+  const accrualIncome = directSales + panelClaimsIssued;
   const todaySales = totalBy(dailySales, (sale) => money(sale.total_amount));
   const operatingExpenses = totalBy(expenses, (expense) => money(expense.amount));
   const purchaseCost = totalBy(purchases, (purchase) => money(purchase.total_amount));
-  const totalExpenses = operatingExpenses + purchaseCost;
-  const profit = totalSales - totalExpenses;
+  const accrualExpenses = operatingExpenses + purchaseCost;
   const panelOpeningOutstanding = outstandingOpeningBalanceTotal(
     data.openingBalances,
     "panel_outstanding",
@@ -220,8 +237,8 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     isAllSelectedBranches
   );
   const panelOutstanding = panelOpeningOutstanding + totalBy(
-    panels.filter((panel) => panel.status !== "paid"),
-    (panel) => money(panel.amount)
+    panelClaimsForOutstanding,
+    (panel) => money(panelClaimOutstandingAmount(panel, panelOutstandingPayments))
   );
   const selectedBranchLabel = selectedBranches.length > 0 ? selectedBranches.map((branch) => branch.name).join(", ") : "No branches selected";
   const filteredSupplierOutstanding = supplierOutstandingRows.filter((row) => selectedBranchIdSet.has(row.branch_id) && row.outstanding_amount > 0);
@@ -262,6 +279,10 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       && selectedBankBranchIds.has(payment.branch_id)
       && isWithinDateRange(payment.payment_date, range);
   }) ?? [];
+  const selectedPanelPayments = activePanelPayments((bankingData?.panelPayments ?? []).filter((payment) => {
+    return selectedBranchIdSet.has(payment.branch_id ?? payment.panel_claims?.branch_id ?? "")
+      && isWithinDateRange(payment.payment_date, range);
+  }));
   const selectedBankLinkedPettyCash = selectedPettyCashTransactions.filter((transaction) => {
     return transaction.bank_account_id
       && (transaction.transaction_type === "petty_cash_issued" || transaction.transaction_type === "petty_cash_returned");
@@ -286,6 +307,8 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const totalCashInHand = totalBy(cashInHandRows, (row) => row.remaining);
   const totalPettyCash = totalBy(pettyCashRows, (row) => row.balance);
   const totalPhysicalCash = totalCashInHand + totalPettyCash;
+  const panelPaymentsReceived = totalBy(selectedPanelPayments, (payment) => money(payment.amount));
+  const cashInflow = directSales + panelPaymentsReceived;
 
   const bankAccountSummaries = new Map((bankingData?.bankAccounts ?? []).map((account) => [account.id, createBankAccountSummary(account)]));
   bankAccountSummaries.forEach((summary) => {
@@ -321,8 +344,15 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     summary.outflow += amount;
     summary.supplierPayments += amount;
   });
+  selectedPanelPayments.forEach((payment) => {
+    if (!payment.bank_account_id) return;
+    const summary = bankAccountSummaries.get(payment.bank_account_id);
+    if (!summary) return;
+    const amount = money(payment.amount);
+    summary.inflow += amount;
+    summary.panelPaymentsReceived += amount;
+  });
   const bankSummaryRows = Array.from(bankAccountSummaries.values());
-  const totalBankInflow = totalBy(bankSummaryRows, (row) => row.inflow);
   const totalBankOutflow = totalBy(bankSummaryRows, (row) => row.outflow);
   const totalOwnerDrawing = totalBy(bankSummaryRows, (row) => row.ownerDrawing);
   const totalDirectSalesInflow = totalBy(bankSummaryRows, (row) => row.directSalesInflow);
@@ -332,22 +362,33 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const totalPettyCashIssued = totalBy(bankSummaryRows, (row) => row.pettyCashIssued);
   const totalPettyCashReturned = totalBy(bankSummaryRows, (row) => row.pettyCashReturned);
   const totalSupplierPaymentsOutflow = totalBy(bankSummaryRows, (row) => row.supplierPayments);
+  const cashOutflow = operatingExpenses + totalSupplierPaymentsOutflow;
+  const netCashflow = cashInflow - cashOutflow;
+  const profit = accrualIncome - accrualExpenses;
 
   const branchMetrics = selectedBranches.map((branch) => {
     const branchSalesRows = sales.filter((sale) => sale.branch_id === branch.id);
     const branchExpenseRows = expenses.filter((expense) => expense.branch_id === branch.id);
     const branchPurchaseRows = purchases.filter((purchase) => purchase.branch_id === branch.id);
     const branchSales = totalBy(branchSalesRows, (sale) => money(sale.total_amount));
+    const branchPanelSales = totalBy(branchSalesRows, (sale) => money(sale.panel_amount));
+    const branchDirectSales = branchSales - branchPanelSales;
+    const branchPanelClaims = totalBy(
+      panels.filter((panel) => panel.branch_id === branch.id),
+      (panel) => money(panel.amount)
+    );
     const branchOperatingExpenses = totalBy(branchExpenseRows, (expense) => money(expense.amount));
     const branchPurchases = totalBy(branchPurchaseRows, (purchase) => money(purchase.total_amount));
     const branchCashInHand = cashInHandByBranchId.get(branch.id)?.remaining ?? 0;
     const branchPettyCash = pettyCashByBranchId.get(branch.id)?.balance ?? 0;
+    const branchAccrualIncome = branchDirectSales + branchPanelClaims;
 
     return {
       branch,
+      accrualIncome: branchAccrualIncome,
       cashInHand: branchCashInHand,
       expenses: branchOperatingExpenses + branchPurchases,
-      netPosition: branchSales - branchOperatingExpenses - branchPurchases,
+      netPosition: branchAccrualIncome - branchOperatingExpenses - branchPurchases,
       pettyCash: branchPettyCash,
       sales: branchSales
     };
@@ -358,7 +399,13 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const monthlyProfit = new Map<string, number>();
   sales.forEach((sale) => {
     const key = monthSortKey(sale.sale_date);
-    const value = money(sale.total_amount);
+    const value = money(sale.total_amount) - money(sale.panel_amount);
+    addAmount(monthlySales, key, value);
+    addAmount(monthlyProfit, key, value);
+  });
+  panels.forEach((panel) => {
+    const key = monthSortKey(panel.claim_month);
+    const value = money(panel.amount);
     addAmount(monthlySales, key, value);
     addAmount(monthlyProfit, key, value);
   });
@@ -457,22 +504,28 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       ) : null}
 
       <section className="dashboard-grid" aria-label="Finance metrics">
-        <MetricCard icon={CreditCard} label={isLimitedDashboard ? "Daily sales" : "Total Sales"} value={formatCurrency(isLimitedDashboard ? todaySales : totalSales)} detail={isLimitedDashboard ? "Latest entered day" : range.label} />
+        {isLimitedDashboard ? (
+          <MetricCard icon={CreditCard} label="Daily sales" value={formatCurrency(todaySales)} detail="Latest entered day" />
+        ) : null}
         {!isLimitedDashboard ? (
           <>
-            <MetricCard icon={ReceiptText} label="Total Expenses" value={formatCurrency(totalExpenses)} detail="Operating expenses and purchases" tone="amber" />
-            <MetricCard icon={TrendingUp} label="Estimated Net Profit" value={formatCurrency(profit)} detail={selectedGroup.label} tone={profit >= 0 ? "teal" : "rose"} />
-            <MetricCard icon={Landmark} label="Total Bank Inflow" value={formatCurrency(totalBankInflow)} detail="Direct inflow, bank-ins, and bank movements" tone="blue" />
-            <MetricCard icon={WalletCards} label="Total Bank Outflow" value={formatCurrency(totalBankOutflow)} detail="Includes supplier payments by payment date" tone="rose" />
+            <MetricCard icon={CreditCard} label="Direct Sales" value={formatCurrency(directSales)} detail="Daily sales excluding panel claims" tone="blue" />
+            <MetricCard icon={BadgeDollarSign} label="Panel Claims Issued" value={formatCurrency(panelClaimsIssued)} detail="Accrual income from panel claims" tone="amber" />
+            <MetricCard icon={TrendingUp} label="Accrual Income" value={formatCurrency(accrualIncome)} detail="Direct sales plus panel claims issued" tone="teal" />
+            <MetricCard icon={Landmark} label="Panel Payments Received" value={formatCurrency(panelPaymentsReceived)} detail="Cash received by payment date" tone="blue" />
+            <MetricCard icon={Landmark} label="Cash Inflow" value={formatCurrency(cashInflow)} detail="Direct sales plus panel payments received" tone="blue" />
+            <MetricCard icon={ReceiptText} label="Accrual Expenses" value={formatCurrency(accrualExpenses)} detail="Operating expenses and supplier purchases" tone="amber" />
+            <MetricCard icon={WalletCards} label="Cash Outflow" value={formatCurrency(cashOutflow)} detail="Operating expenses plus supplier payments" tone="rose" />
+            <MetricCard icon={TrendingUp} label="Net Cashflow" value={formatCurrency(netCashflow)} detail={selectedGroup.label} tone={netCashflow >= 0 ? "teal" : "rose"} />
             <MetricCard icon={Banknote} label="Cash in Hand" value={formatCurrency(totalCashInHand)} detail="Cash sales less bank-ins" tone={totalCashInHand >= 0 ? "teal" : "rose"} />
             <MetricCard icon={Coins} label="Petty Cash" value={formatCurrency(totalPettyCash)} detail="Selected-period petty cash balance" tone={totalPettyCash >= 0 ? "teal" : "rose"} />
             <MetricCard icon={BadgeDollarSign} label="Total Physical Cash" value={formatCurrency(totalPhysicalCash)} detail="Cash in hand plus petty cash" tone={totalPhysicalCash >= 0 ? "teal" : "rose"} />
-            <MetricCard icon={ShieldAlert} label="Panel Outstanding" value={formatCurrency(panelOutstanding)} detail="Unpaid and partial claims" tone="rose" />
+            <MetricCard icon={ShieldAlert} label="Panel Outstanding" value={formatCurrency(panelOutstanding)} detail="Panel claims less linked panel payments" tone="rose" />
             <MetricCard icon={CircleDollarSign} label="Supplier Outstanding" value={formatCurrency(supplierOutstanding)} detail="Purchases less supplier payments" tone="amber" />
             <MetricCard icon={ShieldAlert} label="Supplier Due Soon" value={formatCurrency(supplierDueSoon)} detail="Not due and within 30 days" tone="blue" />
             <MetricCard icon={ShieldAlert} label="Supplier Overdue" value={formatCurrency(supplierOverdue)} detail="Overdue invoices only" tone="rose" />
             <MetricCard icon={ShieldAlert} label="Supplier Over 90d" value={formatCurrency(supplierOver90)} detail="High-priority overdue" tone="rose" />
-            <MetricCard icon={WalletCards} label="Owner Drawing" value={formatCurrency(totalOwnerDrawing)} detail="Manual owner drawing from bank" tone="amber" />
+            <MetricCard icon={WalletCards} label="Bank Movement Outflow" value={formatCurrency(totalBankOutflow)} detail="All bank out movements including transfers" tone="amber" />
           </>
         ) : null}
       </section>
@@ -492,8 +545,16 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
                   <dd>{selectedBranchLabel}</dd>
                 </div>
                 <div>
-                  <dt>Total sales</dt>
-                  <dd>{formatCurrency(totalSales)}</dd>
+                  <dt>Direct sales</dt>
+                  <dd>{formatCurrency(directSales)}</dd>
+                </div>
+                <div>
+                  <dt>Panel claims issued</dt>
+                  <dd>{formatCurrency(panelClaimsIssued)}</dd>
+                </div>
+                <div>
+                  <dt>Accrual income</dt>
+                  <dd>{formatCurrency(accrualIncome)}</dd>
                 </div>
                 <div>
                   <dt>Operating expenses</dt>
@@ -504,7 +565,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
                   <dd>{formatCurrency(purchaseCost)}</dd>
                 </div>
                 <div>
-                  <dt>Estimated net profit</dt>
+                  <dt>Accrual net profit</dt>
                   <dd className={profit >= 0 ? "positive" : "negative"}>{formatCurrency(profit)}</dd>
                 </div>
               </dl>
@@ -530,6 +591,10 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
                   <dd>{formatCurrency(totalPettyCashIssued)} / {formatCurrency(totalPettyCashReturned)}</dd>
                 </div>
                 <div>
+                  <dt>Panel payments received</dt>
+                  <dd>{formatCurrency(panelPaymentsReceived)}</dd>
+                </div>
+                <div>
                   <dt>Supplier payments</dt>
                   <dd>{formatCurrency(totalSupplierPaymentsOutflow)}</dd>
                 </div>
@@ -542,9 +607,9 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           </section>
 
           <section className="chart-grid mt-section" aria-label="Finance charts">
-            <BarChart rows={buildChartRows(monthlySales)} title="Monthly sales trend" tone="blue" />
+            <BarChart rows={buildChartRows(monthlySales)} title="Monthly accrual income trend" tone="blue" />
             <BarChart rows={buildChartRows(monthlyCosts)} title="Monthly expenses trend" tone="amber" />
-            <BarChart rows={buildChartRows(monthlyProfit)} title="Net profit trend" tone={profit >= 0 ? "teal" : "rose"} />
+            <BarChart rows={buildChartRows(monthlyProfit)} title="Monthly accrual net profit trend" tone={profit >= 0 ? "teal" : "rose"} />
           </section>
 
           <section className="chart-grid mt-section" aria-label="Cash and bank charts">
@@ -555,10 +620,10 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           <section className="table-section mt-section">
             <h2>Branch breakdown</h2>
             <DataTable
-              columns={["Branch", "Sales", "Expenses", "Cash in hand", "Petty cash", "Net position"]}
+              columns={["Branch", "Accrual income", "Expenses", "Cash in hand", "Petty cash", "Net position"]}
               rows={branchMetrics.map((metric) => [
                 metric.branch.name,
-                formatCurrency(metric.sales),
+                formatCurrency(metric.accrualIncome),
                 formatCurrency(metric.expenses),
                 formatCurrency(metric.cashInHand),
                 formatCurrency(metric.pettyCash),
@@ -570,7 +635,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           <section className="table-section mt-section">
             <h2>Bank summary by account</h2>
             <DataTable
-              columns={["Bank account", "Opening balance", "Opening plus movement", "Inflow", "Outflow", "Direct sales inflow", "Cash bank-in", "Manual money in", "Manual money out", "Supplier payments", "Transfer in", "Transfer out", "Petty cash issued", "Petty cash returned", "Owner drawing"]}
+              columns={["Bank account", "Opening balance", "Opening plus movement", "Inflow", "Outflow", "Direct sales inflow", "Cash bank-in", "Panel payments", "Manual money in", "Manual money out", "Supplier payments", "Transfer in", "Transfer out", "Petty cash issued", "Petty cash returned", "Owner drawing"]}
               rows={bankSummaryRows.map((row) => [
                 bankAccountLabel(row.account),
                 formatCurrency(row.openingBalance),
@@ -579,6 +644,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
                 formatCurrency(row.outflow),
                 formatCurrency(row.directSalesInflow),
                 formatCurrency(row.cashBankIn),
+                formatCurrency(row.panelPaymentsReceived),
                 formatCurrency(row.manualMoneyIn),
                 formatCurrency(row.manualMoneyOut),
                 formatCurrency(row.supplierPayments),

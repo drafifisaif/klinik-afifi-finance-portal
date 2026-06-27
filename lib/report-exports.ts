@@ -21,6 +21,7 @@ import type { CsvCell } from "@/lib/csv";
 import { getBankingData, getBankingDataForScope, getDashboardData, totalBy } from "@/lib/data";
 import { labelize } from "@/lib/format";
 import { outstandingOpeningBalanceTotal } from "@/lib/opening-balances";
+import { activePanelClaims, activePanelPayments, panelClaimOutstandingAmount } from "@/lib/panel-accounting";
 import { canViewAllBranches, normalizeRole, requireBankPositionAccess, requirePermission } from "@/lib/permissions";
 import type { BankTransactionType, BankingData, Profile } from "@/lib/types";
 
@@ -183,7 +184,12 @@ export async function dashboardSummaryCsv(searchParams: URLSearchParams): Promis
   const supplierPayments = dashboardData.supplierPayments.filter((payment) => {
     return branchMatches(payment.branch_id, selectedBranchIdSet, includeUnassigned) && isWithinDateRange(payment.payment_date, range);
   });
-  const panels = dashboardData.panels.filter((panel) => branchIds.has(panel.branch_id) && isWithinDateRange(panel.claim_month, range));
+  const panels = activePanelClaims(
+    dashboardData.panels.filter((panel) => branchIds.has(panel.branch_id) && isWithinDateRange(panel.claim_month, range))
+  );
+  const panelClaimsForOutstanding = activePanelClaims(
+    dashboardData.panels.filter((panel) => branchIds.has(panel.branch_id) && panel.claim_month <= range.endDate)
+  );
   const bankBranches = bankingData.branches.filter((branch) => branchIds.has(branch.id));
   const bankBranchIds = new Set(bankBranches.map((branch) => branch.id));
   const bankSales = bankingData.sales.filter((sale) => {
@@ -222,12 +228,20 @@ export async function dashboardSummaryCsv(searchParams: URLSearchParams): Promis
     bankingData.supplierPayments.filter((payment) => branchMatches(payment.branch_id, selectedBranchIdSet, includeUnassigned) && isWithinDateRange(payment.payment_date, range)),
     (payment) => money(payment.amount)
   );
-  const panelPaymentInflow = totalBy(
-    bankingData.panelPayments.filter((payment) => branchMatches(payment.branch_id, selectedBranchIdSet, includeUnassigned) && isWithinDateRange(payment.payment_date, range)),
-    (payment) => money(payment.amount)
+  const panelPayments = activePanelPayments(
+    bankingData.panelPayments.filter((payment) => branchMatches(payment.branch_id, selectedBranchIdSet, includeUnassigned) && isWithinDateRange(payment.payment_date, range))
   );
+  const panelOutstandingPayments = activePanelPayments(
+    bankingData.panelPayments.filter((payment) => branchMatches(payment.branch_id, selectedBranchIdSet, includeUnassigned) && payment.payment_date <= range.endDate)
+  );
+  const panelPaymentInflow = totalBy(panelPayments, (payment) => money(payment.amount));
   const totalSales = totalBy(sales, (sale) => money(sale.total_amount));
-  const totalExpenses = totalBy(expenses, (expense) => money(expense.amount)) + totalBy(purchases, (purchase) => money(purchase.total_amount));
+  const directSales = totalSales - totalBy(sales, (sale) => money(sale.panel_amount));
+  const panelClaimsIssued = totalBy(panels, (panel) => money(panel.amount));
+  const accrualIncome = directSales + panelClaimsIssued;
+  const operatingExpenses = totalBy(expenses, (expense) => money(expense.amount));
+  const supplierPurchases = totalBy(purchases, (purchase) => money(purchase.total_amount));
+  const accrualExpenses = operatingExpenses + supplierPurchases;
   const totalCashInHand = totalBy(cashInHandRows, (row) => row.remaining);
   const totalPettyCash = totalBy(pettyCashRows, (row) => row.balance);
   const supplierOutstanding = Math.max(
@@ -237,7 +251,9 @@ export async function dashboardSummaryCsv(searchParams: URLSearchParams): Promis
       - totalBy(supplierPayments, (payment) => money(payment.amount))
   );
   const panelOutstanding = outstandingOpeningBalanceTotal(dashboardData.openingBalances, "panel_outstanding", selectedBranchIdSet, range.endDate, includeUnassigned)
-    + totalBy(panels.filter((panel) => panel.status !== "paid"), (panel) => money(panel.amount));
+    + totalBy(panelClaimsForOutstanding, (panel) => money(panelClaimOutstandingAmount(panel, panelOutstandingPayments)));
+  const cashInflow = directSales + panelPaymentInflow;
+  const cashOutflow = operatingExpenses + supplierPaymentOutflow;
   const bankInflow = directSalesInflow + totalCashBankIn + manualMoneyIn + transferIn + pettyCashReturned + panelPaymentInflow;
   const bankOutflow = manualMoneyOut + ownerDrawing + transferOut + pettyCashIssued + supplierPaymentOutflow;
   const metadata = [range.label, range.startDate, range.endDate, labelBranches(branches.map((branch) => branch.name))];
@@ -246,11 +262,20 @@ export async function dashboardSummaryCsv(searchParams: URLSearchParams): Promis
     filename: "owner-dashboard-summary.csv",
     headers: ["Metric", "Amount", "Date Range", "Start Date", "End Date", "Branches"],
     rows: [
-      ["Total Sales", totalSales, ...metadata],
-      ["Total Expenses", totalExpenses, ...metadata],
-      ["Estimated Net Profit", totalSales - totalExpenses, ...metadata],
-      ["Total Bank Inflow", bankInflow, ...metadata],
-      ["Total Bank Outflow", bankOutflow, ...metadata],
+      ["Direct Sales", directSales, ...metadata],
+      ["Panel Claims Issued", panelClaimsIssued, ...metadata],
+      ["Accrual Income", accrualIncome, ...metadata],
+      ["Operating Expenses", operatingExpenses, ...metadata],
+      ["Supplier Purchases", supplierPurchases, ...metadata],
+      ["Accrual Expenses", accrualExpenses, ...metadata],
+      ["Accrual Net Profit", accrualIncome - accrualExpenses, ...metadata],
+      ["Panel Payments Received", panelPaymentInflow, ...metadata],
+      ["Cash Inflow", cashInflow, ...metadata],
+      ["Supplier Payments", supplierPaymentOutflow, ...metadata],
+      ["Cash Outflow", cashOutflow, ...metadata],
+      ["Net Cashflow", cashInflow - cashOutflow, ...metadata],
+      ["Bank Movement Inflow", bankInflow, ...metadata],
+      ["Bank Movement Outflow", bankOutflow, ...metadata],
       ["Cash in Hand", totalCashInHand, ...metadata],
       ["Petty Cash", totalPettyCash, ...metadata],
       ["Total Physical Cash", totalCashInHand + totalPettyCash, ...metadata],

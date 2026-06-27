@@ -7,9 +7,9 @@ import { PanelPaymentForm } from "@/components/panel-payment-form";
 import { getDashboardData, getPanelCompanies, getPanelPaymentBankAccounts, totalBy } from "@/lib/data";
 import { formatCurrency, formatDate, labelize } from "@/lib/format";
 import { outstandingOpeningBalanceTotal } from "@/lib/opening-balances";
+import { activePanelClaims, panelClaimDisplayStatus, panelClaimOutstandingAmount, panelPaymentsByClaimId, panelReceivingBankAccounts, panelReceivingBankError } from "@/lib/panel-accounting";
 import { canEditBranch, hasPermission, normalizeRole, requirePermission } from "@/lib/permissions";
 import { getTransactionDocuments } from "@/lib/transaction-documents";
-import type { BankAccount, BranchBankMapping } from "@/lib/types";
 import { Building, CalendarClock, FileClock, ShieldCheck } from "lucide-react";
 
 type PanelsPageProps = {
@@ -33,16 +33,6 @@ function panelClaimPriority(status: string, dueDate?: string | null, outstanding
   return 1;
 }
 
-function branchBankAccountOptions(branchId: string | null | undefined, bankAccounts: BankAccount[], branchBankMappings: BranchBankMapping[]) {
-  if (!branchId) return [] as BankAccount[];
-  const mappedIds = new Set(
-    branchBankMappings
-      .filter((mapping) => mapping.branch_id === branchId && mapping.is_active)
-      .map((mapping) => mapping.bank_account_id)
-  );
-  return bankAccounts.filter((account) => mappedIds.has(account.id) && account.is_active);
-}
-
 export default async function PanelsPage({ searchParams }: PanelsPageProps) {
   const profile = await requirePermission("view_panel_records");
   const data = await getDashboardData();
@@ -55,17 +45,14 @@ export default async function PanelsPage({ searchParams }: PanelsPageProps) {
   const role = normalizeRole(profile.role);
   const canManageMasterData = hasPermission(profile, "edit_finance") && role !== "branch_pic";
   const canDeleteDocuments = role !== "branch_pic";
-  const totalClaims = totalBy(data.panels.filter((claim) => !claim.is_void), (claim) => claim.amount);
-  const panelPaymentsByClaimId = new Map<string, number>();
-  data.panelPayments.forEach((payment) => {
-    panelPaymentsByClaimId.set(payment.panel_claim_id, (panelPaymentsByClaimId.get(payment.panel_claim_id) ?? 0) + payment.amount);
-  });
+  const totalClaims = totalBy(activePanelClaims(data.panels), (claim) => claim.amount);
+  const claimPaidTotals = panelPaymentsByClaimId(data.panelPayments);
   const openingOutstanding = outstandingOpeningBalanceTotal(data.openingBalances, "panel_outstanding");
   const outstanding = openingOutstanding + totalBy(
-    data.panels.filter((claim) => !claim.is_void && claim.status !== "paid"),
-    (claim) => claim.amount
+    activePanelClaims(data.panels),
+    (claim) => panelClaimOutstandingAmount(claim, data.panelPayments)
   );
-  const unpaid = data.panels.filter((claim) => !claim.is_void && claim.status === "unpaid").length;
+  const unpaid = activePanelClaims(data.panels).filter((claim) => panelClaimDisplayStatus(claim, data.panelPayments) === "unpaid").length;
   const groupedClaims = Array.from(
     data.panels.reduce<Map<string, typeof data.panels>>((groups, claim) => {
       const key = claim.panel_company_id;
@@ -76,17 +63,9 @@ export default async function PanelsPage({ searchParams }: PanelsPageProps) {
     }, new Map())
   ).map(([panelCompanyId, claims]) => {
     const rows = claims.map((claim) => {
-      const paidAmount = panelPaymentsByClaimId.get(claim.id) ?? 0;
-      const balanceAmount = claim.is_void ? 0 : Math.max(0, claim.amount - paidAmount);
-      const displayStatus = claim.is_void
-        ? "voided"
-        : balanceAmount <= 0
-          ? "paid"
-          : claim.status === "partial" || paidAmount > 0
-            ? "partial"
-            : claim.status === "paid"
-              ? "paid"
-              : "unpaid";
+      const paidAmount = claimPaidTotals.get(claim.id) ?? 0;
+      const balanceAmount = panelClaimOutstandingAmount(claim, data.panelPayments);
+      const displayStatus = panelClaimDisplayStatus(claim, data.panelPayments);
       return {
         balanceAmount,
         claim,
@@ -110,7 +89,7 @@ export default async function PanelsPage({ searchParams }: PanelsPageProps) {
       paidCount: rows.filter((row) => row.displayStatus === "paid").length,
       partialCount: rows.filter((row) => row.displayStatus === "partial").length,
       rows,
-      totalAmount: totalBy(rows, (row) => row.claim.amount),
+      totalAmount: totalBy(rows.filter((row) => row.displayStatus !== "voided"), (row) => row.claim.amount),
       unpaidCount: rows.filter((row) => row.displayStatus === "unpaid").length,
       voidedCount: rows.filter((row) => row.displayStatus === "voided").length
     };
@@ -126,7 +105,7 @@ export default async function PanelsPage({ searchParams }: PanelsPageProps) {
 
       <section className="dashboard-grid">
         <MetricCard icon={ShieldCheck} label="Total claims" value={formatCurrency(totalClaims)} />
-        <MetricCard icon={FileClock} label="Outstanding" value={formatCurrency(outstanding)} detail="Opening balance plus unpaid claims" tone="blue" />
+        <MetricCard icon={FileClock} label="Outstanding" value={formatCurrency(outstanding)} detail="Opening balance plus claims less linked payments" tone="blue" />
         <MetricCard icon={CalendarClock} label="Unpaid claims" value={String(unpaid)} tone="amber" />
         <MetricCard icon={Building} label="Panel companies" value={String(panelCompanies.length)} tone="rose" />
       </section>
@@ -319,23 +298,23 @@ export default async function PanelsPage({ searchParams }: PanelsPageProps) {
                     Received into bank account
                     <select defaultValue={payment.bank_account_id ?? ""} name="bank_account_id">
                       <option value="">Select bank account</option>
-                      {branchBankAccountOptions(
-                        payment.branch_id ?? payment.panel_claims?.branch_id ?? null,
+                      {panelReceivingBankAccounts(
+                        payment.branches ?? payment.panel_claims?.branches ?? null,
                         panelPaymentBanking.bankAccounts,
-                        panelPaymentBanking.branchBankMappings
+                        payment.bank_account_id ?? null
                       ).map((account) => (
                         <option key={account.id} value={account.id}>
                           {account.name}
                         </option>
                       ))}
                     </select>
-                    {!branchBankAccountOptions(
-                      payment.branch_id ?? payment.panel_claims?.branch_id ?? null,
+                    {!panelReceivingBankAccounts(
+                      payment.branches ?? payment.panel_claims?.branches ?? null,
                       panelPaymentBanking.bankAccounts,
-                      panelPaymentBanking.branchBankMappings
+                      payment.bank_account_id ?? null
                     ).length ? (
                       <small className="void-warning">
-                        No active bank account found for {payment.branches?.name ?? "this branch"}. Please add/activate a bank account first.
+                        {panelReceivingBankError(payment.branches ?? payment.panel_claims?.branches ?? null)}
                       </small>
                     ) : null}
                   </label>
@@ -428,7 +407,6 @@ export default async function PanelsPage({ searchParams }: PanelsPageProps) {
             panelCompanies={panelCompanies}
             panelPayments={data.panelPayments}
             bankAccounts={panelPaymentBanking.bankAccounts}
-            branchBankMappings={panelPaymentBanking.branchBankMappings}
           />
 
           {canManageMasterData ? (
