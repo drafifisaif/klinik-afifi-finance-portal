@@ -459,6 +459,34 @@ export async function cashInHandCsv(searchParams: URLSearchParams): Promise<CsvE
   };
 }
 
+export async function cashBankInsCsv(searchParams: URLSearchParams): Promise<CsvExport> {
+  await requirePermission("record_cash_bank_in");
+  const data = await getBankingData();
+  const bankAccountById = getBankAccountById(data);
+  const selectedBranchId = param(searchParams, "branch_id") ?? param(searchParams, "branch") ?? "all";
+
+  const rows = data.cashBankIns.filter((bankIn) => {
+    return isActiveFinancialRecord(bankIn)
+      && matchesOptionalDate(bankIn.bank_in_date, searchParams)
+      && (selectedBranchId === "all" || bankIn.branch_id === selectedBranchId);
+  }).map((bankIn) => [
+    bankIn.bank_in_date,
+    branchLabel(bankIn.branches),
+    bankAccountLabel(bankIn.bank_accounts ?? bankAccountById.get(bankIn.bank_account_id)),
+    bankIn.amount,
+    bankIn.reference_no ?? "",
+    bankIn.notes ?? "",
+    bankIn.entered_by ?? "",
+    bankIn.is_void ? "Voided" : "Active"
+  ]);
+
+  return {
+    filename: "cash-bank-ins.csv",
+    headers: ["Date", "Branch", "Bank Account", "Amount", "Reference", "Notes", "Entered By", "Status"],
+    rows
+  };
+}
+
 export async function auditTrailCsv(searchParams: URLSearchParams): Promise<CsvExport> {
   const profile = await requirePermission("view_audit_trail");
   if (!profile) throw new ExportForbiddenError("Audit trail export requires an active profile.");

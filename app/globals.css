@@ -683,6 +683,33 @@ textarea {
   min-width: 200px;
 }
 
+.petty-cash-entry-layout,
+.cash-bank-in-entry-layout {
+  display: grid;
+  gap: 18px;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.petty-cash-entry-form,
+.cash-bank-in-entry-form {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+}
+
+.cash-bank-in-filter {
+  align-items: end;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  display: grid;
+  gap: 14px;
+  grid-template-columns: minmax(180px, 0.8fr) minmax(180px, 0.8fr) minmax(180px, 0.8fr) minmax(180px, 0.8fr) auto minmax(220px, 1fr);
+  padding: 18px;
+}
+
 .branch-card {
   padding: 18px;
 }
@@ -1556,6 +1583,10 @@ button:disabled {
 
   .panel-outstanding-field-full {
     grid-column: auto;
+  }
+
+  .cash-bank-in-filter {
+    grid-template-columns: 1fr;
   }
 
   .nav-item,

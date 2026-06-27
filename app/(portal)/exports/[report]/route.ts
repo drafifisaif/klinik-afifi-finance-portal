@@ -1,6 +1,7 @@
 import { stringifyCsv } from "@/lib/csv";
 import {
   auditTrailCsv,
+  cashBankInsCsv,
   bankMovementCsv,
   cashInHandCsv,
   dailySalesCsv,
@@ -17,6 +18,7 @@ type ExportRouteProps = {
 const exportHandlers = {
   audit: auditTrailCsv,
   bank: bankMovementCsv,
+  "cash-bank-ins": cashBankInsCsv,
   "cash-in-hand": cashInHandCsv,
   dashboard: dashboardSummaryCsv,
   expenses: expensesCsv,

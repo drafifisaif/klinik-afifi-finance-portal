@@ -19,12 +19,13 @@ import {
 import { getBankingData, getBranchPicCashBankInTarget, totalBy } from "@/lib/data";
 import { userDisplayLabel } from "@/lib/display";
 import { formatCurrency, formatDate } from "@/lib/format";
-import { hasBankAccountPermission, normalizeRole, requirePermission } from "@/lib/permissions";
+import { canViewAllBranches, hasBankAccountPermission, normalizeRole, requirePermission } from "@/lib/permissions";
 import { getTransactionDocuments } from "@/lib/transaction-documents";
 import { getVisibleProfilesById } from "@/lib/users";
 import { Banknote, Landmark, WalletCards } from "lucide-react";
 
 type CashBankInsSearchParams = {
+  branch?: string;
   end?: string;
   period?: string;
   start?: string;
@@ -39,6 +40,7 @@ export default async function CashBankInsPage({ searchParams }: { searchParams: 
   const params = await searchParams;
   const range = resolveDateRange(params);
   const role = normalizeRole(profile.role);
+  const canSelectBranches = canViewAllBranches(profile);
   const [data, branchPicTarget] = await Promise.all([
     getBankingData(),
     role === "branch_pic"
@@ -55,6 +57,12 @@ export default async function CashBankInsPage({ searchParams }: { searchParams: 
     : data.bankAccounts;
   const bankAccountById = getBankAccountById(data);
   const branchById = getBranchById(data);
+  const visibleBranchIds = new Set(data.branches.map((branch) => branch.id));
+  const effectiveBranchId = canSelectBranches && params.branch && visibleBranchIds.has(params.branch)
+    ? params.branch
+    : !canSelectBranches
+      ? profile.branch_id ?? data.branches[0]?.id ?? null
+      : null;
   const ownBranch = branchPicTarget.branch;
   const ownBranchMapping = branchPicTarget.mapping;
   const ownBranchBankAccount = branchPicTarget.bankAccount;
@@ -63,14 +71,30 @@ export default async function CashBankInsPage({ searchParams }: { searchParams: 
   const canCreateCashBankIn = role === "branch_pic"
     ? !branchPicMissingBranch && !branchPicMissingMapping
     : Boolean(data.branches.length && destinationBankAccounts.length);
-  const selectedBankIns = data.cashBankIns.filter((bankIn) => isWithinDateRange(bankIn.bank_in_date, range));
+  const selectedBankIns = data.cashBankIns.filter((bankIn) => {
+    return isWithinDateRange(bankIn.bank_in_date, range) && (!effectiveBranchId || bankIn.branch_id === effectiveBranchId);
+  });
   const visibleUsers = await getVisibleProfilesById(selectedBankIns.flatMap((bankIn) => [bankIn.entered_by, bankIn.voided_by]));
   const userById = new Map(visibleUsers.map((user) => [user.id, user]));
   const bankInDocuments = await getTransactionDocuments("cash_bank_ins", selectedBankIns.map((bankIn) => bankIn.id));
-  const cashInHandRows = buildCashInHandRows(data, range);
+  const cashInHandRows = buildCashInHandRows(data, range).filter((row) => !effectiveBranchId || row.branch.id === effectiveBranchId);
   const totalCashSales = totalBy(cashInHandRows, (row) => row.cashSales);
   const totalBankedIn = totalBy(cashInHandRows, (row) => row.bankedIn);
   const totalCashInHand = totalBy(cashInHandRows, (row) => row.remaining);
+  const pendingBankIn = Math.max(0, totalCashSales - totalBankedIn);
+  const branchGroups = cashInHandRows.map((row) => ({
+    balanceRow: row,
+    branchId: row.branch.id,
+    branchLabel: row.branch.name,
+    records: selectedBankIns.filter((bankIn) => bankIn.branch_id === row.branch.id)
+  }));
+  const selectedBranchLabel = effectiveBranchId
+    ? (data.branches.find((branch) => branch.id === effectiveBranchId)?.name ?? "Selected branch")
+    : "All Branches";
+  const exportParams = {
+    ...params,
+    ...(effectiveBranchId ? { branch_id: effectiveBranchId, branch: effectiveBranchId } : {})
+  };
 
   return (
     <>
@@ -81,15 +105,57 @@ export default async function CashBankInsPage({ searchParams }: { searchParams: 
       />
 
       <section className="dashboard-grid">
-        <MetricCard icon={Banknote} label="Cash sales" value={formatCurrency(totalCashSales)} detail={range.label} />
-        <MetricCard icon={Landmark} label="Cash banked in" value={formatCurrency(totalBankedIn)} detail="Not counted as sales" tone="blue" />
+        <MetricCard icon={Landmark} label="Total bank-in" value={formatCurrency(totalBankedIn)} detail={selectedBranchLabel} tone="blue" />
+        <MetricCard icon={Banknote} label="Cash pending bank-in" value={formatCurrency(pendingBankIn)} detail={range.label} tone={pendingBankIn > 0 ? "amber" : "teal"} />
         <MetricCard icon={WalletCards} label="Cash in hand" value={formatCurrency(totalCashInHand)} detail="Cash sales minus bank-ins" tone={totalCashInHand >= 0 ? "teal" : "rose"} />
+        <MetricCard icon={Banknote} label="Bank-in count" value={String(selectedBankIns.length)} tone="rose" />
+      </section>
+
+      <section className="table-section mt-section">
+        <form className="reporting-filter cash-bank-in-filter" method="get">
+          {canSelectBranches ? (
+            <label>
+              Branch
+              <select defaultValue={effectiveBranchId ?? "all"} name="branch">
+                <option value="all">All Branches</option>
+                {data.branches.map((branch) => (
+                  <option key={branch.id} value={branch.id}>
+                    {branch.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : (
+            <input name="branch" type="hidden" value={effectiveBranchId ?? ""} />
+          )}
+          <label>
+            Date filter
+            <select name="period" defaultValue={range.period}>
+              <option value="today">Today</option>
+              <option value="this_month">This month</option>
+              <option value="last_month">Last month</option>
+              <option value="custom">Custom date range</option>
+            </select>
+          </label>
+          <label>
+            Start date
+            <input name="start" type="date" defaultValue={range.startDate} />
+          </label>
+          <label>
+            End date
+            <input name="end" type="date" defaultValue={range.endDate} />
+          </label>
+          <button className="primary-button" type="submit">
+            Apply
+          </button>
+          <p className="selected-branches">Showing {selectedBranchLabel} · {range.label}</p>
+        </form>
       </section>
 
       <section className="table-section mt-section">
         <div className="report-toolbar">
           <h2>Cash in hand report</h2>
-          <ExportCsvLink label="Export cash CSV" report="cash-in-hand" searchParams={params} />
+          <ExportCsvLink label="Export cash CSV" report="cash-in-hand" searchParams={exportParams} />
         </div>
         <DataTable
           columns={["Branch", "Opening balance", "Total cash sales", "Total cash banked in", "Remaining cash in hand"]}
@@ -103,8 +169,8 @@ export default async function CashBankInsPage({ searchParams }: { searchParams: 
         />
       </section>
 
-      <section className="section-grid mt-section">
-        <form action={createCashBankIn} className="form-card">
+      <section className="cash-bank-in-entry-layout mt-section">
+        <form action={createCashBankIn} className="form-card cash-bank-in-entry-form">
           <h2>Record cash bank-in</h2>
           <label>
             Bank-in date
@@ -149,118 +215,116 @@ export default async function CashBankInsPage({ searchParams }: { searchParams: 
           {branchPicMissingMapping ? <p className="muted-copy">No destination bank account is mapped for your branch. Please contact Owner/Admin.</p> : null}
           {role !== "branch_pic" && !destinationBankAccounts.length ? <p className="muted-copy">No editable bank accounts are assigned to your user.</p> : null}
         </form>
-
-        <form className="form-card" method="get">
-          <h2>Cash in hand filter</h2>
-          <label>
-            Date filter
-            <select name="period" defaultValue={range.period}>
-              <option value="today">Today</option>
-              <option value="this_month">This month</option>
-              <option value="last_month">Last month</option>
-              <option value="custom">Custom date range</option>
-            </select>
-          </label>
-          <label>
-            Start date
-            <input name="start" type="date" defaultValue={range.startDate} />
-          </label>
-          <label>
-            End date
-            <input name="end" type="date" defaultValue={range.endDate} />
-          </label>
-          <button className="primary-button" type="submit">
-            Apply
-          </button>
-        </form>
       </section>
 
       <section className="table-section mt-section">
-        <h2>Cash bank-in entries</h2>
-        <DataTable
-          columns={["Date", "Branch", "Destination bank account", "Amount", "Reference", "Notes", "Documents", "Status", "View details", "Edit", "Void"]}
-          rows={selectedBankIns.map((bankIn) => {
-            const canCorrectBankIn = !bankIn.is_void
-              && (role === "owner" || role === "admin" || role === "finance")
-              && hasBankAccountPermission(profile, data.bankAccountPermissions, bankIn.bank_account_id, "edit_transaction");
+        <div className="report-toolbar">
+          <h2>Cash bank-in entries</h2>
+          <ExportCsvLink label="Export bank-in CSV" report="cash-bank-ins" searchParams={exportParams} />
+        </div>
+        <div className="ledger-group-list">
+          {branchGroups.map((group) => (
+            <article className="ledger-group-card" key={group.branchId}>
+              <div className="ledger-group-header">
+                <div>
+                  <h3>{group.branchLabel}</h3>
+                  <p>{group.records.length} bank-in records</p>
+                </div>
+                <div className="ledger-group-summary">
+                  <span className="ledger-summary-chip">Opening {formatCurrency(group.balanceRow.openingBalance)}</span>
+                  <span className="ledger-summary-chip">Cash sales {formatCurrency(group.balanceRow.cashSales)}</span>
+                  <span className="ledger-summary-chip">Banked in {formatCurrency(group.balanceRow.bankedIn)}</span>
+                  <span className="ledger-summary-chip">Cash in hand {formatCurrency(group.balanceRow.remaining)}</span>
+                </div>
+              </div>
+              <DataTable
+                columns={["Date", "Branch", "Destination bank account", "Amount", "Reference", "Notes", "Documents", "Status", "View details", "Edit", "Void"]}
+                rowKeys={group.records.map((bankIn) => bankIn.id)}
+                rows={group.records.map((bankIn) => {
+                  const canCorrectBankIn = !bankIn.is_void
+                    && (role === "owner" || role === "admin" || role === "finance")
+                    && hasBankAccountPermission(profile, data.bankAccountPermissions, bankIn.bank_account_id, "edit_transaction");
 
-            return [
-              formatDate(bankIn.bank_in_date),
-              branchLabel(bankIn.branches ?? branchById.get(bankIn.branch_id)),
-              bankAccountLabel(bankIn.bank_accounts ?? bankAccountById.get(bankIn.bank_account_id)),
-              formatCurrency(bankInAmount(bankIn)),
-              bankIn.reference_no ?? "-",
-              bankIn.notes ?? "-",
-              <DocumentManager
-                canDelete={role !== "branch_pic"}
-                documents={bankInDocuments.get(bankIn.id) ?? []}
-                entityId={bankIn.id}
-                entityName="cash_bank_ins"
-                key={`${bankIn.id}-documents`}
-              />,
-              <span className={`status-pill ${bankIn.is_void ? "status-voided" : "status-paid"}`} key={`${bankIn.id}-status`}>
-                {bankIn.is_void ? "VOIDED" : "Active"}
-              </span>,
-              <FinanceRecordDetails
-                enteredBy={userDisplayLabel(userById.get(bankIn.entered_by ?? ""), bankIn.entered_by)}
-                key={`${bankIn.id}-details`}
-                originalSummary={`Cash Bank-In • ${branchLabel(bankIn.branches ?? branchById.get(bankIn.branch_id))} • ${bankAccountLabel(bankIn.bank_accounts ?? bankAccountById.get(bankIn.bank_account_id))} • ${formatDate(bankIn.bank_in_date)} • ${formatCurrency(bankInAmount(bankIn))}`}
-                recordId={bankIn.id}
-                status={bankIn.is_void ? "Voided" : "Active"}
-                voidReason={bankIn.void_reason}
-                voidedAt={bankIn.voided_at}
-                voidedBy={userDisplayLabel(userById.get(bankIn.voided_by ?? ""), bankIn.voided_by)}
-              />,
-              canCorrectBankIn ? (
-                <details className="manual-bank-editor" key={`${bankIn.id}-edit`}>
-                  <summary>Edit</summary>
-                  <form action={updateCashBankIn} className="manual-bank-edit-form">
-                    <input name="bank_in_id" type="hidden" value={bankIn.id} />
-                    <label>
-                      Date
-                      <input name="bank_in_date" type="date" defaultValue={bankIn.bank_in_date} required />
-                    </label>
-                    <label>
-                      Amount
-                      <input name="amount" min="0.01" step="0.01" type="number" defaultValue={bankIn.amount} required />
-                    </label>
-                    <label>
-                      Reference
-                      <input name="reference_no" defaultValue={bankIn.reference_no ?? ""} />
-                    </label>
-                    <label>
-                      Notes
-                      <textarea name="notes" defaultValue={bankIn.notes ?? ""} />
-                    </label>
-                    <button className="primary-button compact-button" type="submit">
-                      Save
-                    </button>
-                  </form>
-                </details>
-              ) : (
-                "-"
-              ),
-              canCorrectBankIn ? (
-                <details className="manual-bank-editor" key={`${bankIn.id}-void`}>
-                  <summary>Void</summary>
-                  <form action={voidCashBankIn} className="manual-bank-edit-form void-record-form">
-                    <input name="bank_in_id" type="hidden" value={bankIn.id} />
-                    <p className="void-warning">Voided records stay in history and are excluded from reports.</p>
-                    <label>
-                      Void reason
-                      <textarea name="void_reason" required />
-                    </label>
-                    <button className="primary-button compact-button" type="submit">
-                      Confirm void
-                    </button>
-                  </form>
-                </details>
-              ) : (
-                "-"
-              )
-            ];
-          })}
-        />
+                  return [
+                    formatDate(bankIn.bank_in_date),
+                    branchLabel(bankIn.branches ?? branchById.get(bankIn.branch_id)),
+                    bankAccountLabel(bankIn.bank_accounts ?? bankAccountById.get(bankIn.bank_account_id)),
+                    formatCurrency(bankInAmount(bankIn)),
+                    bankIn.reference_no ?? "-",
+                    bankIn.notes ?? "-",
+                    <DocumentManager
+                      canDelete={role !== "branch_pic"}
+                      documents={bankInDocuments.get(bankIn.id) ?? []}
+                      entityId={bankIn.id}
+                      entityName="cash_bank_ins"
+                      key={`${bankIn.id}-documents`}
+                    />,
+                    <span className={`status-pill ${bankIn.is_void ? "status-voided" : "status-paid"}`} key={`${bankIn.id}-status`}>
+                      {bankIn.is_void ? "VOIDED" : "Active"}
+                    </span>,
+                    <FinanceRecordDetails
+                      enteredBy={userDisplayLabel(userById.get(bankIn.entered_by ?? ""), bankIn.entered_by)}
+                      key={`${bankIn.id}-details`}
+                      originalSummary={`Cash Bank-In • ${branchLabel(bankIn.branches ?? branchById.get(bankIn.branch_id))} • ${bankAccountLabel(bankIn.bank_accounts ?? bankAccountById.get(bankIn.bank_account_id))} • ${formatDate(bankIn.bank_in_date)} • ${formatCurrency(bankInAmount(bankIn))}`}
+                      recordId={bankIn.id}
+                      status={bankIn.is_void ? "Voided" : "Active"}
+                      voidReason={bankIn.void_reason}
+                      voidedAt={bankIn.voided_at}
+                      voidedBy={userDisplayLabel(userById.get(bankIn.voided_by ?? ""), bankIn.voided_by)}
+                    />,
+                    canCorrectBankIn ? (
+                      <details className="manual-bank-editor" key={`${bankIn.id}-edit`}>
+                        <summary>Edit</summary>
+                        <form action={updateCashBankIn} className="manual-bank-edit-form">
+                          <input name="bank_in_id" type="hidden" value={bankIn.id} />
+                          <label>
+                            Date
+                            <input name="bank_in_date" type="date" defaultValue={bankIn.bank_in_date} required />
+                          </label>
+                          <label>
+                            Amount
+                            <input name="amount" min="0.01" step="0.01" type="number" defaultValue={bankIn.amount} required />
+                          </label>
+                          <label>
+                            Reference
+                            <input name="reference_no" defaultValue={bankIn.reference_no ?? ""} />
+                          </label>
+                          <label>
+                            Notes
+                            <textarea name="notes" defaultValue={bankIn.notes ?? ""} />
+                          </label>
+                          <button className="primary-button compact-button" type="submit">
+                            Save
+                          </button>
+                        </form>
+                      </details>
+                    ) : (
+                      "-"
+                    ),
+                    canCorrectBankIn ? (
+                      <details className="manual-bank-editor" key={`${bankIn.id}-void`}>
+                        <summary>Void</summary>
+                        <form action={voidCashBankIn} className="manual-bank-edit-form void-record-form">
+                          <input name="bank_in_id" type="hidden" value={bankIn.id} />
+                          <p className="void-warning">Voided records stay in history and are excluded from reports.</p>
+                          <label>
+                            Void reason
+                            <textarea name="void_reason" required />
+                          </label>
+                          <button className="primary-button compact-button" type="submit">
+                            Confirm void
+                          </button>
+                        </form>
+                      </details>
+                    ) : (
+                      "-"
+                    )
+                  ];
+                })}
+              />
+            </article>
+          ))}
+        </div>
       </section>
     </>
   );
