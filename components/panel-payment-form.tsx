@@ -4,16 +4,17 @@ import { useMemo, useState } from "react";
 import { createPanelPayment } from "@/app/actions";
 import { paymentTypes } from "@/lib/constants";
 import { formatCurrency, formatDate, labelize } from "@/lib/format";
-import type { BankAccount, PanelClaim, PanelCompany, PanelPayment, PaymentType } from "@/lib/types";
+import type { BankAccount, BranchBankMapping, PanelClaim, PanelCompany, PanelPayment, PaymentType } from "@/lib/types";
 
 type Props = {
   claims: PanelClaim[];
   panelCompanies: PanelCompany[];
   panelPayments: PanelPayment[];
   bankAccounts: BankAccount[];
+  branchBankMappings: BranchBankMapping[];
 };
 
-export function PanelPaymentForm({ claims, panelCompanies, panelPayments, bankAccounts }: Props) {
+export function PanelPaymentForm({ claims, panelCompanies, panelPayments, bankAccounts, branchBankMappings }: Props) {
   const [panelClaimId, setPanelClaimId] = useState(claims[0]?.id ?? "");
   const [paymentType, setPaymentType] = useState<PaymentType>("bank_transfer");
   const claimById = useMemo(() => new Map(claims.map((claim) => [claim.id, claim])), [claims]);
@@ -26,14 +27,13 @@ export function PanelPaymentForm({ claims, panelCompanies, panelPayments, bankAc
   const panelName = selectedClaim ? (companyById.get(selectedClaim.panel_company_id)?.name ?? selectedClaim.panel_companies?.name ?? "-") : "-";
   const sortedBankAccounts = useMemo(() => {
     if (!selectedClaim?.branch_id) return bankAccounts;
-    const branchName = selectedClaim.branches?.name?.toLowerCase() ?? "";
-    return [...bankAccounts].sort((first, second) => {
-      const firstPriority = first.name.toLowerCase().includes(branchName) ? 0 : 1;
-      const secondPriority = second.name.toLowerCase().includes(branchName) ? 0 : 1;
-      if (firstPriority !== secondPriority) return firstPriority - secondPriority;
-      return first.name.localeCompare(second.name);
-    });
-  }, [bankAccounts, selectedClaim?.branch_id, selectedClaim?.branches?.name]);
+    const mappedIds = new Set(
+      branchBankMappings
+        .filter((mapping) => mapping.branch_id === selectedClaim.branch_id && mapping.is_active)
+        .map((mapping) => mapping.bank_account_id)
+    );
+    return bankAccounts.filter((account) => mappedIds.has(account.id) && account.is_active);
+  }, [bankAccounts, branchBankMappings, selectedClaim?.branch_id]);
 
   return (
     <form action={createPanelPayment} className="form-card">
@@ -82,6 +82,11 @@ export function PanelPaymentForm({ claims, panelCompanies, panelPayments, bankAc
             </option>
           ))}
         </select>
+        {!sortedBankAccounts.length && selectedClaim?.branches?.name ? (
+          <small className="void-warning">
+            No active bank account found for {selectedClaim.branches.name}. Please add/activate a bank account first.
+          </small>
+        ) : null}
       </label>
       <label>
         Amount

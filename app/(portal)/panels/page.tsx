@@ -1,4 +1,4 @@
-import { createPanelClaim, createPanelCompany, updatePanelClaim, updatePanelCompany, updatePanelPayment } from "@/app/actions";
+import { createPanelClaim, createPanelCompany, updatePanelClaim, updatePanelCompany, updatePanelPayment, voidPanelClaim } from "@/app/actions";
 import { DataTable } from "@/components/data-table";
 import { DocumentManager } from "@/components/documents/document-manager";
 import { MetricCard } from "@/components/metric-card";
@@ -9,6 +9,7 @@ import { formatCurrency, formatDate, labelize } from "@/lib/format";
 import { outstandingOpeningBalanceTotal } from "@/lib/opening-balances";
 import { canEditBranch, hasPermission, normalizeRole, requirePermission } from "@/lib/permissions";
 import { getTransactionDocuments } from "@/lib/transaction-documents";
+import type { BankAccount, BranchBankMapping } from "@/lib/types";
 import { Building, CalendarClock, FileClock, ShieldCheck } from "lucide-react";
 
 type PanelsPageProps = {
@@ -26,15 +27,26 @@ function StatusPill({ status }: { status: string }) {
 
 function panelClaimPriority(status: string, dueDate?: string | null, outstandingAmount = 0) {
   const today = new Date().toISOString().slice(0, 10);
+  if (status === "voided") return 3;
   if (status === "paid" || outstandingAmount <= 0) return 2;
   if (dueDate && dueDate < today) return 0;
   return 1;
 }
 
+function branchBankAccountOptions(branchId: string | null | undefined, bankAccounts: BankAccount[], branchBankMappings: BranchBankMapping[]) {
+  if (!branchId) return [] as BankAccount[];
+  const mappedIds = new Set(
+    branchBankMappings
+      .filter((mapping) => mapping.branch_id === branchId && mapping.is_active)
+      .map((mapping) => mapping.bank_account_id)
+  );
+  return bankAccounts.filter((account) => mappedIds.has(account.id) && account.is_active);
+}
+
 export default async function PanelsPage({ searchParams }: PanelsPageProps) {
   const profile = await requirePermission("view_panel_records");
   const data = await getDashboardData();
-  const bankAccounts = await getPanelPaymentBankAccounts();
+  const panelPaymentBanking = await getPanelPaymentBankAccounts();
   const panelCompanies = await getPanelCompanies();
   const params = searchParams ? await searchParams : {};
   const errorMessage = searchValue(params.error);
@@ -43,17 +55,17 @@ export default async function PanelsPage({ searchParams }: PanelsPageProps) {
   const role = normalizeRole(profile.role);
   const canManageMasterData = hasPermission(profile, "edit_finance") && role !== "branch_pic";
   const canDeleteDocuments = role !== "branch_pic";
-  const totalClaims = totalBy(data.panels, (claim) => claim.amount);
+  const totalClaims = totalBy(data.panels.filter((claim) => !claim.is_void), (claim) => claim.amount);
   const panelPaymentsByClaimId = new Map<string, number>();
   data.panelPayments.forEach((payment) => {
     panelPaymentsByClaimId.set(payment.panel_claim_id, (panelPaymentsByClaimId.get(payment.panel_claim_id) ?? 0) + payment.amount);
   });
   const openingOutstanding = outstandingOpeningBalanceTotal(data.openingBalances, "panel_outstanding");
   const outstanding = openingOutstanding + totalBy(
-    data.panels.filter((claim) => claim.status !== "paid"),
+    data.panels.filter((claim) => !claim.is_void && claim.status !== "paid"),
     (claim) => claim.amount
   );
-  const unpaid = data.panels.filter((claim) => claim.status === "unpaid").length;
+  const unpaid = data.panels.filter((claim) => !claim.is_void && claim.status === "unpaid").length;
   const groupedClaims = Array.from(
     data.panels.reduce<Map<string, typeof data.panels>>((groups, claim) => {
       const key = claim.panel_company_id;
@@ -65,8 +77,16 @@ export default async function PanelsPage({ searchParams }: PanelsPageProps) {
   ).map(([panelCompanyId, claims]) => {
     const rows = claims.map((claim) => {
       const paidAmount = panelPaymentsByClaimId.get(claim.id) ?? 0;
-      const balanceAmount = Math.max(0, claim.amount - paidAmount);
-      const displayStatus = balanceAmount <= 0 ? "paid" : claim.status === "partial" || paidAmount > 0 ? "partial" : claim.status === "paid" ? "paid" : "unpaid";
+      const balanceAmount = claim.is_void ? 0 : Math.max(0, claim.amount - paidAmount);
+      const displayStatus = claim.is_void
+        ? "voided"
+        : balanceAmount <= 0
+          ? "paid"
+          : claim.status === "partial" || paidAmount > 0
+            ? "partial"
+            : claim.status === "paid"
+              ? "paid"
+              : "unpaid";
       return {
         balanceAmount,
         claim,
@@ -91,7 +111,8 @@ export default async function PanelsPage({ searchParams }: PanelsPageProps) {
       partialCount: rows.filter((row) => row.displayStatus === "partial").length,
       rows,
       totalAmount: totalBy(rows, (row) => row.claim.amount),
-      unpaidCount: rows.filter((row) => row.displayStatus === "unpaid").length
+      unpaidCount: rows.filter((row) => row.displayStatus === "unpaid").length,
+      voidedCount: rows.filter((row) => row.displayStatus === "voided").length
     };
   }).sort((first, second) => first.panelLabel.localeCompare(second.panelLabel));
 
@@ -132,10 +153,11 @@ export default async function PanelsPage({ searchParams }: PanelsPageProps) {
                   <span className="ledger-summary-chip">{group.unpaidCount} unpaid</span>
                   <span className="ledger-summary-chip">{group.partialCount} partial</span>
                   <span className="ledger-summary-chip">{group.paidCount} paid</span>
+                  <span className="ledger-summary-chip">{group.voidedCount} voided</span>
                 </div>
               </div>
               <DataTable
-                columns={["Claim month", "Branch", "Claim no.", "Due", "Status", "Amount", "Paid", "Balance", "Edit", "Documents"]}
+                columns={["Claim month", "Branch", "Claim no.", "Due", "Status", "Amount", "Paid", "Balance", "Edit", "Void / details", "Documents"]}
                 rows={group.rows.map(({ claim, displayStatus, paidAmount, balanceAmount }) => [
                   formatDate(claim.claim_month),
                   claim.branches?.name ?? "-",
@@ -145,7 +167,7 @@ export default async function PanelsPage({ searchParams }: PanelsPageProps) {
                   formatCurrency(claim.amount),
                   formatCurrency(paidAmount),
                   formatCurrency(balanceAmount),
-                  canEditBranch(profile, claim.branch_id) ? (
+                  !claim.is_void && canEditBranch(profile, claim.branch_id) ? (
                     <details className="manual-bank-editor" key={`${claim.id}-edit`}>
                       <summary>Edit</summary>
                       <form action={updatePanelClaim} className="manual-bank-edit-form">
@@ -211,6 +233,30 @@ export default async function PanelsPage({ searchParams }: PanelsPageProps) {
                   ) : (
                     "-"
                   ),
+                  !claim.is_void && canEditBranch(profile, claim.branch_id) ? (
+                    <details className="manual-bank-editor" key={`${claim.id}-void`}>
+                      <summary>Void</summary>
+                      <form action={voidPanelClaim} className="manual-bank-edit-form void-record-form">
+                        <input name="claim_id" type="hidden" value={claim.id} />
+                        <p className="void-warning">Voided panel claims stay in history and are excluded from outstanding totals.</p>
+                        <label>
+                          Void reason
+                          <textarea name="void_reason" required />
+                        </label>
+                        <button className="primary-button compact-button" type="submit">
+                          Void this panel claim
+                        </button>
+                      </form>
+                    </details>
+                  ) : claim.is_void ? (
+                    <div key={`${claim.id}-voided-details`}>
+                      <strong>Voided</strong>
+                      <div>{claim.void_reason ?? "-"}</div>
+                      <small>{claim.voided_at ? formatDate(claim.voided_at) : "-"}</small>
+                    </div>
+                  ) : (
+                    "-"
+                  ),
                   <DocumentManager
                     canDelete={canDeleteDocuments}
                     documents={claimDocuments.get(claim.id) ?? []}
@@ -273,12 +319,25 @@ export default async function PanelsPage({ searchParams }: PanelsPageProps) {
                     Received into bank account
                     <select defaultValue={payment.bank_account_id ?? ""} name="bank_account_id">
                       <option value="">Select bank account</option>
-                      {bankAccounts.map((account) => (
+                      {branchBankAccountOptions(
+                        payment.branch_id ?? payment.panel_claims?.branch_id ?? null,
+                        panelPaymentBanking.bankAccounts,
+                        panelPaymentBanking.branchBankMappings
+                      ).map((account) => (
                         <option key={account.id} value={account.id}>
                           {account.name}
                         </option>
                       ))}
                     </select>
+                    {!branchBankAccountOptions(
+                      payment.branch_id ?? payment.panel_claims?.branch_id ?? null,
+                      panelPaymentBanking.bankAccounts,
+                      panelPaymentBanking.branchBankMappings
+                    ).length ? (
+                      <small className="void-warning">
+                        No active bank account found for {payment.branches?.name ?? "this branch"}. Please add/activate a bank account first.
+                      </small>
+                    ) : null}
                   </label>
                   <label>
                     Amount
@@ -365,10 +424,11 @@ export default async function PanelsPage({ searchParams }: PanelsPageProps) {
           </form>
 
           <PanelPaymentForm
-            claims={data.panels}
+            claims={data.panels.filter((claim) => !claim.is_void)}
             panelCompanies={panelCompanies}
             panelPayments={data.panelPayments}
-            bankAccounts={bankAccounts}
+            bankAccounts={panelPaymentBanking.bankAccounts}
+            branchBankMappings={panelPaymentBanking.branchBankMappings}
           />
 
           {canManageMasterData ? (

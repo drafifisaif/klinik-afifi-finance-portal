@@ -119,7 +119,9 @@ function supplierMutationErrorMessage(error: { code?: string | null; message?: s
 async function requirePanelPaymentBankAccount(
   supabase: Awaited<ReturnType<typeof createClient>>,
   profile: Awaited<ReturnType<typeof requirePermission>>,
-  bankAccountId: string
+  bankAccountId: string,
+  branchId: string,
+  branchName?: string | null
 ) {
   const { data: bankAccount, error: bankError } = await supabase
     .from("bank_accounts")
@@ -128,6 +130,24 @@ async function requirePanelPaymentBankAccount(
     .eq("is_active", true)
     .maybeSingle();
   if (bankError || !bankAccount) throw new Error("Selected received into bank account is not active or not available.");
+
+  const { data: mappedAccounts, error: mappingError } = await supabase
+    .from("branch_bank_mappings")
+    .select("bank_account_id")
+    .eq("branch_id", branchId)
+    .eq("is_active", true);
+
+  if (mappingError) {
+    throw new Error("Branch bank account mappings could not be checked.");
+  }
+
+  const mappedBankAccountIds = new Set((mappedAccounts ?? []).map((row) => row.bank_account_id));
+  if (!mappedBankAccountIds.size) {
+    throw new Error(`No active bank account found for ${branchName ?? "this branch"}. Please add/activate a bank account first.`);
+  }
+  if (!mappedBankAccountIds.has(bankAccountId)) {
+    throw new Error(`Selected bank account is not mapped to ${branchName ?? "this branch"}.`);
+  }
 
   const role = normalizeRole(profile.role);
   if (role === "owner" || role === "admin" || role === "finance") {
@@ -387,10 +407,14 @@ type PanelClaimAuditRow = {
   claim_month: string;
   claim_no: string | null;
   due_date: string | null;
+  is_void?: boolean;
   notes: string | null;
   panel_company_id: string;
   status: string;
   submitted_date: string | null;
+  void_reason?: string | null;
+  voided_at?: string | null;
+  voided_by?: string | null;
 };
 
 type OpeningBalanceAuditRow = {
@@ -662,10 +686,14 @@ function panelClaimAuditData(claim: PanelClaimAuditRow) {
     claim_month: claim.claim_month,
     claim_no: claim.claim_no,
     due_date: claim.due_date,
+    is_void: claim.is_void ?? false,
     notes: claim.notes,
     panel_company_id: claim.panel_company_id,
     status: claim.status,
-    submitted_date: claim.submitted_date
+    submitted_date: claim.submitted_date,
+    void_reason: claim.void_reason ?? null,
+    voided_at: claim.voided_at ?? null,
+    voided_by: claim.voided_by ?? null
   };
 }
 
@@ -3289,7 +3317,7 @@ export async function updatePanelClaim(formData: FormData) {
   const supabase = await createClient();
   const { data: claim, error: claimError } = await supabase
     .from("panel_claims")
-    .select("id, panel_company_id, branch_id, claim_no, claim_month, submitted_date, due_date, amount, status, notes")
+    .select("id, panel_company_id, branch_id, claim_no, claim_month, submitted_date, due_date, amount, status, notes, is_void, void_reason, voided_at, voided_by")
     .eq("id", claimId)
     .maybeSingle();
 
@@ -3304,38 +3332,52 @@ export async function updatePanelClaim(formData: FormData) {
       ? "Branch PIC cannot move panel claims to another branch."
       : "You do not have permission to assign this panel claim to the selected branch.");
   }
+  if (claim.is_void) failPanelManager("Voided panel claims cannot be edited.");
   const claimMonth = text(formData, "claim_month");
   if (!claimMonth) failPanelManager("Claim month is required.");
   const amount = number(formData, "amount");
   if (amount < 0) failPanelManager("Amount must be zero or more.");
+  const panelCompanyId = text(formData, "panel_company_id");
+  if (!panelCompanyId) failPanelManager("Panel company is required.");
+  const submittedDate = text(formData, "submitted_date");
+  const dueDate = text(formData, "due_date");
+  const status = text(formData, "status") ?? "unpaid";
+  const attemptedPayload = {
+    panel_company_id: panelCompanyId,
+    branch_id: branchId,
+    claim_no: text(formData, "claim_no"),
+    claim_month: claimMonth,
+    submitted_date: submittedDate,
+    due_date: dueDate,
+    amount,
+    status,
+    notes: text(formData, "notes")
+  };
 
   const { data: updatedClaim, error } = await supabase
     .from("panel_claims")
-    .update({
-      panel_company_id: text(formData, "panel_company_id"),
-      branch_id: branchId,
-      claim_no: text(formData, "claim_no"),
-      claim_month: claimMonth,
-      submitted_date: text(formData, "submitted_date"),
-      due_date: text(formData, "due_date"),
-      amount,
-      status: text(formData, "status") ?? "unpaid",
-      notes: text(formData, "notes")
-    })
+    .update(attemptedPayload)
     .eq("id", claim.id)
-    .select("id, panel_company_id, branch_id, claim_no, claim_month, submitted_date, due_date, amount, status, notes")
+    .select("id, panel_company_id, branch_id, claim_no, claim_month, submitted_date, due_date, amount, status, notes, is_void, void_reason, voided_at, voided_by")
     .maybeSingle();
 
   if (error || !updatedClaim) {
     console.error("updatePanelClaim failed", {
       action: "updatePanelClaim",
+      userId: profile.id,
+      role,
       claimId,
-      branchId,
+      branchId: claim.branch_id,
+      nextBranchId: branchId,
+      payloadKeys: Object.keys(attemptedPayload),
       code: error?.code,
       error: error?.message,
-      details: error?.details
+      details: error?.details,
+      hint: error?.hint
     });
-    failPanelManager("Panel claim could not be updated.");
+    failPanelManager(error?.code === "42501"
+      ? "You do not have permission to update this panel claim."
+      : error?.message ?? "Panel claim could not be updated.");
   }
 
   const beforeData = panelClaimAuditData(claim);
@@ -3356,6 +3398,80 @@ export async function updatePanelClaim(formData: FormData) {
   revalidatePath("/dashboard");
 }
 
+export async function voidPanelClaim(formData: FormData) {
+  if (!hasSupabaseEnv()) return failPanelManager("Supabase environment is not configured.");
+
+  const profile = await requirePermission("view_panel_records");
+  const role = normalizeRole(profile.role);
+  const claimId = text(formData, "claim_id");
+  const reason = text(formData, "void_reason");
+
+  if (!claimId) failPanelManager("Panel claim record is required.");
+  if (!reason) failPanelManager("Void reason is required.");
+
+  const supabase = await createClient();
+  const { data: claim, error: claimError } = await supabase
+    .from("panel_claims")
+    .select("id, panel_company_id, branch_id, claim_no, claim_month, submitted_date, due_date, amount, status, notes, is_void, void_reason, voided_at, voided_by")
+    .eq("id", claimId)
+    .maybeSingle();
+
+  if (claimError || !claim) failPanelManager("Panel claim record not found.");
+  if (!canEditBranch(profile, claim.branch_id)) {
+    failPanelManager(role === "branch_pic"
+      ? "You can only void panel claims for your own branch."
+      : "You do not have permission to void this panel claim.");
+  }
+  if (claim.is_void) failPanelManager("Panel claim is already voided.");
+
+  const voidedAt = new Date().toISOString();
+  const attemptedPayload = {
+    is_void: true,
+    void_reason: reason,
+    voided_at: voidedAt,
+    voided_by: profile.id
+  };
+
+  const { data: updatedClaim, error } = await supabase
+    .from("panel_claims")
+    .update(attemptedPayload)
+    .eq("id", claim.id)
+    .eq("is_void", false)
+    .select("id, panel_company_id, branch_id, claim_no, claim_month, submitted_date, due_date, amount, status, notes, is_void, void_reason, voided_at, voided_by")
+    .maybeSingle();
+
+  if (error || !updatedClaim) {
+    console.error("voidPanelClaim failed", {
+      action: "voidPanelClaim",
+      userId: profile.id,
+      role,
+      claimId,
+      branchId: claim.branch_id,
+      payloadKeys: Object.keys(attemptedPayload),
+      code: error?.code,
+      error: error?.message,
+      details: error?.details,
+      hint: error?.hint
+    });
+    failPanelManager(error?.code === "42501"
+      ? "You do not have permission to void this panel claim."
+      : error?.message ?? "Panel claim could not be voided.");
+  }
+
+  await logAuditEvent({
+    action: "void",
+    afterData: panelClaimAuditData(updatedClaim),
+    beforeData: panelClaimAuditData(claim),
+    branchId: updatedClaim.branch_id,
+    description: `Voided panel claim. Reason: ${reason}`,
+    entityId: updatedClaim.id,
+    entityName: "panel_claims"
+  });
+
+  revalidatePath("/panels");
+  revalidatePath("/dashboard");
+}
+
 export async function createPanelPayment(formData: FormData) {
   if (!hasSupabaseEnv()) return failPanelManager("Supabase environment is not configured.");
   const panelClaimId = text(formData, "panel_claim_id");
@@ -3370,10 +3486,12 @@ export async function createPanelPayment(formData: FormData) {
   const supabase = await createClient();
   const { data: claim, error: claimError } = await supabase
     .from("panel_claims")
-    .select("id, branch_id, panel_company_id")
+    .select("id, branch_id, panel_company_id, is_void, branches(name)")
     .eq("id", panelClaimId)
     .maybeSingle();
   if (claimError || !claim) failPanelManager("Selected panel claim was not found.");
+  if (claim.is_void) failPanelManager("Voided panel claims cannot receive panel payments.");
+  const claimBranch = firstRelation(claim.branches as { name?: string | null } | { name?: string | null }[] | null | undefined);
 
   const profile = await requireEditableBranch(claim.branch_id);
   if (paymentUsesBankAccount(paymentType) && !bankAccountId) {
@@ -3381,7 +3499,7 @@ export async function createPanelPayment(formData: FormData) {
   }
   let bankAccount: { id: string; name: string; is_active: boolean } | null = null;
   if (bankAccountId) {
-    bankAccount = await requirePanelPaymentBankAccount(supabase, profile, bankAccountId);
+    bankAccount = await requirePanelPaymentBankAccount(supabase, profile, bankAccountId, claim.branch_id, claimBranch?.name ?? null);
   }
 
   const { data: payment, error } = await supabase.from("panel_payments").insert({
@@ -3457,17 +3575,19 @@ export async function updatePanelPayment(formData: FormData) {
 
   const { data: claim, error: claimError } = await supabase
     .from("panel_claims")
-    .select("id, branch_id")
+    .select("id, branch_id, is_void, branches(name)")
     .eq("id", panelClaimId)
     .maybeSingle();
   if (claimError || !claim) failPanelManager("Selected panel claim was not found.");
+  if (claim.is_void) failPanelManager("Voided panel claims cannot receive panel payments.");
+  const claimBranch = firstRelation(claim.branches as { name?: string | null } | { name?: string | null }[] | null | undefined);
 
   const profile = await requireEditableBranch(claim.branch_id);
   if (paymentUsesBankAccount(paymentType) && !bankAccountId) {
     failPanelManager("Received into bank account is required for bank-based panel payments.");
   }
   if (bankAccountId) {
-    await requirePanelPaymentBankAccount(supabase, profile, bankAccountId);
+    await requirePanelPaymentBankAccount(supabase, profile, bankAccountId, claim.branch_id, claimBranch?.name ?? null);
   }
 
   const { data: updatedPayment, error } = await supabase

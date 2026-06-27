@@ -786,21 +786,46 @@ export async function getSuppliers(options: { includeInactive?: boolean } = {}) 
 
 export async function getPanelPaymentBankAccounts() {
   const profile = await getCurrentProfile();
-  if (!profile?.is_active) return [] as BankAccount[];
-  if (!hasSupabaseEnv()) return bankAccounts;
+  if (!profile?.is_active) {
+    return { bankAccounts: [] as BankAccount[], branchBankMappings: [] as BranchBankMapping[] };
+  }
+  if (!hasSupabaseEnv()) {
+    return {
+      bankAccounts,
+      branchBankMappings
+    };
+  }
 
   const role = normalizeRole(profile.role);
   if (role === "owner" || role === "admin" || role === "finance") {
     const supabase = createAdminClient();
-    return fetchOrDemo(
-      supabase.from("bank_accounts").select("*").eq("is_active", true).order("name"),
-      bankAccounts,
-      "panel_payment_bank_accounts"
-    ) as Promise<BankAccount[]>;
+    const [bankAccountRows, mappingRows] = await Promise.all([
+      fetchOrDemo(
+        supabase.from("bank_accounts").select("*").eq("is_active", true).order("name"),
+        bankAccounts,
+        "panel_payment_bank_accounts"
+      ),
+      fetchOrDemo(
+        supabase
+          .from("branch_bank_mappings")
+          .select("*, branches(name, code), bank_accounts(name, bank_name, account_no)")
+          .eq("is_active", true),
+        branchBankMappings,
+        "panel_payment_branch_bank_mappings"
+      )
+    ]);
+
+    return {
+      bankAccounts: bankAccountRows as BankAccount[],
+      branchBankMappings: mappingRows as BranchBankMapping[]
+    };
   }
 
   const bankingData = await getBankingDataForScope({ bankAccessOnly: true });
-  return bankingData.bankAccounts;
+  return {
+    bankAccounts: bankingData.bankAccounts,
+    branchBankMappings: bankingData.branchBankMappings
+  };
 }
 
 export async function getSupplierPurchaseEntries() {

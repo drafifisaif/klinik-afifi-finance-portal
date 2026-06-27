@@ -221,6 +221,10 @@ export type PanelClaim = {
   amount: number;
   status: PaymentStatus;
   notes?: string | null;
+  is_void?: boolean;
+  void_reason?: string | null;
+  voided_at?: string | null;
+  voided_by?: string | null;
   panel_companies?: Pick<PanelCompany, "name"> | null;
   branches?: Pick<Branch, "name" | "code"> | null;
 };
