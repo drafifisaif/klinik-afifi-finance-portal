@@ -596,6 +596,38 @@ textarea {
   min-width: 200px;
 }
 
+.supplier-management-layout {
+  display: grid;
+  gap: 18px;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.supplier-management-form {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+}
+
+.supplier-management-form-grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.supplier-management-field-full {
+  grid-column: 1 / -1;
+}
+
+.supplier-management-actions {
+  display: flex;
+  justify-content: flex-start;
+}
+
+.supplier-management-actions .primary-button {
+  min-width: 200px;
+}
+
 .branch-card {
   padding: 18px;
 }
@@ -1443,6 +1475,14 @@ button:disabled {
   }
 
   .panel-management-field-full {
+    grid-column: auto;
+  }
+
+  .supplier-management-form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .supplier-management-field-full {
     grid-column: auto;
   }
 

@@ -26,7 +26,7 @@ export default async function SuppliersPage({ searchParams }: SuppliersPageProps
     <>
       <ModuleHeader
         eyebrow="Master data"
-        title="Suppliers"
+        title="Supplier Management"
         description="Register suppliers, keep payment terms current, and deactivate old suppliers without removing history."
       />
 
@@ -117,51 +117,55 @@ export default async function SuppliersPage({ searchParams }: SuppliersPageProps
         />
       </section>
 
-      <section className="section-grid mt-section">
-        <form action={createSupplier} className="form-card">
+      <section className="supplier-management-layout mt-section">
+        <form action={createSupplier} className="form-card supplier-management-form">
           <h2>Register supplier</h2>
-          <label>
-            Supplier name
-            <input name="name" required />
-          </label>
-          <label>
-            Supplier code
-            <input name="code" />
-          </label>
-          <label>
-            Contact person
-            <input name="contact_person" />
-          </label>
-          <label>
-            Phone
-            <input name="phone" />
-          </label>
-          <label>
-            Email
-            <input name="email" type="email" />
-          </label>
-          <label>
-            Default credit term (days)
-            <input defaultValue="30" min="0" name="default_credit_term_days" required type="number" />
-          </label>
-          <label>
-            Address
-            <textarea name="address" />
-          </label>
-          <label>
-            Notes
-            <textarea name="notes" />
-          </label>
-          <label>
-            Status
-            <select defaultValue="true" name="is_active">
-              <option value="true">Active</option>
-              <option value="false">Inactive</option>
-            </select>
-          </label>
-          <button className="primary-button" type="submit">
-            Save supplier
-          </button>
+          <div className="supplier-management-form-grid">
+            <label>
+              Supplier name
+              <input name="name" required />
+            </label>
+            <label>
+              Supplier code
+              <input name="code" />
+            </label>
+            <label>
+              Contact person
+              <input name="contact_person" />
+            </label>
+            <label>
+              Phone
+              <input name="phone" />
+            </label>
+            <label>
+              Email
+              <input name="email" type="email" />
+            </label>
+            <label>
+              Default credit term (days)
+              <input defaultValue="30" min="0" name="default_credit_term_days" required type="number" />
+            </label>
+            <label className="supplier-management-field-full">
+              Address
+              <textarea name="address" />
+            </label>
+            <label className="supplier-management-field-full">
+              Notes
+              <textarea name="notes" />
+            </label>
+            <label>
+              Status
+              <select defaultValue="true" name="is_active">
+                <option value="true">Active</option>
+                <option value="false">Inactive</option>
+              </select>
+            </label>
+          </div>
+          <div className="supplier-management-actions">
+            <button className="primary-button" type="submit">
+              Save supplier
+            </button>
+          </div>
         </form>
       </section>
     </>
