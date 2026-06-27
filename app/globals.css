@@ -44,6 +44,11 @@ textarea {
   height: 100dvh;
   min-height: 100vh;
   overflow: hidden;
+  transition: grid-template-columns 180ms ease;
+}
+
+.shell.shell-collapsed {
+  grid-template-columns: 84px minmax(0, 1fr);
 }
 
 .sidebar {
@@ -59,6 +64,7 @@ textarea {
   padding: 24px 18px;
   position: sticky;
   top: 0;
+  transition: padding 180ms ease, gap 180ms ease;
 }
 
 .brand,
@@ -66,6 +72,13 @@ textarea {
   align-items: center;
   display: flex;
   gap: 12px;
+}
+
+.sidebar-header {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
 }
 
 .brand-mark,
@@ -93,6 +106,11 @@ textarea {
   display: block;
   font-size: 12px;
   margin-top: 2px;
+}
+
+.brand-copy {
+  min-width: 0;
+  transition: opacity 160ms ease, width 160ms ease;
 }
 
 .nav-list {
@@ -125,6 +143,26 @@ textarea {
   text-transform: uppercase;
 }
 
+.sidebar-toggle {
+  align-items: center;
+  background: #f5f8f8;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: #385151;
+  cursor: pointer;
+  display: inline-flex;
+  flex: 0 0 auto;
+  height: 38px;
+  justify-content: center;
+  transition: background 160ms ease, color 160ms ease, border-color 160ms ease;
+  width: 38px;
+}
+
+.sidebar-toggle:hover {
+  background: var(--panel-soft);
+  color: var(--teal-deep);
+}
+
 .nav-item,
 .branch-nav-item,
 .ghost-button,
@@ -141,6 +179,7 @@ textarea {
 
 .nav-item {
   color: #385151;
+  position: relative;
 }
 
 .branch-nav-item {
@@ -152,6 +191,25 @@ textarea {
 .branch-nav-item:hover {
   background: var(--panel-soft);
   color: var(--teal-deep);
+}
+
+.nav-item-active,
+.branch-nav-item-active {
+  background: #e7f5f3;
+  color: var(--teal-deep);
+}
+
+.nav-item-active::before,
+.branch-nav-item-active::before {
+  background: var(--teal);
+  border-radius: 999px;
+  content: "";
+  height: 22px;
+  left: 4px;
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
 }
 
 .sidebar-footer {
@@ -187,6 +245,7 @@ textarea {
   overflow-y: auto;
   overscroll-behavior-y: contain;
   padding: 30px;
+  transition: padding 180ms ease;
 }
 
 .module-header {
@@ -1303,6 +1362,10 @@ button:disabled {
     grid-template-columns: 240px minmax(0, 1fr);
   }
 
+  .shell.shell-collapsed {
+    grid-template-columns: 72px minmax(0, 1fr);
+  }
+
   .sidebar {
     gap: 18px;
     padding: 20px 14px;
@@ -1392,9 +1455,57 @@ button:disabled {
     position: static;
   }
 
+  .shell.shell-collapsed {
+    grid-template-columns: 1fr;
+  }
+
   .sidebar-menu,
   .main-panel {
     height: auto;
     overflow: visible;
+  }
+
+  .sidebar-toggle {
+    display: none;
+  }
+}
+
+@media (min-width: 561px) {
+  .shell.shell-collapsed .sidebar {
+    padding-inline: 12px;
+  }
+
+  .shell.shell-collapsed .sidebar-header {
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .shell.shell-collapsed .brand {
+    justify-content: center;
+    width: 100%;
+  }
+
+  .shell.shell-collapsed .brand-copy,
+  .shell.shell-collapsed .nav-item span,
+  .shell.shell-collapsed .branch-nav-item span,
+  .shell.shell-collapsed .branch-nav > span,
+  .shell.shell-collapsed .ghost-button span {
+    display: none;
+  }
+
+  .shell.shell-collapsed .nav-item,
+  .shell.shell-collapsed .branch-nav-item,
+  .shell.shell-collapsed .ghost-button {
+    justify-content: center;
+    padding-inline: 10px;
+  }
+
+  .shell.shell-collapsed .branch-nav {
+    justify-items: center;
+  }
+
+  .shell.shell-collapsed .sidebar-toggle {
+    width: 32px;
+    height: 32px;
   }
 }
