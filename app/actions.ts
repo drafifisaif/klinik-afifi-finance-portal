@@ -121,7 +121,8 @@ async function requirePanelPaymentBankAccount(
   profile: Awaited<ReturnType<typeof requirePermission>>,
   bankAccountId: string,
   branch: { code?: string | null; name?: string | null } | null | undefined,
-  branchId?: string | null
+  branchId?: string | null,
+  claimId?: string | null
 ) {
   const admin = createAdminClient();
   let appliedIsActiveFilter = true;
@@ -160,9 +161,38 @@ async function requirePanelPaymentBankAccount(
     bankError = activeQuery.error;
   }
 
+  if (!bankError && appliedIsActiveFilter && (bankAccounts?.length ?? 0) === 0) {
+    const fallbackQuery = await admin
+      .from("bank_accounts")
+      .select("id, name, bank_name, account_no")
+      .order("name");
+
+    if (!fallbackQuery.error && fallbackQuery.data && fallbackQuery.data.length > 0) {
+      console.warn("requirePanelPaymentBankAccount active filter returned zero rows; falling back to all accounts", {
+        action: "requirePanelPaymentBankAccount",
+        userId: profile.id,
+        role: profile.role,
+        claimId,
+        branchId,
+        branchName: branch?.name ?? null,
+        branchCode: branch?.code ?? null,
+        branchIdFilterApplied: false,
+        isActiveFilterApplied: appliedIsActiveFilter,
+        rawBankAccountRowsReturned: 0,
+        fallbackBankAccountRowsReturned: fallbackQuery.data.length,
+        fallbackBankAccountNames: fallbackQuery.data.map((account) => account.name)
+      });
+      bankAccounts = fallbackQuery.data.map((account) => ({ ...account, is_active: true }));
+      appliedIsActiveFilter = false;
+    }
+  }
+
   if (bankError) {
     console.error("requirePanelPaymentBankAccount lookup failed", {
       action: "requirePanelPaymentBankAccount",
+      userId: profile.id,
+      role: profile.role,
+      claimId,
       branchId,
       branchName: branch?.name ?? null,
       branchCode: branch?.code ?? null,
@@ -182,6 +212,9 @@ async function requirePanelPaymentBankAccount(
   if (!allowedAccounts.length) {
     console.error("requirePanelPaymentBankAccount no mapped account", {
       action: "requirePanelPaymentBankAccount",
+      userId: profile.id,
+      role: profile.role,
+      claimId,
       branchId,
       branchName: branch?.name ?? null,
       branchCode: branch?.code ?? null,
@@ -3549,7 +3582,7 @@ export async function createPanelPayment(formData: FormData) {
   }
   let bankAccount: { id: string; name: string; is_active: boolean } | null = null;
   if (bankAccountId) {
-    bankAccount = await requirePanelPaymentBankAccount(profile, bankAccountId, claimBranch, claim.branch_id);
+    bankAccount = await requirePanelPaymentBankAccount(profile, bankAccountId, claimBranch, claim.branch_id, claim.id);
   }
 
   const { data: payment, error } = await supabase.from("panel_payments").insert({
@@ -3637,7 +3670,7 @@ export async function updatePanelPayment(formData: FormData) {
     failPanelManager("Received into bank account is required for bank-based panel payments.");
   }
   if (bankAccountId) {
-    await requirePanelPaymentBankAccount(profile, bankAccountId, claimBranch, claim.branch_id);
+    await requirePanelPaymentBankAccount(profile, bankAccountId, claimBranch, claim.branch_id, claim.id);
   }
 
   const { data: updatedPayment, error } = await supabase

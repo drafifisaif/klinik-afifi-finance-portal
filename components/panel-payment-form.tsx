@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { createPanelPayment } from "@/app/actions";
 import { paymentTypes } from "@/lib/constants";
 import { formatCurrency, formatDate, labelize } from "@/lib/format";
-import { panelReceivingBankAccounts, panelReceivingBankError } from "@/lib/panel-accounting";
+import { panelClaimDisplayStatus, panelReceivingBankAccounts, panelReceivingBankError } from "@/lib/panel-accounting";
 import type { BankAccount, PanelClaim, PanelCompany, PanelPayment, PaymentType } from "@/lib/types";
 
 type Props = {
@@ -25,6 +25,7 @@ export function PanelPaymentForm({ claims, panelCompanies, panelPayments, bankAc
     .filter((payment) => payment.panel_claim_id === panelClaimId)
     .reduce((sum, payment) => sum + payment.amount, 0);
   const outstanding = Math.max(0, (selectedClaim?.amount ?? 0) - paidAmount);
+  const calculatedStatus = selectedClaim ? panelClaimDisplayStatus(selectedClaim, panelPayments) : "unpaid";
   const panelName = selectedClaim ? (companyById.get(selectedClaim.panel_company_id)?.name ?? selectedClaim.panel_companies?.name ?? "-") : "-";
   const sortedBankAccounts = useMemo(() => {
     return panelReceivingBankAccounts(selectedClaim?.branches, bankAccounts);
@@ -58,7 +59,7 @@ export function PanelPaymentForm({ claims, panelCompanies, panelPayments, bankAc
           <p>Claim amount: {formatCurrency(selectedClaim.amount)}</p>
           <p>Amount received: {formatCurrency(paidAmount)}</p>
           <p>Outstanding: {formatCurrency(outstanding)}</p>
-          <p>Claim status: {labelize(selectedClaim.status)}</p>
+          <p>Claim status: {labelize(calculatedStatus)}</p>
           <p>Due date: {selectedClaim.due_date ? formatDate(selectedClaim.due_date) : "-"}</p>
         </div>
       ) : null}

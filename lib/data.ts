@@ -825,6 +825,27 @@ export async function getPanelPaymentBankAccounts() {
           is_active: true
         }));
       }
+    } else if (!activeQuery.error && activeQuery.data && activeQuery.data.length === 0) {
+      const fallbackQuery = await supabase.from("bank_accounts").select("id, name, bank_name, account_no").order("name");
+      if (fallbackQuery.error || !fallbackQuery.data) {
+        if (fallbackQuery.error) {
+          console.error("getPanelPaymentBankAccounts fallback after zero active rows failed", fallbackQuery.error);
+        }
+        bankAccountRows = bankAccounts;
+      } else {
+        console.warn("getPanelPaymentBankAccounts active filter returned zero rows; falling back to all accounts", {
+          action: "getPanelPaymentBankAccounts",
+          role: profile.role,
+          bankAccountCount: fallbackQuery.data.length,
+          bankAccountNames: fallbackQuery.data.map((account) => account.name),
+          isActiveFilterApplied: true,
+          branchIdFilterApplied: false
+        });
+        bankAccountRows = fallbackQuery.data.map((account) => ({
+          ...account,
+          is_active: true
+        }));
+      }
     } else if (activeQuery.error || !activeQuery.data) {
       if (activeQuery.error) {
         console.error("getPanelPaymentBankAccounts failed", activeQuery.error);
