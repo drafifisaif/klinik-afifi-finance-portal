@@ -40,6 +40,22 @@ export function PanelPaymentForm({ claims, panelCompanies, panelPayments, bankAc
     setBankAccountId("");
   }, [bankAccountId, sortedBankAccounts]);
 
+  useEffect(() => {
+    if (!selectedClaim) return;
+    console.warn("Panel payment bank lookup debug", {
+      claimBranchName: selectedClaim.branches?.name ?? null,
+      target: selectedClaim.branches?.code === "PUT" || selectedClaim.branches?.name === "Putatan" ? "putatan_panel" : "ranau_panel",
+      targetTokens: selectedClaim.branches?.code === "PUT" || selectedClaim.branches?.name === "Putatan"
+        ? ["cimb", "panel", "putatan"]
+        : ["cimb", "panel", "ranau"],
+      rawBankAccountCount: bankAccounts.length,
+      rawBankAccountNames: bankAccounts.map((account) => account.name),
+      matchedBankAccountCount: sortedBankAccounts.length,
+      matchedBankAccountNames: sortedBankAccounts.map((account) => account.name),
+      selectedBankAccountId: bankAccountId
+    });
+  }, [bankAccountId, bankAccounts, selectedClaim, sortedBankAccounts]);
+
   return (
     <form action={createPanelPayment} className="form-card">
       <h2>Record panel payment</h2>

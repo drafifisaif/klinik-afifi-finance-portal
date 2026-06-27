@@ -797,74 +797,90 @@ export async function getPanelPaymentBankAccounts() {
   }
 
   const role = normalizeRole(profile.role);
-  if (role === "owner" || role === "admin" || role === "finance") {
-    const supabase = createAdminClient();
-    const [mappingRows] = await Promise.all([
-      fetchOrDemo(
-        supabase
-          .from("branch_bank_mappings")
-          .select("*, branches(name, code), bank_accounts(name, bank_name, account_no)")
-          .eq("is_active", true),
-        branchBankMappings,
-        "panel_payment_branch_bank_mappings"
-      )
-    ]);
+  const bankLookupSupabase = role === "owner" || role === "admin" || role === "finance"
+    ? createAdminClient()
+    : await createClient();
 
-    let bankAccountRows: BankAccount[] = [];
-    const activeQuery = await supabase.from("bank_accounts").select("*").eq("is_active", true).order("name");
-    if (activeQuery.error && (activeQuery.error.code === "42703" || activeQuery.error.message?.toLowerCase().includes("is_active"))) {
-      const fallbackQuery = await supabase.from("bank_accounts").select("id, name, bank_name, account_no").order("name");
-      if (fallbackQuery.error || !fallbackQuery.data) {
-        if (fallbackQuery.error) {
-          console.error("getPanelPaymentBankAccounts fallback failed", fallbackQuery.error);
-        }
-        bankAccountRows = bankAccounts;
-      } else {
-        bankAccountRows = fallbackQuery.data.map((account) => ({
-          ...account,
-          is_active: true
-        }));
-      }
-    } else if (!activeQuery.error && activeQuery.data && activeQuery.data.length === 0) {
-      const fallbackQuery = await supabase.from("bank_accounts").select("id, name, bank_name, account_no").order("name");
-      if (fallbackQuery.error || !fallbackQuery.data) {
-        if (fallbackQuery.error) {
-          console.error("getPanelPaymentBankAccounts fallback after zero active rows failed", fallbackQuery.error);
-        }
-        bankAccountRows = bankAccounts;
-      } else {
-        console.warn("getPanelPaymentBankAccounts active filter returned zero rows; falling back to all accounts", {
+  const [mappingRows] = await Promise.all([
+    fetchOrDemo(
+      bankLookupSupabase
+        .from("branch_bank_mappings")
+        .select("*, branches(name, code), bank_accounts(name, bank_name, account_no)")
+        .eq("is_active", true),
+      branchBankMappings,
+      "panel_payment_branch_bank_mappings"
+    )
+  ]);
+
+  let bankAccountRows: BankAccount[] = [];
+  const activeQuery = await bankLookupSupabase.from("bank_accounts").select("*").eq("is_active", true).order("name");
+  if (activeQuery.error && (activeQuery.error.code === "42703" || activeQuery.error.message?.toLowerCase().includes("is_active"))) {
+    const fallbackQuery = await bankLookupSupabase.from("bank_accounts").select("id, name, bank_name, account_no").order("name");
+    if (fallbackQuery.error || !fallbackQuery.data) {
+      if (fallbackQuery.error) {
+        console.error("getPanelPaymentBankAccounts fallback failed", {
           action: "getPanelPaymentBankAccounts",
           role: profile.role,
-          bankAccountCount: fallbackQuery.data.length,
-          bankAccountNames: fallbackQuery.data.map((account) => account.name),
-          isActiveFilterApplied: true,
-          branchIdFilterApplied: false
+          code: fallbackQuery.error.code,
+          error: fallbackQuery.error.message,
+          details: fallbackQuery.error.details,
+          hint: fallbackQuery.error.hint
         });
-        bankAccountRows = fallbackQuery.data.map((account) => ({
-          ...account,
-          is_active: true
-        }));
-      }
-    } else if (activeQuery.error || !activeQuery.data) {
-      if (activeQuery.error) {
-        console.error("getPanelPaymentBankAccounts failed", activeQuery.error);
       }
       bankAccountRows = bankAccounts;
     } else {
-      bankAccountRows = activeQuery.data as BankAccount[];
+      bankAccountRows = fallbackQuery.data.map((account) => ({
+        ...account,
+        is_active: true
+      }));
     }
-
-    return {
-      bankAccounts: bankAccountRows as BankAccount[],
-      branchBankMappings: mappingRows as BranchBankMapping[]
-    };
+  } else if (!activeQuery.error && activeQuery.data && activeQuery.data.length === 0) {
+    const fallbackQuery = await bankLookupSupabase.from("bank_accounts").select("id, name, bank_name, account_no").order("name");
+    if (fallbackQuery.error || !fallbackQuery.data) {
+      if (fallbackQuery.error) {
+        console.error("getPanelPaymentBankAccounts fallback after zero active rows failed", {
+          action: "getPanelPaymentBankAccounts",
+          role: profile.role,
+          code: fallbackQuery.error.code,
+          error: fallbackQuery.error.message,
+          details: fallbackQuery.error.details,
+          hint: fallbackQuery.error.hint
+        });
+      }
+      bankAccountRows = bankAccounts;
+    } else {
+      console.warn("getPanelPaymentBankAccounts active filter returned zero rows; falling back to all readable accounts", {
+        action: "getPanelPaymentBankAccounts",
+        role: profile.role,
+        bankAccountCount: fallbackQuery.data.length,
+        bankAccountNames: fallbackQuery.data.map((account) => account.name),
+        isActiveFilterApplied: true,
+        branchIdFilterApplied: false
+      });
+      bankAccountRows = fallbackQuery.data.map((account) => ({
+        ...account,
+        is_active: true
+      }));
+    }
+  } else if (activeQuery.error || !activeQuery.data) {
+    if (activeQuery.error) {
+      console.error("getPanelPaymentBankAccounts failed", {
+        action: "getPanelPaymentBankAccounts",
+        role: profile.role,
+        code: activeQuery.error.code,
+        error: activeQuery.error.message,
+        details: activeQuery.error.details,
+        hint: activeQuery.error.hint
+      });
+    }
+    bankAccountRows = bankAccounts;
+  } else {
+    bankAccountRows = activeQuery.data as BankAccount[];
   }
 
-  const bankingData = await getBankingDataForScope({ bankAccessOnly: true });
   return {
-    bankAccounts: bankingData.bankAccounts,
-    branchBankMappings: bankingData.branchBankMappings
+    bankAccounts: bankAccountRows,
+    branchBankMappings: mappingRows as BranchBankMapping[]
   };
 }
 
