@@ -3680,20 +3680,73 @@ export async function createPanelPayment(formData: FormData) {
   const supabase = await createClient();
   const { data: claim, error: claimError } = await supabase
     .from("panel_claims")
-    .select("id, branch_id, panel_company_id, is_void, branches(name, code)")
+    .select("id, branch_id, panel_company_id, amount, is_void, branches(name, code)")
     .eq("id", panelClaimId)
     .maybeSingle();
   if (claimError || !claim) failPanelManager("Selected panel claim was not found.");
   if (claim.is_void) failPanelManager("Voided panel claims cannot receive panel payments.");
   const claimBranch = firstRelation(claim.branches as { name?: string | null; code?: string | null } | { name?: string | null; code?: string | null }[] | null | undefined);
 
-  const profile = await requireEditableBranch(claim.branch_id);
+  let profile: Awaited<ReturnType<typeof requireEditableBranch>>;
+  try {
+    profile = await requireEditableBranch(claim.branch_id);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "You do not have permission to record payment for this branch.";
+    failPanelManager(message);
+  }
+
+  const role = normalizeRole(profile.role);
+  let mappedBankIds: string[] = [];
+  if (role === "branch_pic" && profile.branch_id) {
+    const { data: mappingRows, error: mappingError } = await supabase
+      .from("branch_bank_mappings")
+      .select("bank_account_id")
+      .eq("branch_id", profile.branch_id)
+      .eq("is_active", true);
+
+    if (!mappingError) {
+      mappedBankIds = (mappingRows ?? []).map((row) => row.bank_account_id).filter(Boolean);
+    }
+  }
+
+  const { data: existingPayments, error: existingPaymentsError } = await supabase
+    .from("panel_payments")
+    .select("amount")
+    .eq("panel_claim_id", panelClaimId);
+
+  if (existingPaymentsError) {
+    console.error("createPanelPayment existing payments lookup failed", {
+      action: "createPanelPayment",
+      userId: profile.id,
+      role: profile.role,
+      userBranchId: profile.branch_id ?? null,
+      panelClaimId,
+      panelClaimBranchId: claim.branch_id,
+      code: existingPaymentsError.code,
+      error: existingPaymentsError.message,
+      details: existingPaymentsError.details,
+      hint: existingPaymentsError.hint
+    });
+    failPanelManager("Panel payment could not be validated.");
+  }
+
+  const paidAmount = (existingPayments ?? []).reduce((sum, payment) => sum + Number(payment.amount ?? 0), 0);
+  const outstandingAmount = Math.max(Number(claim.amount ?? 0) - paidAmount, 0);
+  if (amount - outstandingAmount > 0.005) {
+    failPanelManager("Payment amount exceeds the outstanding balance.");
+  }
+
   if (paymentUsesBankAccount(paymentType) && !bankAccountId) {
     failPanelManager("Received into bank account is required for bank-based panel payments.");
   }
   let bankAccount: { id: string; name: string; is_active: boolean } | null = null;
   if (bankAccountId) {
-    bankAccount = await requirePanelPaymentBankAccount(profile, bankAccountId, claimBranch, claim.branch_id, claim.id);
+    try {
+      bankAccount = await requirePanelPaymentBankAccount(profile, bankAccountId, claimBranch, claim.branch_id, claim.id);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Selected bank account is not allowed for this panel payment.";
+      failPanelManager(message);
+    }
   }
 
   const { data: payment, error } = await supabase.from("panel_payments").insert({
@@ -3709,12 +3762,31 @@ export async function createPanelPayment(formData: FormData) {
   if (error || !payment) {
     console.error("createPanelPayment failed", {
       action: "createPanelPayment",
+      userId: profile.id,
+      role: profile.role,
+      userBranchId: profile.branch_id ?? null,
       panelClaimId,
+      panelClaimBranchId: claim.branch_id,
       bankAccountId,
+      mappedBankIds,
+      insertPayloadKeys: [
+        "panel_claim_id",
+        "bank_account_id",
+        "payment_date",
+        "amount",
+        "payment_type",
+        "reference_no",
+        "notes",
+        "entered_by"
+      ],
       code: error?.code,
       error: error?.message,
-      details: error?.details
+      details: error?.details,
+      hint: error?.hint
     });
+    if (error?.code === "42501") {
+      failPanelManager("Panel payment could not be saved due to permission policy.");
+    }
     failPanelManager("Panel payment could not be saved.");
   }
   const panelClaimRelation = firstRelation(payment.panel_claims as { branch_id?: string | null } | { branch_id?: string | null }[] | null | undefined);
