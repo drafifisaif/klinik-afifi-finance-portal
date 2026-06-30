@@ -588,49 +588,111 @@ export async function getBankingData(): Promise<BankingData> {
 
 export type BranchPicCashBankInTarget = {
   bankAccount: BankAccount | null;
+  bankAccounts: BankAccount[];
   branch: Branch | null;
   mapping: BranchBankMapping | null;
+  mappings: BranchBankMapping[];
 };
 
+function isPanelBankAccount(account: Pick<BankAccount, "name" | "bank_name"> | null | undefined) {
+  const haystack = `${account?.name ?? ""} ${account?.bank_name ?? ""}`.trim().toLowerCase();
+  return haystack.includes("panel");
+}
+
 export async function getBranchPicCashBankInTarget(branchId: string | null | undefined): Promise<BranchPicCashBankInTarget> {
-  if (!branchId) return { bankAccount: null, branch: null, mapping: null };
+  if (!branchId) return { bankAccount: null, bankAccounts: [], branch: null, mapping: null, mappings: [] };
 
   if (!hasSupabaseEnv()) {
     const branch = branches.find((item) => item.id === branchId) ?? null;
-    const mapping = branchBankMappings.find((item) => item.branch_id === branchId && item.is_active) ?? null;
-    const bankAccount = mapping
-      ? bankAccounts.find((account) => account.id === mapping.bank_account_id && account.is_active) ?? null
+    const mappings = branchBankMappings.filter((item) => item.branch_id === branchId && item.is_active);
+    const branchBankAccounts = mappings
+      .map((mapping) => bankAccounts.find((account) => account.id === mapping.bank_account_id && account.is_active) ?? null)
+      .filter((account): account is BankAccount => Boolean(account))
+      .filter((account) => !isPanelBankAccount(account));
+    const bankAccount = branchBankAccounts[0] ?? null;
+    const mapping = bankAccount
+      ? mappings.find((item) => item.bank_account_id === bankAccount.id) ?? null
       : null;
 
-    return { bankAccount, branch, mapping };
+    return { bankAccount, bankAccounts: branchBankAccounts, branch, mapping, mappings };
   }
 
   const supabase = await createClient();
-  const [branchRow, mappingRow] = await Promise.all([
+  const [branchRow, mappingRowsResult] = await Promise.all([
     supabase.from("branches").select("*").eq("id", branchId).maybeSingle(),
     supabase
       .from("branch_bank_mappings")
       .select("id, branch_id, bank_account_id, is_active")
       .eq("branch_id", branchId)
       .eq("is_active", true)
-      .maybeSingle()
   ]);
 
   const branch = branchRow.error || !branchRow.data ? null : branchRow.data as Branch;
-  const mapping = mappingRow.error || !mappingRow.data ? null : mappingRow.data as BranchBankMapping;
-  if (!mapping) return { bankAccount: null, branch, mapping: null };
+  const mappings = mappingRowsResult.error || !mappingRowsResult.data ? [] : mappingRowsResult.data as BranchBankMapping[];
+  if (!mappings.length) {
+    console.warn("cash-bank-in bank loader found no active branch mappings", {
+      action: "getBranchPicCashBankInTarget",
+      selectedBranchId: branchId,
+      mappedBankRowsReturned: 0,
+      reason: "no_active_branch_mappings"
+    });
+    return { bankAccount: null, bankAccounts: [], branch, mapping: null, mappings: [] };
+  }
 
-  const { data: bankAccountRow, error: bankAccountError } = await supabase
+  const mappedBankIds = Array.from(new Set(mappings.map((mapping) => mapping.bank_account_id).filter(Boolean)));
+  const { data: bankAccountRows, error: bankAccountError } = await supabase
     .from("bank_accounts")
     .select("*")
-    .eq("id", mapping.bank_account_id)
+    .in("id", mappedBankIds)
     .eq("is_active", true)
-    .maybeSingle();
+    .order("name");
+
+  const activeMappedBankAccounts = bankAccountError || !bankAccountRows ? [] : bankAccountRows as BankAccount[];
+  const nonPanelBankAccounts = activeMappedBankAccounts.filter((account) => !isPanelBankAccount(account));
+  const selectedBankAccount = nonPanelBankAccounts[0] ?? null;
+  const selectedMapping = selectedBankAccount
+    ? mappings.find((mapping) => mapping.bank_account_id === selectedBankAccount.id) ?? null
+    : null;
+
+  if (!selectedBankAccount) {
+    console.warn("cash-bank-in bank loader found no non-panel mapped banks", {
+      action: "getBranchPicCashBankInTarget",
+      selectedBranchId: branchId,
+      mappedBankRowsReturned: activeMappedBankAccounts.length,
+      mappedBanks: activeMappedBankAccounts.map((account) => ({
+        id: account.id,
+        name: account.name,
+        bank_name: account.bank_name ?? null,
+        is_active: account.is_active
+      })),
+      nonPanelCandidateBanks: nonPanelBankAccounts.map((account) => account.name),
+      finalSelectedDestinationBankId: null,
+      finalSelectedDestinationBankName: null,
+      reason: "no_non_panel_mapped_banks"
+    });
+  } else {
+    console.info("cash-bank-in bank loader selected branch_pic destination bank", {
+      action: "getBranchPicCashBankInTarget",
+      selectedBranchId: branchId,
+      mappedBankRowsReturned: activeMappedBankAccounts.length,
+      mappedBanks: activeMappedBankAccounts.map((account) => ({
+        id: account.id,
+        name: account.name,
+        bank_name: account.bank_name ?? null,
+        is_active: account.is_active
+      })),
+      nonPanelCandidateBanks: nonPanelBankAccounts.map((account) => account.name),
+      finalSelectedDestinationBankId: selectedBankAccount.id,
+      finalSelectedDestinationBankName: selectedBankAccount.name
+    });
+  }
 
   return {
-    bankAccount: bankAccountError || !bankAccountRow ? null : bankAccountRow as BankAccount,
+    bankAccount: selectedBankAccount,
+    bankAccounts: nonPanelBankAccounts,
     branch,
-    mapping
+    mapping: selectedMapping,
+    mappings
   };
 }
 

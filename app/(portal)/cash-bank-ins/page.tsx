@@ -22,6 +22,7 @@ import { formatCurrency, formatDate } from "@/lib/format";
 import { canViewAllBranches, hasBankAccountPermission, normalizeRole, requirePermission } from "@/lib/permissions";
 import { getTransactionDocuments } from "@/lib/transaction-documents";
 import { getVisibleProfilesById } from "@/lib/users";
+import type { BankAccount } from "@/lib/types";
 import { Banknote, Landmark, WalletCards } from "lucide-react";
 
 type CashBankInsSearchParams = {
@@ -45,7 +46,7 @@ export default async function CashBankInsPage({ searchParams }: { searchParams: 
     getBankingData(),
     role === "branch_pic"
       ? getBranchPicCashBankInTarget(profile.branch_id)
-      : Promise.resolve({ bankAccount: null, branch: null, mapping: null })
+      : Promise.resolve({ bankAccount: null, bankAccounts: [], branch: null, mapping: null, mappings: [] })
   ]);
   const creatableBankAccountIds = new Set(
     data.bankAccountPermissions
@@ -66,8 +67,9 @@ export default async function CashBankInsPage({ searchParams }: { searchParams: 
   const ownBranch = branchPicTarget.branch;
   const ownBranchMapping = branchPicTarget.mapping;
   const ownBranchBankAccount = branchPicTarget.bankAccount;
+  const ownBranchBankAccounts = branchPicTarget.bankAccounts;
   const branchPicMissingBranch = role === "branch_pic" && !profile.branch_id;
-  const branchPicMissingMapping = role === "branch_pic" && Boolean(profile.branch_id) && (!ownBranch || !ownBranchMapping || !ownBranchBankAccount);
+  const branchPicMissingMapping = role === "branch_pic" && Boolean(profile.branch_id) && (!ownBranch || !ownBranchBankAccounts.length);
   const canCreateCashBankIn = role === "branch_pic"
     ? !branchPicMissingBranch && !branchPicMissingMapping
     : Boolean(data.branches.length && destinationBankAccounts.length);
@@ -185,14 +187,27 @@ export default async function CashBankInsPage({ searchParams }: { searchParams: 
               </label>
               <label>
                 Destination bank account
-                <input readOnly value={bankAccountLabel(ownBranchBankAccount)} />
-                {ownBranchMapping ? <input name="bank_account_id" type="hidden" value={ownBranchMapping.bank_account_id} /> : null}
+                {ownBranchBankAccounts.length > 1 ? (
+                  <select name="bank_account_id" required defaultValue={ownBranchBankAccount?.id ?? ownBranchBankAccounts[0]?.id ?? ""}>
+                    {ownBranchBankAccounts.map((account: BankAccount) => (
+                      <option key={account.id} value={account.id}>
+                        {bankAccountLabel(account)}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <>
+                    <input readOnly value={bankAccountLabel(ownBranchBankAccount)} />
+                    {ownBranchMapping ? <input name="bank_account_id" type="hidden" value={ownBranchMapping.bank_account_id} /> : null}
+                  </>
+                )}
               </label>
             </>
           ) : (
             <CashBankInTargetFields
               bankAccounts={destinationBankAccounts}
               branches={data.branches}
+              initialBranchId={effectiveBranchId}
               mappings={data.branchBankMappings}
             />
           )}
@@ -212,7 +227,7 @@ export default async function CashBankInsPage({ searchParams }: { searchParams: 
             Save cash bank-in
           </button>
           {branchPicMissingBranch ? <p className="muted-copy">Your user account is not assigned to a branch. Please contact Owner/Admin.</p> : null}
-          {branchPicMissingMapping ? <p className="muted-copy">No destination bank account is mapped for your branch. Please contact Owner/Admin.</p> : null}
+          {branchPicMissingMapping ? <p className="muted-copy">No active operation bank account mapped for your branch.</p> : null}
           {role !== "branch_pic" && !destinationBankAccounts.length ? <p className="muted-copy">No editable bank accounts are assigned to your user.</p> : null}
         </form>
       </section>

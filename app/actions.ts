@@ -378,6 +378,60 @@ function pettyCashDirection(type: PettyCashTransactionType) {
   return "out";
 }
 
+function isPanelBankAccount(account: { name?: string | null; bank_name?: string | null } | null | undefined) {
+  const haystack = `${account?.name ?? ""} ${account?.bank_name ?? ""}`.trim().toLowerCase();
+  return haystack.includes("panel");
+}
+
+async function getCashBankInAllowedBankAccounts(branchId: string) {
+  const admin = createAdminClient();
+  const { data: mappingRows, error: mappingError } = await admin
+    .from("branch_bank_mappings")
+    .select("id, branch_id, bank_account_id, is_active")
+    .eq("branch_id", branchId)
+    .eq("is_active", true);
+
+  if (mappingError) {
+    console.error("cash-bank-in bank loader mapping lookup failed", {
+      action: "getCashBankInAllowedBankAccounts",
+      selectedBranchId: branchId,
+      code: mappingError.code,
+      error: mappingError.message,
+      details: mappingError.details,
+      hint: mappingError.hint
+    });
+    return { accounts: [] as Array<{ id: string; name: string; bank_name?: string | null; account_no?: string | null; is_active?: boolean | null }>, mappedBankIds: [] as string[] };
+  }
+
+  const mappedBankIds = (mappingRows ?? []).map((row) => row.bank_account_id).filter(Boolean);
+  if (!mappedBankIds.length) {
+    return { accounts: [], mappedBankIds };
+  }
+
+  const { data: bankRows, error: bankError } = await admin
+    .from("bank_accounts")
+    .select("id, name, bank_name, account_no, is_active")
+    .in("id", mappedBankIds)
+    .eq("is_active", true)
+    .order("name");
+
+  if (bankError) {
+    console.error("cash-bank-in bank loader bank lookup failed", {
+      action: "getCashBankInAllowedBankAccounts",
+      selectedBranchId: branchId,
+      mappedBankIds,
+      code: bankError.code,
+      error: bankError.message,
+      details: bankError.details,
+      hint: bankError.hint
+    });
+    return { accounts: [], mappedBankIds };
+  }
+
+  const accounts = (bankRows ?? []).filter((account) => !isPanelBankAccount(account));
+  return { accounts, mappedBankIds };
+}
+
 type UserProfileAuditRow = {
   branch_id: string | null;
   full_name: string;
@@ -1513,24 +1567,45 @@ export async function createCashBankIn(formData: FormData) {
     throw new Error("You do not have permission to bank in cash for this branch.");
   }
   const supabase = await createClient();
+  const { accounts: allowedBranchBanks, mappedBankIds } = await getCashBankInAllowedBankAccounts(branchId);
+  const allowedBranchBankIds = new Set(allowedBranchBanks.map((account) => account.id));
+
+  if (!allowedBranchBanks.length) {
+    console.warn("cash-bank-in bank loader found no non-panel destination bank", {
+      action: "createCashBankIn",
+      userId: profile.id,
+      role: profile.role,
+      currentUserBranchId: profile.branch_id ?? null,
+      selectedBranchId: branchId,
+      mappedBankIds,
+      reason: "no_active_non_panel_mapped_banks"
+    });
+    throw new Error("No active operation bank account mapped for this branch.");
+  }
+
+  if (!allowedBranchBankIds.has(bankAccountId)) {
+    console.warn("cash-bank-in bank validation denied selected bank", {
+      action: "createCashBankIn",
+      userId: profile.id,
+      role: profile.role,
+      currentUserBranchId: profile.branch_id ?? null,
+      selectedBranchId: branchId,
+      selectedBankAccountId: bankAccountId,
+      mappedBankIds,
+      candidateBanks: allowedBranchBanks.map((account) => ({
+        id: account.id,
+        name: account.name,
+        bank_name: account.bank_name ?? null,
+        is_active: account.is_active ?? null
+      })),
+      reason: "selected_bank_not_allowed_for_branch"
+    });
+    throw new Error("You do not have permission to use this bank account.");
+  }
 
   if (role === "branch_pic") {
     if (branchId !== profile.branch_id) {
       throw new Error("Branch PIC can only bank in cash for their assigned branch.");
-    }
-
-    const { data: mapping, error: mappingError } = await supabase
-      .from("branch_bank_mappings")
-      .select("bank_account_id")
-      .eq("branch_id", profile.branch_id)
-      .eq("is_active", true)
-      .maybeSingle();
-
-    if (mappingError || !mapping) {
-      throw new Error("No destination bank account is mapped for your branch. Please contact Owner/Admin.");
-    }
-    if (bankAccountId !== mapping.bank_account_id) {
-      await requireBankAccountPermission(bankAccountId, "create_transaction");
     }
   }
 
