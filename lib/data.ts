@@ -878,9 +878,18 @@ export async function getPanelPaymentBankAccounts() {
     bankAccountRows = activeQuery.data as BankAccount[];
   }
 
+  const typedMappings = mappingRows as BranchBankMapping[];
+  const scopedMappings = role === "branch_pic" && profile.branch_id
+    ? typedMappings.filter((mapping) => mapping.branch_id === profile.branch_id)
+    : typedMappings;
+  const scopedBankIds = new Set(scopedMappings.map((mapping) => mapping.bank_account_id));
+  const scopedBankAccounts = role === "branch_pic" && profile.branch_id
+    ? bankAccountRows.filter((account) => scopedBankIds.has(account.id))
+    : bankAccountRows;
+
   return {
-    bankAccounts: bankAccountRows,
-    branchBankMappings: mappingRows as BranchBankMapping[]
+    bankAccounts: scopedBankAccounts,
+    branchBankMappings: scopedMappings
   };
 }
 

@@ -12,9 +12,11 @@ type Props = {
   panelCompanies: PanelCompany[];
   panelPayments: PanelPayment[];
   bankAccounts: BankAccount[];
+  profileBranchId?: string | null;
+  role: string;
 };
 
-export function PanelPaymentForm({ claims, panelCompanies, panelPayments, bankAccounts }: Props) {
+export function PanelPaymentForm({ claims, panelCompanies, panelPayments, bankAccounts, profileBranchId, role }: Props) {
   const [panelClaimId, setPanelClaimId] = useState(claims[0]?.id ?? "");
   const [bankAccountId, setBankAccountId] = useState("");
   const [paymentType, setPaymentType] = useState<PaymentType>("bank_transfer");
@@ -110,7 +112,9 @@ export function PanelPaymentForm({ claims, panelCompanies, panelPayments, bankAc
         </select>
         {!sortedBankAccounts.length && selectedClaim?.branches ? (
           <small className="void-warning">
-            {panelReceivingBankError(selectedClaim.branches)}
+            {role === "branch_pic" && selectedClaim.branch_id === profileBranchId
+              ? "No active mapped panel bank found for your branch."
+              : panelReceivingBankError(selectedClaim.branches)}
           </small>
         ) : null}
       </label>

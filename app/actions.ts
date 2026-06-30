@@ -170,6 +170,7 @@ async function requirePanelPaymentBankAccount(
   claimId?: string | null
 ) {
   const admin = createAdminClient();
+  const role = normalizeRole(profile.role);
   let appliedIsActiveFilter = true;
   let bankAccounts: Array<{
     id: string;
@@ -232,6 +233,50 @@ async function requirePanelPaymentBankAccount(
     }
   }
 
+  let mappedBankIds: string[] = [];
+  if (role === "branch_pic") {
+    const { data: mappingRows, error: mappingError } = await admin
+      .from("branch_bank_mappings")
+      .select("bank_account_id")
+      .eq("branch_id", branchId ?? profile.branch_id ?? "")
+      .eq("is_active", true);
+
+    if (mappingError) {
+      console.error("requirePanelPaymentBankAccount branch mapping lookup failed", {
+        action: "requirePanelPaymentBankAccount",
+        userId: profile.id,
+        role: profile.role,
+        currentUserBranchId: profile.branch_id ?? null,
+        claimId,
+        branchId,
+        branchName: branch?.name ?? null,
+        branchCode: branch?.code ?? null,
+        selectedBankAccountId: bankAccountId,
+        code: mappingError.code,
+        error: mappingError.message,
+        details: mappingError.details,
+        hint: mappingError.hint
+      });
+      throw new Error("No active mapped panel bank found for your branch.");
+    }
+
+    mappedBankIds = (mappingRows ?? []).map((row) => row.bank_account_id).filter(Boolean);
+    if (!mappedBankIds.length) {
+      console.warn("requirePanelPaymentBankAccount branch mapping denied", {
+        action: "requirePanelPaymentBankAccount",
+        userId: profile.id,
+        role: profile.role,
+        currentUserBranchId: profile.branch_id ?? null,
+        claimId,
+        claimBranchId: branchId ?? null,
+        selectedBankAccountId: bankAccountId,
+        mappedBankIds,
+        reasonDenied: "no_active_branch_bank_mappings"
+      });
+      throw new Error("No active mapped panel bank found for your branch.");
+    }
+  }
+
   if (bankError) {
     console.error("requirePanelPaymentBankAccount lookup failed", {
       action: "requirePanelPaymentBankAccount",
@@ -252,7 +297,10 @@ async function requirePanelPaymentBankAccount(
   }
 
   const requirement = panelReceivingBankRequirement(branch);
-  const allowedAccounts = panelReceivingBankAccounts(branch, (bankAccounts ?? []) as BankAccount[]);
+  const branchScopedAccounts = role === "branch_pic"
+    ? (bankAccounts ?? []).filter((account) => mappedBankIds.includes(account.id))
+    : (bankAccounts ?? []);
+  const allowedAccounts = panelReceivingBankAccounts(branch, branchScopedAccounts as BankAccount[]);
 
   if (!allowedAccounts.length) {
     console.error("requirePanelPaymentBankAccount no mapped account", {
@@ -266,23 +314,36 @@ async function requirePanelPaymentBankAccount(
       mappedTargetType: requirement.targetType,
       tokens: requirement.tokens,
       availableBankAccountNames: (bankAccounts ?? []).map((account) => account.name),
+      mappedBankIds,
+      branchScopedBankAccountNames: branchScopedAccounts.map((account) => account.name),
+      selectedBankAccountId: bankAccountId,
       isActiveFilterApplied: appliedIsActiveFilter,
-      branchIdFilterApplied: false
+      branchIdFilterApplied: false,
+      reasonDenied: role === "branch_pic" ? "no_active_mapped_panel_bank_for_branch" : "no_matching_panel_bank"
     });
-    throw new Error(panelReceivingBankError(branch));
+    throw new Error(role === "branch_pic" ? "No active mapped panel bank found for your branch." : panelReceivingBankError(branch));
   }
 
   const bankAccount = allowedAccounts.find((account) => account.id === bankAccountId);
   if (!bankAccount) {
-    throw new Error("Selected bank account is not allowed for this panel payment.");
+    console.warn("requirePanelPaymentBankAccount selected bank denied", {
+      action: "requirePanelPaymentBankAccount",
+      userId: profile.id,
+      role: profile.role,
+      currentUserBranchId: profile.branch_id ?? null,
+      claimId,
+      claimBranchId: branchId ?? null,
+      selectedBankAccountId: bankAccountId,
+      mappedBankIds,
+      allowedBankAccountNames: allowedAccounts.map((account) => account.name),
+      reasonDenied: role === "branch_pic" ? "selected_bank_not_mapped_to_branch" : "selected_bank_not_matching_panel_target"
+    });
+    throw new Error(role === "branch_pic" ? "You do not have permission to use this bank account." : "Selected bank account is not allowed for this panel payment.");
   }
 
-  const role = normalizeRole(profile.role);
   if (role === "owner" || role === "admin" || role === "finance") {
     return bankAccount;
   }
-
-  await requireBankAccountPermission(bankAccountId, "create_transaction");
   return bankAccount;
 }
 

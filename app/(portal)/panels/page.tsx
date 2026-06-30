@@ -36,9 +36,21 @@ function panelClaimPriority(status: string, dueDate?: string | null, outstanding
 export default async function PanelsPage({ searchParams }: PanelsPageProps) {
   const profile = await requirePermission("view_panel_records");
   const data = await getDashboardData();
-  const panelPaymentBanking = await getPanelPaymentBankAccounts();
-  const panelCompanies = await getPanelCompanies();
   const params = searchParams ? await searchParams : {};
+  let panelPaymentBanking: Awaited<ReturnType<typeof getPanelPaymentBankAccounts>> = { bankAccounts: [], branchBankMappings: [] };
+  try {
+    panelPaymentBanking = await getPanelPaymentBankAccounts();
+  } catch (error) {
+    console.error("PanelsPage panel payment bank loading failed", {
+      action: "PanelsPage",
+      userId: profile.id,
+      role: profile.role,
+      currentUserBranchId: profile.branch_id ?? null,
+      requestedBranchQueryParam: searchValue(params.branch),
+      error: error instanceof Error ? error.message : String(error)
+    });
+  }
+  const panelCompanies = await getPanelCompanies();
   const errorMessage = searchValue(params.error);
   const selectedBranchFilter = searchValue(params.branch);
   const visibleBranchIds = canViewAllBranches(profile)
@@ -497,6 +509,8 @@ export default async function PanelsPage({ searchParams }: PanelsPageProps) {
             panelCompanies={panelCompanies}
             panelPayments={filteredPayments}
             bankAccounts={panelPaymentBanking.bankAccounts}
+            profileBranchId={profile.branch_id ?? null}
+            role={role}
           />
         </div>
       </section>
