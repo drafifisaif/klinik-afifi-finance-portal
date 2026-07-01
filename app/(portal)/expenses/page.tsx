@@ -5,7 +5,7 @@ import { ExportCsvLink } from "@/components/export-csv-link";
 import { FinanceRecordDetails } from "@/components/finance-record-details";
 import { MetricCard } from "@/components/metric-card";
 import { ModuleHeader } from "@/components/module-header";
-import { isActiveFinancialRecord } from "@/lib/bank-reporting";
+import { isActiveFinancialRecord, resolveReportRange } from "@/lib/bank-reporting";
 import { resolveSelectedBranchIds } from "@/lib/branch-reporting";
 import { expenseCategories, paymentTypes } from "@/lib/constants";
 import { getExpensesReportingData, totalBy } from "@/lib/data";
@@ -25,10 +25,25 @@ function searchValue(value: string | string[] | undefined) {
   return value ?? null;
 }
 
+function monthYearLabel(date: string) {
+  return new Intl.DateTimeFormat("en-MY", { month: "long", timeZone: "UTC", year: "numeric" }).format(new Date(`${date}T00:00:00Z`));
+}
+
+function reportRangeLabel(range: ReturnType<typeof resolveReportRange>) {
+  if (range.range === "this_month") return `This Month: ${monthYearLabel(range.startDate)}`;
+  if (range.range === "last_month") return `Last Month: ${monthYearLabel(range.startDate)}`;
+  return `${formatDate(range.startDate)} - ${formatDate(range.endDate)}`;
+}
+
 export default async function ExpensesPage({ searchParams }: ExpensesPageProps) {
   const profile = await requirePermission("edit_finance");
   const params = searchParams ? await searchParams : {};
-  const selectedMonth = searchValue(params.month) ?? new Date().toISOString().slice(0, 7);
+  const reportRange = resolveReportRange({
+    end: searchValue(params.end) ?? undefined,
+    month: searchValue(params.month) ?? undefined,
+    range: searchValue(params.range) ?? undefined,
+    start: searchValue(params.start) ?? undefined
+  });
   const canViewSupplierPayments = hasPermission(profile, "view_supplier_payments");
   const canSelectMultipleBranches = canViewAllBranches(profile);
   const data = await getExpensesReportingData();
@@ -50,8 +65,16 @@ export default async function ExpensesPage({ searchParams }: ExpensesPageProps) 
   const visibleUsers = await getVisibleProfilesById(data.expenses.flatMap((expense) => [expense.entered_by, expense.voided_by]));
   const userById = new Map(visibleUsers.map((user) => [user.id, user]));
   const canDeleteDocuments = normalizeRole(profile.role) !== "branch_pic";
-  const filteredExpenses = data.expenses.filter((expense) => selectedBranchIdSet.has(expense.branch_id) && expense.expense_date.slice(0, 7) === selectedMonth);
-  const filteredSupplierPayments = data.supplierPayments.filter((payment) => selectedBranchIdSet.has(payment.branch_id) && payment.payment_date.slice(0, 7) === selectedMonth);
+  const filteredExpenses = data.expenses.filter((expense) => {
+    return selectedBranchIdSet.has(expense.branch_id)
+      && expense.expense_date >= reportRange.startDate
+      && expense.expense_date <= reportRange.endDate;
+  });
+  const filteredSupplierPayments = data.supplierPayments.filter((payment) => {
+    return selectedBranchIdSet.has(payment.branch_id)
+      && payment.payment_date >= reportRange.startDate
+      && payment.payment_date <= reportRange.endDate;
+  });
   const activeExpenses = filteredExpenses.filter(isActiveFinancialRecord);
   const activeSupplierPayments = filteredSupplierPayments.filter((payment) => !payment.is_void);
   const operatingTotal = totalBy(activeExpenses, (expense) => expense.amount);
@@ -69,6 +92,13 @@ export default async function ExpensesPage({ searchParams }: ExpensesPageProps) 
     (expense) => expense.amount
   );
   const otherCategoriesTotal = operatingTotal - salaryTotal - locumDoctorTotal - rentalTotal;
+  const selectedBranchValue = selectedBranches.length === data.branches.length ? "all" : (selectedBranches[0]?.id ?? "all");
+  const exportParams = {
+    branch: selectedBranchValue,
+    end: reportRange.endDate,
+    range: reportRange.range,
+    start: reportRange.startDate
+  };
 
   return (
     <>
@@ -79,7 +109,7 @@ export default async function ExpensesPage({ searchParams }: ExpensesPageProps) 
       />
 
       <section className="dashboard-grid">
-        <MetricCard icon={ReceiptText} label="Operating Expenses" value={formatCurrency(operatingTotal)} detail={selectedMonth} />
+        <MetricCard icon={ReceiptText} label="Operating Expenses" value={formatCurrency(operatingTotal)} detail={reportRangeLabel(reportRange)} />
         {canViewSupplierPayments ? (
           <MetricCard icon={Truck} label="Supplier Payments" value={formatCurrency(supplierPaymentTotal)} tone="blue" />
         ) : null}
@@ -98,38 +128,55 @@ export default async function ExpensesPage({ searchParams }: ExpensesPageProps) 
           <ExportCsvLink
             label="Export expenses CSV"
             report="expenses"
-            searchParams={{
-              month: selectedMonth,
-              branches: selectedBranchIds
-            }}
+            searchParams={exportParams}
           />
         </div>
         <form className="reporting-filter" method="get">
           <label>
-            Report month
-            <input defaultValue={selectedMonth} name="month" type="month" />
+            Report range
+            <select defaultValue={reportRange.range} name="range">
+              <option value="this_month">This month</option>
+              <option value="last_month">Last month</option>
+              <option value="custom">Custom date range</option>
+            </select>
           </label>
-          <fieldset>
-            <legend>Branches</legend>
-            <div className="checkbox-grid">
-              {data.branches.map((branch) => (
-                <label key={branch.id}>
-                  <input
-                    defaultChecked={selectedBranchIdSet.has(branch.id)}
-                    disabled={!canSelectMultipleBranches}
-                    name="branches"
-                    type="checkbox"
-                    value={branch.id}
-                  />
-                  <span>{branch.name}</span>
-                </label>
-              ))}
-            </div>
-          </fieldset>
+          {reportRange.range === "custom" ? (
+            <>
+              <label>
+                Start date
+                <input defaultValue={reportRange.startDate} name="start" type="date" />
+              </label>
+              <label>
+                End date
+                <input defaultValue={reportRange.endDate} name="end" type="date" />
+              </label>
+            </>
+          ) : (
+            <>
+              <input name="start" type="hidden" value={reportRange.startDate} />
+              <input name="end" type="hidden" value={reportRange.endDate} />
+            </>
+          )}
+          {canSelectMultipleBranches ? (
+            <label>
+              Branch
+              <select defaultValue={selectedBranchValue} name="branch">
+                <option value="all">All Branches</option>
+                {data.branches.map((branch) => (
+                  <option key={branch.id} value={branch.id}>
+                    {branch.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : (
+            <input name="branch" type="hidden" value={profile.branch_id ?? ""} />
+          )}
           <button className="primary-button" type="submit">
             Apply
           </button>
-          <p className="selected-branches">Showing {selectedMonth} for {selectedBranchLabel}</p>
+          <p className="selected-branches">Showing {reportRangeLabel(reportRange)} for {selectedBranchLabel}</p>
+          {reportRange.error ? <p className="form-error">{reportRange.error}</p> : null}
         </form>
       </section>
 

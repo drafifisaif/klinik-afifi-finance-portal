@@ -12,6 +12,7 @@ import {
   getMappingByBranch,
   isActiveFinancialRecord,
   isWithinDateRange,
+  resolveReportRange,
   pettyCashAmount,
   resolveDateRange
 } from "@/lib/bank-reporting";
@@ -552,8 +553,12 @@ export async function expensesCsv(searchParams: URLSearchParams): Promise<CsvExp
   const profile = await requirePermission("edit_finance");
   const data = await getExpensesReportingData();
   const canViewSupplierPayments = ["owner", "admin", "finance"].includes(normalizeRole(profile.role));
-  const selectedMonth = param(searchParams, "month");
-  const matchesMonth = (date: string) => !selectedMonth || date.slice(0, 7) === selectedMonth;
+  const reportRange = resolveReportRange({
+    end: param(searchParams, "end"),
+    month: param(searchParams, "month"),
+    range: param(searchParams, "range"),
+    start: param(searchParams, "start")
+  });
   const selectedBranchIds = resolveSelectedBranchIds({
     allowedBranches: data.branches,
     branchParam: paramValues(searchParams, "branch"),
@@ -563,9 +568,8 @@ export async function expensesCsv(searchParams: URLSearchParams): Promise<CsvExp
   const selectedBranchIdSet = new Set(selectedBranchIds);
 
   const expenseRows: CsvCell[][] = data.expenses.filter((expense) => {
-    return isActiveFinancialRecord(expense)
-      && matchesOptionalDate(expense.expense_date, searchParams)
-      && matchesMonth(expense.expense_date)
+    return expense.expense_date >= reportRange.startDate
+      && expense.expense_date <= reportRange.endDate
       && selectedBranchIdSet.has(expense.branch_id);
   }).map((expense) => [
     "Operating Expense",
@@ -578,14 +582,15 @@ export async function expensesCsv(searchParams: URLSearchParams): Promise<CsvExp
     "",
     expense.amount,
     "",
-    "Active"
+    expense.is_void ? "Voided" : "Active",
+    expense.is_void ? "true" : "false",
+    expense.created_at ?? ""
   ]);
 
   const supplierPaymentRows: CsvCell[][] = canViewSupplierPayments
     ? data.supplierPayments.filter((payment) => {
-        return !payment.is_void
-          && matchesOptionalDate(payment.payment_date, searchParams)
-          && matchesMonth(payment.payment_date)
+        return payment.payment_date >= reportRange.startDate
+          && payment.payment_date <= reportRange.endDate
           && selectedBranchIdSet.has(payment.branch_id);
       }).map((payment) => [
         "Supplier Payment",
@@ -598,13 +603,15 @@ export async function expensesCsv(searchParams: URLSearchParams): Promise<CsvExp
         payment.bank_accounts?.name ?? "",
         payment.amount,
         payment.reference_no ?? "",
-        "Active"
+        payment.is_void ? "Voided" : "Active",
+        payment.is_void ? "true" : "false",
+        payment.created_at ?? ""
       ])
     : [];
 
   return {
     filename: "expenses-report.csv",
-    headers: ["Source", "Date", "Branch", "Category / Type", "Vendor / Supplier", "Description / Invoice", "Payment Method", "Paid From / Bank Account", "Amount", "Reference", "Status"],
+    headers: ["Source", "Date", "Branch", "Category / Type", "Vendor / Supplier", "Description / Invoice", "Payment Method", "Paid From / Bank Account", "Amount", "Reference", "Status", "Is Voided", "Created At"],
     rows: [...expenseRows, ...supplierPaymentRows].sort((first, second) => String(second[1]).localeCompare(String(first[1])))
   };
 }

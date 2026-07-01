@@ -84,6 +84,8 @@ export type Expense = {
   amount: number;
   receipt_path?: string | null;
   entered_by?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
   is_void?: boolean;
   voided_at?: string | null;
   voided_by?: string | null;

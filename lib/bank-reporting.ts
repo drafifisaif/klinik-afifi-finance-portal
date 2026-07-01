@@ -2,6 +2,7 @@ import { branchOpeningBalanceTotal } from "@/lib/opening-balances";
 import type { BankAccount, BankTransaction, BankingData, Branch, CashBankIn, DailySale, PettyCashTransaction } from "@/lib/types";
 
 export type DatePeriod = "today" | "this_month" | "last_month" | "custom";
+export type ReportRangeOption = "this_month" | "last_month" | "custom";
 
 export type DateRange = {
   endDate: string;
@@ -40,6 +41,18 @@ function endOfMonth(date: Date) {
   return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 0));
 }
 
+export function monthStart(month: string) {
+  if (!/^\d{4}-\d{2}$/.test(month)) return null;
+  return `${month}-01`;
+}
+
+export function monthEnd(month: string) {
+  const start = monthStart(month);
+  if (!start) return null;
+  const date = new Date(`${start}T00:00:00Z`);
+  return toDateInput(endOfMonth(date));
+}
+
 export function resolveDateRange(params: { end?: string; period?: string; start?: string }, now = new Date()): DateRange {
   const period = params.period === "today" || params.period === "last_month" || params.period === "custom" ? params.period : "this_month";
   const today = toDateInput(now);
@@ -73,6 +86,48 @@ export function resolveDateRange(params: { end?: string; period?: string; start?
     period: "this_month",
     startDate: toDateInput(startOfMonth(now))
   };
+}
+
+export function resolveReportRange(
+  params: { end?: string; month?: string; range?: string; start?: string },
+  now = new Date()
+): DateRange & { error: string | null; range: ReportRangeOption } {
+  if (params.range === "custom") {
+    const startDate = params.start || toDateInput(startOfMonth(now));
+    const endDate = params.end || toDateInput(now);
+    const error = !params.start || !params.end || endDate < startDate ? "Please select a valid date range." : null;
+    return {
+      endDate,
+      error,
+      label: "Custom range",
+      period: "custom",
+      range: "custom",
+      startDate
+    };
+  }
+
+  if (params.range === "last_month") {
+    const range = resolveDateRange({ period: "last_month" }, now);
+    return { ...range, error: null, range: "last_month" };
+  }
+
+  if (params.month) {
+    const startDate = monthStart(params.month);
+    const endDate = monthEnd(params.month);
+    if (startDate && endDate) {
+      return {
+        endDate,
+        error: null,
+        label: "Custom range",
+        period: "custom",
+        range: "custom",
+        startDate
+      };
+    }
+  }
+
+  const range = resolveDateRange({ period: "this_month" }, now);
+  return { ...range, error: null, range: "this_month" };
 }
 
 export function isWithinDateRange(date: string, range: Pick<DateRange, "endDate" | "startDate">) {
