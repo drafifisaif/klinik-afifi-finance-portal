@@ -14,7 +14,7 @@ import { formatCurrency, formatDate, labelize } from "@/lib/format";
 import { canViewAllBranches, hasPermission, normalizeRole, requirePermission } from "@/lib/permissions";
 import { getTransactionDocuments } from "@/lib/transaction-documents";
 import { getVisibleProfilesById } from "@/lib/users";
-import { BadgeDollarSign, Building2, ReceiptText, Stethoscope, Truck, Wrench } from "lucide-react";
+import { BadgeDollarSign, Building2, ReceiptText, Stethoscope, Wrench } from "lucide-react";
 
 type ExpensesPageProps = {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
@@ -25,13 +25,9 @@ function searchValue(value: string | string[] | undefined) {
   return value ?? null;
 }
 
-function monthYearLabel(date: string) {
-  return new Intl.DateTimeFormat("en-MY", { month: "long", timeZone: "UTC", year: "numeric" }).format(new Date(`${date}T00:00:00Z`));
-}
-
-function reportRangeLabel(range: ReturnType<typeof resolveReportRange>) {
-  if (range.range === "this_month") return `This Month: ${monthYearLabel(range.startDate)}`;
-  if (range.range === "last_month") return `Last Month: ${monthYearLabel(range.startDate)}`;
+function reportRangeSummaryLabel(range: ReturnType<typeof resolveReportRange>) {
+  if (range.range === "this_month") return "This month";
+  if (range.range === "last_month") return "Last month";
   return `${formatDate(range.startDate)} - ${formatDate(range.endDate)}`;
 }
 
@@ -76,9 +72,7 @@ export default async function ExpensesPage({ searchParams }: ExpensesPageProps) 
       && payment.payment_date <= reportRange.endDate;
   });
   const activeExpenses = filteredExpenses.filter(isActiveFinancialRecord);
-  const activeSupplierPayments = filteredSupplierPayments.filter((payment) => !payment.is_void);
   const operatingTotal = totalBy(activeExpenses, (expense) => expense.amount);
-  const supplierPaymentTotal = totalBy(activeSupplierPayments, (payment) => payment.amount);
   const salaryTotal = totalBy(
     activeExpenses.filter((expense) => expense.category === "salary"),
     (expense) => expense.amount
@@ -103,21 +97,15 @@ export default async function ExpensesPage({ searchParams }: ExpensesPageProps) 
   return (
     <>
       <ModuleHeader
-        eyebrow="Cost control"
+        eyebrow="COST CONTROL"
         title="Expenses entry"
         description="Capture branch operating expenses by the V1 finance categories, separate from supplier purchase cost tracking."
       />
 
       <section className="dashboard-grid">
-        <MetricCard icon={ReceiptText} label="Operating Expenses" value={formatCurrency(operatingTotal)} detail={reportRangeLabel(reportRange)} />
-        {canViewSupplierPayments ? (
-          <MetricCard icon={Truck} label="Supplier Payments" value={formatCurrency(supplierPaymentTotal)} tone="blue" />
-        ) : null}
-        {canViewSupplierPayments ? (
-          <MetricCard icon={BadgeDollarSign} label="Total Paid Out" value={formatCurrency(operatingTotal + supplierPaymentTotal)} tone="amber" />
-        ) : null}
+        <MetricCard icon={ReceiptText} label="Operating Expenses" value={formatCurrency(operatingTotal)} detail={selectedBranchLabel} />
         <MetricCard icon={BadgeDollarSign} label="Salary" value={formatCurrency(salaryTotal)} tone="blue" />
-        <MetricCard icon={Stethoscope} label="Locum Doctor" value={formatCurrency(locumDoctorTotal)} tone="amber" />
+        <MetricCard icon={Stethoscope} label="Locum Doctor" value={formatCurrency(locumDoctorTotal)} detail={reportRangeSummaryLabel(reportRange)} tone="amber" />
         <MetricCard icon={Building2} label="Rental" value={formatCurrency(rentalTotal)} tone="rose" />
         <MetricCard icon={Wrench} label="Other categories" value={formatCurrency(otherCategoriesTotal)} tone="rose" />
       </section>
@@ -131,32 +119,7 @@ export default async function ExpensesPage({ searchParams }: ExpensesPageProps) 
             searchParams={exportParams}
           />
         </div>
-        <form className="reporting-filter" method="get">
-          <label>
-            Report range
-            <select defaultValue={reportRange.range} name="range">
-              <option value="this_month">This month</option>
-              <option value="last_month">Last month</option>
-              <option value="custom">Custom date range</option>
-            </select>
-          </label>
-          {reportRange.range === "custom" ? (
-            <>
-              <label>
-                Start date
-                <input defaultValue={reportRange.startDate} name="start" type="date" />
-              </label>
-              <label>
-                End date
-                <input defaultValue={reportRange.endDate} name="end" type="date" />
-              </label>
-            </>
-          ) : (
-            <>
-              <input name="start" type="hidden" value={reportRange.startDate} />
-              <input name="end" type="hidden" value={reportRange.endDate} />
-            </>
-          )}
+        <form className="reporting-filter cash-bank-in-filter" method="get">
           {canSelectMultipleBranches ? (
             <label>
               Branch
@@ -172,10 +135,26 @@ export default async function ExpensesPage({ searchParams }: ExpensesPageProps) 
           ) : (
             <input name="branch" type="hidden" value={profile.branch_id ?? ""} />
           )}
+          <label>
+            Date filter
+            <select defaultValue={reportRange.range} name="range">
+              <option value="this_month">This month</option>
+              <option value="last_month">Last month</option>
+              <option value="custom">Custom date</option>
+            </select>
+          </label>
+          <label>
+            Start date
+            <input defaultValue={reportRange.startDate} name="start" type="date" />
+          </label>
+          <label>
+            End date
+            <input defaultValue={reportRange.endDate} name="end" type="date" />
+          </label>
           <button className="primary-button" type="submit">
             Apply
           </button>
-          <p className="selected-branches">Showing {reportRangeLabel(reportRange)} for {selectedBranchLabel}</p>
+          <p className="selected-branches">Showing {selectedBranchLabel} · {reportRangeSummaryLabel(reportRange)}</p>
           {reportRange.error ? <p className="form-error">{reportRange.error}</p> : null}
         </form>
       </section>
@@ -323,55 +302,57 @@ export default async function ExpensesPage({ searchParams }: ExpensesPageProps) 
         </section>
       ) : null}
 
-      <section className="section-grid mt-section">
-        <form action={createExpense} className="form-card">
+      <section className="cash-bank-in-entry-layout mt-section">
+        <form action={createExpense} className="form-card cash-bank-in-entry-form">
           <h2>Record expense</h2>
-          <label>
-            Branch
-            <select name="branch_id" required>
-              {data.branches.map((branch) => (
-                <option key={branch.id} value={branch.id}>
-                  {branch.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Date
-            <input name="expense_date" type="date" required />
-          </label>
-          <label>
-            Category
-            <select name="category" required>
-              {expenseCategories.map((category) => (
-                <option key={category.value} value={category.value}>
-                  {category.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Payment type
-            <select name="payment_type" required>
-              {paymentTypes.map((type) => (
-                <option key={type.value} value={type.value}>
-                  {type.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Vendor
-            <input name="vendor_name" placeholder="Vendor or payee" />
-          </label>
-          <label>
-            Amount
-            <input min="0" name="amount" required step="0.01" type="number" />
-          </label>
-          <label>
-            Description
-            <textarea name="description" required />
-          </label>
+          <div className="form-grid">
+            <label>
+              Branch
+              <select name="branch_id" required>
+                {data.branches.map((branch) => (
+                  <option key={branch.id} value={branch.id}>
+                    {branch.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Date
+              <input name="expense_date" type="date" required />
+            </label>
+            <label>
+              Category
+              <select name="category" required>
+                {expenseCategories.map((category) => (
+                  <option key={category.value} value={category.value}>
+                    {category.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Payment type
+              <select name="payment_type" required>
+                {paymentTypes.map((type) => (
+                  <option key={type.value} value={type.value}>
+                    {type.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Vendor
+              <input name="vendor_name" placeholder="Vendor or payee" />
+            </label>
+            <label>
+              Amount
+              <input min="0" name="amount" required step="0.01" type="number" />
+            </label>
+            <label>
+              Description
+              <textarea name="description" required />
+            </label>
+          </div>
           <button className="primary-button" type="submit">
             Save expense
           </button>
