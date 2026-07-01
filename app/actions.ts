@@ -93,6 +93,10 @@ function failSalesManager(message: string): never {
   redirect(`/sales?error=${encodeURIComponent(message)}`);
 }
 
+function failCashBankInManager(message: string): never {
+  redirect(`/cash-bank-ins?error=${encodeURIComponent(message)}`);
+}
+
 async function loadPanelClaimForMutation(
   claimId: string,
   profile: Awaited<ReturnType<typeof requirePermission>>,
@@ -1787,11 +1791,12 @@ export async function updateCashBankIn(formData: FormData) {
 }
 
 export async function voidCashBankIn(formData: FormData) {
-  if (!hasSupabaseEnv()) return;
+  if (!hasSupabaseEnv()) return failCashBankInManager("Supabase environment is not configured.");
 
   const bankInId = text(formData, "bank_in_id");
   const reason = requiredVoidReason(formData);
-  if (!bankInId) throw new Error("Cash bank-in record is required.");
+  const profile = await requirePermission("record_cash_bank_in");
+  if (!bankInId) failCashBankInManager("Cash bank-in id is missing.");
 
   const supabase = await createClient();
   const { data: bankIn, error: bankInError } = await supabase
@@ -1800,9 +1805,41 @@ export async function voidCashBankIn(formData: FormData) {
     .eq("id", bankInId)
     .maybeSingle();
 
-  if (bankInError || !bankIn) throw new Error("Cash bank-in not found.");
-  await requireCashBankInEditor(bankIn.branch_id, bankIn.bank_account_id, "voidCashBankIn");
-  if (bankIn.is_void) throw new Error("Cash bank-in is already voided.");
+  if (bankInError || !bankIn) {
+    console.error("voidCashBankIn load failed", {
+      action: "voidCashBankIn",
+      cashBankInId: bankInId,
+      userId: profile.id,
+      role: profile.role,
+      currentUserBranchId: profile.branch_id ?? null,
+      code: bankInError?.code,
+      error: bankInError?.message,
+      details: bankInError?.details,
+      hint: bankInError?.hint,
+      recordExistsBeforePermissionCheck: false
+    });
+    failCashBankInManager("Cash bank-in record not found.");
+  }
+
+  try {
+    await requireCashBankInEditor(bankIn.branch_id, bankIn.bank_account_id, "voidCashBankIn");
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "You do not have permission to void this cash bank-in.";
+    console.warn("voidCashBankIn denied", {
+      action: "voidCashBankIn",
+      cashBankInId: bankInId,
+      userId: profile.id,
+      role: profile.role,
+      currentUserBranchId: profile.branch_id ?? null,
+      recordBranchId: bankIn.branch_id,
+      bankAccountId: bankIn.bank_account_id,
+      recordExistsBeforePermissionCheck: true,
+      permissionRejected: true,
+      error: message
+    });
+    failCashBankInManager(message.includes("permission") ? message : "You do not have permission to void this cash bank-in.");
+  }
+  if (bankIn.is_void) failCashBankInManager("This cash bank-in has already been voided.");
 
   const { data: voidedBankIn, error } = await supabase
     .from("cash_bank_ins")
@@ -1810,9 +1847,43 @@ export async function voidCashBankIn(formData: FormData) {
     .eq("id", bankIn.id)
     .eq("is_void", false)
     .select("id, branch_id, bank_account_id, bank_in_date, amount, reference_no, notes, is_void, void_reason, voided_at, voided_by")
-    .single();
+    .maybeSingle();
 
-  if (error || !voidedBankIn) throw error ?? new Error("Voided cash bank-in could not be loaded.");
+  if (error || !voidedBankIn) {
+    const { data: refreshedBankIn, error: refreshedError } = await supabase
+      .from("cash_bank_ins")
+      .select("id, branch_id, bank_account_id, is_void")
+      .eq("id", bankIn.id)
+      .maybeSingle();
+
+    console.error("voidCashBankIn update failed", {
+      action: "voidCashBankIn",
+      cashBankInId: bankInId,
+      userId: profile.id,
+      role: profile.role,
+      currentUserBranchId: profile.branch_id ?? null,
+      recordBranchId: bankIn.branch_id,
+      bankAccountId: bankIn.bank_account_id,
+      recordExistsBeforePermissionCheck: true,
+      permissionRejected: error?.code === "42501" || error?.message?.toLowerCase().includes("permission"),
+      code: error?.code,
+      error: error?.message,
+      details: error?.details,
+      hint: error?.hint,
+      refreshedCode: refreshedError?.code,
+      refreshedError: refreshedError?.message,
+      refreshedRecordFound: Boolean(refreshedBankIn),
+      refreshedRecordIsVoid: refreshedBankIn?.is_void ?? null
+    });
+
+    if (refreshedBankIn?.is_void) {
+      failCashBankInManager("This cash bank-in has already been voided.");
+    }
+    if (error?.code === "42501" || error?.message?.toLowerCase().includes("permission")) {
+      failCashBankInManager("You do not have permission to void this cash bank-in.");
+    }
+    failCashBankInManager("Cash bank-in record could not be voided.");
+  }
 
   await logAuditEvent({
     action: "void",

@@ -27,6 +27,7 @@ import { Banknote, Landmark, WalletCards } from "lucide-react";
 
 type CashBankInsSearchParams = {
   branch?: string;
+  error?: string;
   end?: string;
   period?: string;
   start?: string;
@@ -121,6 +122,12 @@ export default async function CashBankInsPage({ searchParams }: { searchParams: 
         title="Cash Bank-In"
         description="Record cash moved from branch cash in hand into a clinic bank account without changing sales or expenses."
       />
+
+      {params.error ? (
+        <section className="report-panel mt-section" role="alert">
+          <p className="selected-branches">{params.error}</p>
+        </section>
+      ) : null}
 
       <section className="dashboard-grid">
         <MetricCard icon={Landmark} label="Total bank-in" value={formatCurrency(totalBankedIn)} detail={selectedBranchLabel} tone="blue" />
