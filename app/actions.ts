@@ -1640,12 +1640,63 @@ export async function createCashBankIn(formData: FormData) {
   revalidatePath("/dashboard");
 }
 
-async function requireCashBankInEditor(branchId: string, bankAccountId: string) {
+async function requireCashBankInEditor(
+  branchId: string,
+  bankAccountId: string,
+  action: "updateCashBankIn" | "voidCashBankIn"
+) {
   const profile = await requirePermission("record_cash_bank_in");
   const role = normalizeRole(profile.role);
-  if (role === "branch_pic" || role === "staff" || !canEditBranch(profile, branchId)) {
-    throw new Error("You do not have permission to edit cash bank-ins.");
+  if (role === "staff" || !canEditBranch(profile, branchId)) {
+    console.warn("cash-bank-in editor denied branch access", {
+      action,
+      userId: profile.id,
+      role: profile.role,
+      currentUserBranchId: profile.branch_id ?? null,
+      selectedBranchId: branchId,
+      selectedBankAccountId: bankAccountId,
+      reason: "branch_access_denied"
+    });
+    throw new Error(action === "voidCashBankIn" ? "You do not have permission to void this cash bank-in." : "You do not have permission to edit this cash bank-in.");
   }
+
+  const { accounts: allowedBranchBanks, mappedBankIds } = await getCashBankInAllowedBankAccounts(branchId);
+  const allowedBranchBankIds = new Set(allowedBranchBanks.map((account) => account.id));
+
+  if (!allowedBranchBanks.length) {
+    console.warn("cash-bank-in editor found no non-panel destination bank", {
+      action,
+      userId: profile.id,
+      role: profile.role,
+      currentUserBranchId: profile.branch_id ?? null,
+      selectedBranchId: branchId,
+      selectedBankAccountId: bankAccountId,
+      mappedBankIds,
+      reason: "no_active_non_panel_mapped_banks"
+    });
+    throw new Error("No active operation bank account mapped for this branch.");
+  }
+
+  if (!allowedBranchBankIds.has(bankAccountId)) {
+    console.warn("cash-bank-in editor denied selected bank", {
+      action,
+      userId: profile.id,
+      role: profile.role,
+      currentUserBranchId: profile.branch_id ?? null,
+      selectedBranchId: branchId,
+      selectedBankAccountId: bankAccountId,
+      mappedBankIds,
+      candidateBanks: allowedBranchBanks.map((account) => ({
+        id: account.id,
+        name: account.name,
+        bank_name: account.bank_name ?? null,
+        is_active: account.is_active ?? null
+      })),
+      reason: "selected_bank_not_allowed_for_branch"
+    });
+    throw new Error("You do not have permission to use this bank account.");
+  }
+
   if (role === "admin" || role === "finance") {
     await requireBankAccountPermission(bankAccountId, "edit_transaction");
   }
@@ -1657,9 +1708,13 @@ export async function updateCashBankIn(formData: FormData) {
 
   const bankInId = text(formData, "bank_in_id");
   const bankInDate = text(formData, "bank_in_date");
+  const bankAccountId = text(formData, "bank_account_id");
   const amount = number(formData, "amount");
   if (!bankInId || !bankInDate || amount <= 0) {
     throw new Error("Cash bank-in, date, and a positive amount are required.");
+  }
+  if (!bankAccountId) {
+    throw new Error("Please select a destination bank account.");
   }
 
   const supabase = await createClient();
@@ -1670,13 +1725,14 @@ export async function updateCashBankIn(formData: FormData) {
     .maybeSingle();
 
   if (bankInError || !bankIn) throw new Error("Cash bank-in not found.");
-  await requireCashBankInEditor(bankIn.branch_id, bankIn.bank_account_id);
+  await requireCashBankInEditor(bankIn.branch_id, bankAccountId, "updateCashBankIn");
   if (bankIn.is_void) throw new Error("Voided cash bank-ins cannot be edited.");
 
   const { data: updatedBankIn, error } = await supabase
     .from("cash_bank_ins")
     .update({
       amount,
+      bank_account_id: bankAccountId,
       bank_in_date: bankInDate,
       notes: text(formData, "notes"),
       reference_no: text(formData, "reference_no")
@@ -1721,7 +1777,7 @@ export async function voidCashBankIn(formData: FormData) {
     .maybeSingle();
 
   if (bankInError || !bankIn) throw new Error("Cash bank-in not found.");
-  await requireCashBankInEditor(bankIn.branch_id, bankIn.bank_account_id);
+  await requireCashBankInEditor(bankIn.branch_id, bankIn.bank_account_id, "voidCashBankIn");
   if (bankIn.is_void) throw new Error("Cash bank-in is already voided.");
 
   const { data: voidedBankIn, error } = await supabase

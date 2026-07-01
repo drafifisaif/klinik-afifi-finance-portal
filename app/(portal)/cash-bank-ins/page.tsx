@@ -36,6 +36,11 @@ function todayInput() {
   return new Date().toISOString().slice(0, 10);
 }
 
+function isPanelBankAccount(account: Pick<BankAccount, "name" | "bank_name"> | null | undefined) {
+  const haystack = `${account?.name ?? ""} ${account?.bank_name ?? ""}`.trim().toLowerCase();
+  return haystack.includes("panel");
+}
+
 export default async function CashBankInsPage({ searchParams }: { searchParams: Promise<CashBankInsSearchParams> }) {
   const profile = await requirePermission("record_cash_bank_in");
   const params = await searchParams;
@@ -90,6 +95,17 @@ export default async function CashBankInsPage({ searchParams }: { searchParams: 
     branchLabel: row.branch.name,
     records: selectedBankIns.filter((bankIn) => bankIn.branch_id === row.branch.id)
   }));
+  const allowedDestinationAccounts = role === "admin" || role === "finance" ? destinationBankAccounts : data.bankAccounts;
+  const destinationAccountsByBranchId = new Map(
+    data.branches.map((branch) => {
+      const branchAccounts = data.branchBankMappings
+        .filter((mapping) => mapping.is_active && mapping.branch_id === branch.id)
+        .map((mapping) => allowedDestinationAccounts.find((account) => account.id === mapping.bank_account_id) ?? null)
+        .filter((account): account is BankAccount => Boolean(account))
+        .filter((account) => !isPanelBankAccount(account));
+      return [branch.id, branchAccounts];
+    })
+  );
   const selectedBranchLabel = effectiveBranchId
     ? (data.branches.find((branch) => branch.id === effectiveBranchId)?.name ?? "Selected branch")
     : "All Branches";
@@ -256,9 +272,21 @@ export default async function CashBankInsPage({ searchParams }: { searchParams: 
                 columns={["Date", "Branch", "Destination bank account", "Amount", "Reference", "Notes", "Documents", "Status", "View details", "Edit", "Void"]}
                 rowKeys={group.records.map((bankIn) => bankIn.id)}
                 rows={group.records.map((bankIn) => {
-                  const canCorrectBankIn = !bankIn.is_void
+                  const editableBankOptions = role === "branch_pic"
+                    ? ownBranchBankAccounts
+                    : (destinationAccountsByBranchId.get(bankIn.branch_id) ?? []);
+                  const resolvedEditBankId = editableBankOptions.some((account) => account.id === bankIn.bank_account_id)
+                    ? bankIn.bank_account_id
+                    : editableBankOptions[0]?.id ?? "";
+                  const managementCanCorrect = !bankIn.is_void
                     && (role === "owner" || role === "admin" || role === "finance")
+                    && editableBankOptions.length > 0
                     && hasBankAccountPermission(profile, data.bankAccountPermissions, bankIn.bank_account_id, "edit_transaction");
+                  const branchPicCanCorrect = !bankIn.is_void
+                    && role === "branch_pic"
+                    && profile.branch_id === bankIn.branch_id
+                    && editableBankOptions.length > 0;
+                  const canCorrectBankIn = managementCanCorrect || branchPicCanCorrect;
 
                   return [
                     formatDate(bankIn.bank_in_date),
@@ -292,6 +320,16 @@ export default async function CashBankInsPage({ searchParams }: { searchParams: 
                         <summary>Edit</summary>
                         <form action={updateCashBankIn} className="manual-bank-edit-form">
                           <input name="bank_in_id" type="hidden" value={bankIn.id} />
+                          <label>
+                            Destination bank account
+                            <select name="bank_account_id" defaultValue={resolvedEditBankId} required>
+                              {editableBankOptions.map((account) => (
+                                <option key={account.id} value={account.id}>
+                                  {bankAccountLabel(account)}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
                           <label>
                             Date
                             <input name="bank_in_date" type="date" defaultValue={bankIn.bank_in_date} required />
