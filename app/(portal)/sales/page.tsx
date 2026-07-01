@@ -12,8 +12,13 @@ import { requirePermission } from "@/lib/permissions";
 import { getVisibleProfilesById } from "@/lib/users";
 import { Banknote, CreditCard, QrCode, ShieldCheck } from "lucide-react";
 
-export default async function SalesPage() {
+type SalesSearchParams = {
+  error?: string;
+};
+
+export default async function SalesPage({ searchParams }: { searchParams: Promise<SalesSearchParams> }) {
   await requirePermission("edit_finance");
+  const params = await searchParams;
   const data = await getDashboardData();
   const visibleUsers = await getVisibleProfilesById(data.sales.flatMap((sale) => [sale.entered_by, sale.voided_by]));
   const userById = new Map(visibleUsers.map((user) => [user.id, user]));
@@ -30,6 +35,12 @@ export default async function SalesPage() {
         title="Daily sales entry"
         description="Enter one daily branch sales summary by payment type: cash, bank transfer, card, panel, and QR."
       />
+
+      {params.error ? (
+        <section className="report-panel mt-section" role="alert">
+          <p className="selected-branches">{params.error}</p>
+        </section>
+      ) : null}
 
       <section className="dashboard-grid">
         <MetricCard icon={Banknote} label="Cash" value={formatCurrency(cash)} />

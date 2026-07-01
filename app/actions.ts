@@ -89,6 +89,10 @@ function failPanelManager(message: string): never {
   redirect(`/panels?error=${encodeURIComponent(message)}`);
 }
 
+function failSalesManager(message: string): never {
+  redirect(`/sales?error=${encodeURIComponent(message)}`);
+}
+
 async function loadPanelClaimForMutation(
   claimId: string,
   profile: Awaited<ReturnType<typeof requirePermission>>,
@@ -1410,19 +1414,20 @@ export async function createDailySale(formData: FormData) {
   if (!hasSupabaseEnv()) return;
   const branchId = text(formData, "branch_id");
   const saleDate = text(formData, "sale_date");
+  if (!branchId || !saleDate) failSalesManager("Branch and sale date are required.");
   await requireEditableBranch(branchId);
   const supabase = await createClient();
-  const { data: existingSale, error: existingSaleError } = await supabase
+  const { data: activeSale, error: activeSaleError } = await supabase
     .from("daily_sales")
     .select("id, branch_id, sale_date, cash_amount, bank_transfer_amount, card_amount, panel_amount, qr_amount, notes, is_void, void_reason, voided_at, voided_by")
     .eq("branch_id", branchId)
     .eq("sale_date", saleDate)
+    .eq("is_void", false)
     .maybeSingle();
 
-  if (existingSaleError) throw existingSaleError;
-  if (existingSale?.is_void) throw new Error("Voided daily sales cannot be edited. Record a correction with Owner support.");
+  if (activeSaleError) throw activeSaleError;
 
-  const { data: sale, error } = await supabase.from("daily_sales").upsert({
+  const payload = {
     branch_id: branchId,
     sale_date: saleDate,
     cash_amount: number(formData, "cash_amount"),
@@ -1432,11 +1437,30 @@ export async function createDailySale(formData: FormData) {
     qr_amount: number(formData, "qr_amount"),
     notes: text(formData, "notes"),
     entered_by: await getUserId()
-  }).select("id, branch_id, sale_date, cash_amount, bank_transfer_amount, card_amount, panel_amount, qr_amount, notes, is_void, void_reason, voided_at, voided_by").single();
+  };
+
+  const mutation = activeSale
+    ? supabase
+        .from("daily_sales")
+        .update(payload)
+        .eq("id", activeSale.id)
+        .select("id, branch_id, sale_date, cash_amount, bank_transfer_amount, card_amount, panel_amount, qr_amount, notes, is_void, void_reason, voided_at, voided_by")
+        .single()
+    : supabase
+        .from("daily_sales")
+        .insert(payload)
+        .select("id, branch_id, sale_date, cash_amount, bank_transfer_amount, card_amount, panel_amount, qr_amount, notes, is_void, void_reason, voided_at, voided_by")
+        .single();
+
+  const { data: sale, error } = await mutation;
+
+  if (error?.code === "23505") {
+    failSalesManager("An active daily sales record already exists for this branch and date.");
+  }
 
   if (error || !sale) throw error ?? new Error("Daily sale could not be loaded after save.");
 
-  const beforeData = existingSale ? dailySaleAuditData(existingSale) : null;
+  const beforeData = activeSale ? dailySaleAuditData(activeSale) : null;
   const afterData = dailySaleAuditData(sale);
   if (!beforeData || hasAuditChanges(beforeData, afterData)) {
     await logAuditEvent({
@@ -1457,7 +1481,7 @@ export async function updateDailySale(formData: FormData) {
   if (!hasSupabaseEnv()) return;
 
   const saleId = text(formData, "sale_id");
-  if (!saleId) throw new Error("Daily sales record is required.");
+  if (!saleId) failSalesManager("Daily sales record is required.");
 
   const supabase = await createClient();
   const { data: sale, error: saleError } = await supabase
@@ -1466,9 +1490,9 @@ export async function updateDailySale(formData: FormData) {
     .eq("id", saleId)
     .maybeSingle();
 
-  if (saleError || !sale) throw new Error("Daily sales record not found.");
+  if (saleError || !sale) failSalesManager("Daily sales record not found.");
   await requireEditableBranch(sale.branch_id);
-  if (sale.is_void) throw new Error("Voided daily sales cannot be edited.");
+  if (sale.is_void) failSalesManager("Voided daily sales cannot be edited. Please create a new correction record.");
 
   const { data: updatedSale, error } = await supabase
     .from("daily_sales")
