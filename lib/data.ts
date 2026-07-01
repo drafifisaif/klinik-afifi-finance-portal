@@ -1,5 +1,6 @@
 import { createAdminClient } from "@/lib/supabase-admin";
 import { hasSupabaseEnv, createClient } from "@/lib/supabase-server";
+import { branchPicHiddenExpenseCategories } from "@/lib/constants";
 import { canViewAllBranches, filterBranchesForProfile, filterDashboardDataForProfile, getCurrentProfile, normalizeRole } from "@/lib/permissions";
 import type {
   BankAccount,
@@ -507,9 +508,14 @@ export async function getExpensesReportingData(): Promise<Pick<DashboardData, "b
     panelPayments: []
   }, profile);
 
+  const role = normalizeRole(profile?.role);
+  const expenses = role === "branch_pic"
+    ? filtered.expenses.filter((expense) => !branchPicHiddenExpenseCategories.has(String(expense.category ?? "").trim().toLowerCase()))
+    : filtered.expenses;
+
   return {
     branches: filtered.branches,
-    expenses: filtered.expenses,
+    expenses,
     supplierPayments: filtered.supplierPayments
   };
 }

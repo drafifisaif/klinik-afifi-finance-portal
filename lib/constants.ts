@@ -34,6 +34,15 @@ export const expenseCategories: { value: ExpenseCategory; label: string }[] = [
   { value: "other", label: "Other" }
 ];
 
+export const branchPicHiddenExpenseCategories = new Set([
+  "salary",
+  "staff_salary",
+  "payroll",
+  "rental",
+  "rent",
+  "premises_rental"
+]);
+
 export const purchaseCategories: { value: PurchaseCategory; label: string }[] = [
   { value: "medicine", label: "Medicine" },
   { value: "consumables", label: "Consumables" },

@@ -7,7 +7,7 @@ import { MetricCard } from "@/components/metric-card";
 import { ModuleHeader } from "@/components/module-header";
 import { isActiveFinancialRecord, resolveReportRange } from "@/lib/bank-reporting";
 import { resolveSelectedBranchIds } from "@/lib/branch-reporting";
-import { expenseCategories, paymentTypes } from "@/lib/constants";
+import { branchPicHiddenExpenseCategories, expenseCategories, paymentTypes } from "@/lib/constants";
 import { getExpensesReportingData, totalBy } from "@/lib/data";
 import { userDisplayLabel } from "@/lib/display";
 import { formatCurrency, formatDate, labelize } from "@/lib/format";
@@ -33,6 +33,7 @@ function reportRangeSummaryLabel(range: ReturnType<typeof resolveReportRange>) {
 
 export default async function ExpensesPage({ searchParams }: ExpensesPageProps) {
   const profile = await requirePermission("edit_finance");
+  const role = normalizeRole(profile.role);
   const params = searchParams ? await searchParams : {};
   const reportRange = resolveReportRange({
     end: searchValue(params.end) ?? undefined,
@@ -60,7 +61,11 @@ export default async function ExpensesPage({ searchParams }: ExpensesPageProps) 
     : new Map();
   const visibleUsers = await getVisibleProfilesById(data.expenses.flatMap((expense) => [expense.entered_by, expense.voided_by]));
   const userById = new Map(visibleUsers.map((user) => [user.id, user]));
-  const canDeleteDocuments = normalizeRole(profile.role) !== "branch_pic";
+  const canDeleteDocuments = role !== "branch_pic";
+  const canViewSensitiveExpenseCategories = role === "owner" || role === "admin" || role === "finance";
+  const visibleExpenseCategories = canViewSensitiveExpenseCategories
+    ? expenseCategories
+    : expenseCategories.filter((category) => !branchPicHiddenExpenseCategories.has(category.value));
   const filteredExpenses = data.expenses.filter((expense) => {
     return selectedBranchIdSet.has(expense.branch_id)
       && expense.expense_date >= reportRange.startDate
@@ -104,9 +109,13 @@ export default async function ExpensesPage({ searchParams }: ExpensesPageProps) 
 
       <section className="dashboard-grid">
         <MetricCard icon={ReceiptText} label="Operating Expenses" value={formatCurrency(operatingTotal)} detail={selectedBranchLabel} />
-        <MetricCard icon={BadgeDollarSign} label="Salary" value={formatCurrency(salaryTotal)} tone="blue" />
+        {canViewSensitiveExpenseCategories ? (
+          <MetricCard icon={BadgeDollarSign} label="Salary" value={formatCurrency(salaryTotal)} tone="blue" />
+        ) : null}
         <MetricCard icon={Stethoscope} label="Locum Doctor" value={formatCurrency(locumDoctorTotal)} detail={reportRangeSummaryLabel(reportRange)} tone="amber" />
-        <MetricCard icon={Building2} label="Rental" value={formatCurrency(rentalTotal)} tone="rose" />
+        {canViewSensitiveExpenseCategories ? (
+          <MetricCard icon={Building2} label="Rental" value={formatCurrency(rentalTotal)} tone="rose" />
+        ) : null}
         <MetricCard icon={Wrench} label="Other categories" value={formatCurrency(otherCategoriesTotal)} tone="rose" />
       </section>
 
@@ -206,7 +215,7 @@ export default async function ExpensesPage({ searchParams }: ExpensesPageProps) 
                   <label>
                     Category
                     <select defaultValue={expense.category} name="category" required>
-                      {expenseCategories.map((category) => (
+                      {visibleExpenseCategories.map((category) => (
                         <option key={category.value} value={category.value}>
                           {category.label}
                         </option>
@@ -321,12 +330,12 @@ export default async function ExpensesPage({ searchParams }: ExpensesPageProps) 
               <input name="expense_date" type="date" required />
             </label>
             <label>
-              Category
-              <select name="category" required>
-                {expenseCategories.map((category) => (
-                  <option key={category.value} value={category.value}>
-                    {category.label}
-                  </option>
+            Category
+            <select name="category" required>
+              {visibleExpenseCategories.map((category) => (
+                <option key={category.value} value={category.value}>
+                  {category.label}
+                </option>
                 ))}
               </select>
             </label>
