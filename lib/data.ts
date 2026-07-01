@@ -461,6 +461,59 @@ export async function getDashboardData(): Promise<DashboardData> {
   }, profile);
 }
 
+export async function getExpensesReportingData(): Promise<Pick<DashboardData, "branches" | "expenses" | "supplierPayments">> {
+  const profile = await getCurrentProfile();
+  if (!hasSupabaseEnv()) {
+    const filtered = filterDashboardDataForProfile(demoData, profile);
+    return {
+      branches: filtered.branches,
+      expenses: filtered.expenses,
+      supplierPayments: filtered.supplierPayments
+    };
+  }
+
+  const supabase = await createClient();
+  const adminSupabase = createAdminClient();
+  const [branchRows, expenseRows, supplierPaymentRows] = await Promise.all([
+    fetchOrDemo(supabase.from("branches").select("*").order("name"), demoData.branches),
+    fetchOrDemo(
+      supabase
+        .from("expenses")
+        .select("*, branches(name, code)")
+        .order("expense_date", { ascending: false })
+        .order("created_at", { ascending: false }),
+      demoData.expenses,
+      "expenses_reporting"
+    ),
+    fetchOrDemo(
+      adminSupabase
+        .from("supplier_payment_entries")
+        .select("*, suppliers(name), branches(name, code), bank_accounts(name, bank_name, account_no), supplier_purchase_entries(id, invoice_no, branch_id, supplier_id, due_date, total_amount)")
+        .order("payment_date", { ascending: false })
+        .order("created_at", { ascending: false }),
+      demoData.supplierPayments,
+      "supplier_payment_entries_reporting"
+    )
+  ]);
+
+  const filtered = filterDashboardDataForProfile({
+    branches: branchRows as Branch[],
+    openingBalances: [],
+    sales: [],
+    expenses: expenseRows as Expense[],
+    purchases: [],
+    supplierPayments: supplierPaymentRows as SupplierPaymentEntry[],
+    panels: [],
+    panelPayments: []
+  }, profile);
+
+  return {
+    branches: filtered.branches,
+    expenses: filtered.expenses,
+    supplierPayments: filtered.supplierPayments
+  };
+}
+
 type BankingDataOptions = {
   bankAccessOnly?: boolean;
 };

@@ -8,7 +8,7 @@ import { ModuleHeader } from "@/components/module-header";
 import { isActiveFinancialRecord } from "@/lib/bank-reporting";
 import { resolveSelectedBranchIds } from "@/lib/branch-reporting";
 import { expenseCategories, paymentTypes } from "@/lib/constants";
-import { getDashboardData, totalBy } from "@/lib/data";
+import { getExpensesReportingData, totalBy } from "@/lib/data";
 import { userDisplayLabel } from "@/lib/display";
 import { formatCurrency, formatDate, labelize } from "@/lib/format";
 import { canViewAllBranches, hasPermission, normalizeRole, requirePermission } from "@/lib/permissions";
@@ -31,7 +31,7 @@ export default async function ExpensesPage({ searchParams }: ExpensesPageProps) 
   const selectedMonth = searchValue(params.month) ?? new Date().toISOString().slice(0, 7);
   const canViewSupplierPayments = hasPermission(profile, "view_supplier_payments");
   const canSelectMultipleBranches = canViewAllBranches(profile);
-  const data = await getDashboardData();
+  const data = await getExpensesReportingData();
   const selectedBranchIds = resolveSelectedBranchIds({
     allowedBranches: data.branches,
     branchParam: params.branch,

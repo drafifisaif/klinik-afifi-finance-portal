@@ -18,7 +18,7 @@ import {
 import { resolveSelectedBranchIds } from "@/lib/branch-reporting";
 import { bankTransactionTypes } from "@/lib/constants";
 import type { CsvCell } from "@/lib/csv";
-import { getBankingData, getBankingDataForScope, getDashboardData, totalBy } from "@/lib/data";
+import { getBankingData, getBankingDataForScope, getDashboardData, getExpensesReportingData, totalBy } from "@/lib/data";
 import { labelize } from "@/lib/format";
 import { outstandingOpeningBalanceTotal } from "@/lib/opening-balances";
 import { activePanelClaims, activePanelPayments, panelClaimOutstandingAmount } from "@/lib/panel-accounting";
@@ -550,7 +550,7 @@ export async function dailySalesCsv(searchParams: URLSearchParams): Promise<CsvE
 
 export async function expensesCsv(searchParams: URLSearchParams): Promise<CsvExport> {
   const profile = await requirePermission("edit_finance");
-  const data = await getDashboardData();
+  const data = await getExpensesReportingData();
   const canViewSupplierPayments = ["owner", "admin", "finance"].includes(normalizeRole(profile.role));
   const selectedMonth = param(searchParams, "month");
   const matchesMonth = (date: string) => !selectedMonth || date.slice(0, 7) === selectedMonth;
