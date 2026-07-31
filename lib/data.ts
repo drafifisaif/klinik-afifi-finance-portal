@@ -393,24 +393,21 @@ export async function getDashboardData(): Promise<DashboardData> {
       supabase
         .from("daily_sales")
         .select("*, branches(name, code)")
-        .order("sale_date", { ascending: false })
-        .limit(50),
+        .order("sale_date", { ascending: false }),
       demoData.sales
     ),
     fetchOrDemo(
       supabase
         .from("expenses")
         .select("*, branches(name, code)")
-        .order("expense_date", { ascending: false })
-        .limit(50),
+        .order("expense_date", { ascending: false }),
       demoData.expenses
     ),
     fetchOrDemo(
       supabase
         .from("supplier_purchase_entries")
         .select("*, suppliers(name), branches(name, code)")
-        .order("purchase_date", { ascending: false })
-        .limit(50),
+        .order("purchase_date", { ascending: false }),
       demoData.purchases,
       "supplier_purchase_entries_dashboard"
     ),
@@ -418,8 +415,7 @@ export async function getDashboardData(): Promise<DashboardData> {
       adminSupabase
         .from("supplier_payment_entries")
         .select("*, suppliers(name), branches(name, code), bank_accounts(name, bank_name, account_no), supplier_purchase_entries(id, invoice_no, branch_id, supplier_id, due_date, total_amount)")
-        .order("payment_date", { ascending: false })
-        .limit(50),
+        .order("payment_date", { ascending: false }),
       demoData.supplierPayments,
       "supplier_payment_entries_dashboard"
     ),
@@ -427,16 +423,14 @@ export async function getDashboardData(): Promise<DashboardData> {
       supabase
         .from("panel_claims")
         .select("*, panel_companies(name), branches(name, code)")
-        .order("claim_month", { ascending: false })
-        .limit(50),
+        .order("claim_month", { ascending: false }),
       demoData.panels
     ),
     fetchOrDemo(
       supabase
         .from("panel_payments")
         .select("*, bank_accounts(name, bank_name, account_no), panel_claims(branch_id, claim_no, panel_company_id, branches(name, code), panel_companies(name))")
-        .order("payment_date", { ascending: false })
-        .limit(50),
+        .order("payment_date", { ascending: false }),
       demoData.panelPayments
     )
   ]);
@@ -775,8 +769,7 @@ export async function getBankingDataForScope(options: BankingDataOptions = {}): 
       supabase
         .from("daily_sales")
         .select("*, branches(name, code)")
-        .order("sale_date", { ascending: false })
-        .limit(1000),
+        .order("sale_date", { ascending: false }),
       demoBankingData.sales,
       "daily_sales"
     ),
@@ -791,8 +784,7 @@ export async function getBankingDataForScope(options: BankingDataOptions = {}): 
       supabase
         .from("bank_transactions")
         .select("*, branches(name, code), bank_accounts:bank_accounts!bank_transactions_bank_account_id_fkey(id, name, bank_name, account_no)")
-        .order("transaction_date", { ascending: false })
-        .limit(2000),
+        .order("transaction_date", { ascending: false }),
       demoBankingData.bankTransactions,
       "bank_transactions"
     ),
@@ -808,8 +800,7 @@ export async function getBankingDataForScope(options: BankingDataOptions = {}): 
       supabase
         .from("cash_bank_ins")
         .select("*, branches(name, code), bank_accounts(name, bank_name, account_no)")
-        .order("bank_in_date", { ascending: false })
-        .limit(1000),
+        .order("bank_in_date", { ascending: false }),
       demoBankingData.cashBankIns,
       "cash_bank_ins"
     ),
@@ -817,8 +808,7 @@ export async function getBankingDataForScope(options: BankingDataOptions = {}): 
       supabase
         .from("petty_cash_transactions")
         .select("*, branches(name, code), bank_accounts(name, bank_name, account_no)")
-        .order("transaction_date", { ascending: false })
-        .limit(2000),
+        .order("transaction_date", { ascending: false }),
       demoBankingData.pettyCashTransactions,
       "petty_cash_transactions"
     ),
@@ -826,8 +816,7 @@ export async function getBankingDataForScope(options: BankingDataOptions = {}): 
       supabase
         .from("supplier_payment_entries")
         .select("*, suppliers(name), branches(name, code), bank_accounts(name, bank_name, account_no), supplier_purchase_entries(id, invoice_no, branch_id, supplier_id, due_date, total_amount)")
-        .order("payment_date", { ascending: false })
-        .limit(2000),
+        .order("payment_date", { ascending: false }),
       demoBankingData.supplierPayments,
       "supplier_payment_entries"
     ),
@@ -835,8 +824,7 @@ export async function getBankingDataForScope(options: BankingDataOptions = {}): 
       supabase
         .from("panel_payments")
         .select("*, bank_accounts(name, bank_name, account_no), panel_claims(branch_id, claim_no, panel_company_id, branches(name, code), panel_companies(name))")
-        .order("payment_date", { ascending: false })
-        .limit(2000),
+        .order("payment_date", { ascending: false }),
       demoBankingData.panelPayments,
       "panel_payments"
     )
@@ -1113,8 +1101,7 @@ export async function getImportReferenceData() {
       supabase
         .from("supplier_purchases")
         .select("*")
-        .order("purchase_date", { ascending: false })
-        .limit(1000),
+        .order("purchase_date", { ascending: false }),
       purchases
     )
   ]);

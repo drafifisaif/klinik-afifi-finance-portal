@@ -20,6 +20,7 @@ const navigation: { href: string; label: string; icon: string; permission: Permi
   { href: "/import", label: "Import Data", icon: "FileUp", permission: "import_data" },
   { href: "/users", label: "Users", icon: "Users", permission: "manage_users" },
   { href: "/audit", label: "Audit Trail", icon: "History", permission: "view_audit_trail" },
+  { href: "/admin/data-debug", label: "Data Debug", icon: "Search", permission: "view_reports" },
   { href: "/reports/profit-loss", label: "Profit & Loss", icon: "BarChart3", permission: "view_reports" },
   { href: "/reports/cashflow", label: "Cashflow", icon: "Banknote", permission: "view_reports" }
 ];
