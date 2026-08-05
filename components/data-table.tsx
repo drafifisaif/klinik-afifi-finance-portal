@@ -1,10 +1,11 @@
 type DataTableProps = {
   columns: string[];
+  emptyMessage?: string;
   rows: (string | number | React.ReactNode)[][];
   rowKeys?: (string | number)[];
 };
 
-export function DataTable({ columns, rows, rowKeys }: DataTableProps) {
+export function DataTable({ columns, emptyMessage = "No records yet.", rows, rowKeys }: DataTableProps) {
   return (
     <div className="table-wrap">
       <table>
@@ -26,7 +27,7 @@ export function DataTable({ columns, rows, rowKeys }: DataTableProps) {
             ))
           ) : (
             <tr>
-              <td colSpan={columns.length}>No records yet.</td>
+              <td colSpan={columns.length}>{emptyMessage}</td>
             </tr>
           )}
         </tbody>

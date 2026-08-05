@@ -20,6 +20,7 @@ import { resolveSelectedBranchIds } from "@/lib/branch-reporting";
 import { bankTransactionTypes } from "@/lib/constants";
 import type { CsvCell } from "@/lib/csv";
 import { getBankingData, getBankingDataForScope, getDashboardData, getExpensesReportingData, totalBy } from "@/lib/data";
+import { isDailySaleInResolvedRange, resolveDailySalesFilter, sortDailySales } from "@/lib/daily-sales-reporting";
 import { labelize } from "@/lib/format";
 import { outstandingOpeningBalanceTotal } from "@/lib/opening-balances";
 import { activePanelClaims, activePanelPayments, panelClaimOutstandingAmount } from "@/lib/panel-accounting";
@@ -524,18 +525,33 @@ export async function auditTrailCsv(searchParams: URLSearchParams): Promise<CsvE
 }
 
 export async function dailySalesCsv(searchParams: URLSearchParams): Promise<CsvExport> {
-  await requirePermission("edit_finance");
+  const profile = await requirePermission("edit_finance");
   const data = await getDashboardData();
-  const selectedBranchId = param(searchParams, "branch_id") ?? "all";
+  const reportFilter = resolveDailySalesFilter({
+    end: param(searchParams, "end"),
+    filter: param(searchParams, "filter"),
+    month: param(searchParams, "month"),
+    range: param(searchParams, "range") ?? param(searchParams, "period"),
+    sort: param(searchParams, "sort"),
+    start: param(searchParams, "start")
+  });
+  const selectedBranchIds = resolveSelectedBranchIds({
+    allowedBranches: data.branches,
+    branchParam: paramValues(searchParams, "branch") ?? paramValues(searchParams, "branch_id"),
+    canSelectMultiple: canViewAllBranches(profile)
+  });
+  const selectedBranchIdSet = new Set(selectedBranchIds);
+  const sales = reportFilter.error
+    ? []
+    : sortDailySales(
+        data.sales.filter((sale) => selectedBranchIdSet.has(sale.branch_id) && isDailySaleInResolvedRange(sale, reportFilter)),
+        reportFilter.sort
+      );
 
   return {
     filename: "daily-sales-report.csv",
-    headers: ["Date", "Branch", "Cash", "Bank Transfer", "Card", "Panel", "QR", "Total", "Notes"],
-    rows: data.sales.filter((sale) => {
-      return isActiveFinancialRecord(sale)
-        && matchesOptionalDate(sale.sale_date, searchParams)
-        && (selectedBranchId === "all" || sale.branch_id === selectedBranchId);
-    }).map((sale) => [
+    headers: ["Date", "Branch", "Cash", "Bank Transfer", "Card", "Panel", "QR", "Total", "Status", "Is Void", "Notes", "Created At", "Updated At"],
+    rows: sales.map((sale) => [
       sale.sale_date,
       sale.branches?.name ?? "",
       sale.cash_amount,
@@ -544,7 +560,11 @@ export async function dailySalesCsv(searchParams: URLSearchParams): Promise<CsvE
       sale.panel_amount,
       sale.qr_amount,
       sale.total_amount,
-      sale.notes ?? ""
+      sale.is_void ? "Voided" : "Active",
+      sale.is_void ? "true" : "false",
+      sale.notes ?? "",
+      sale.created_at ?? "",
+      sale.updated_at ?? ""
     ])
   };
 }
