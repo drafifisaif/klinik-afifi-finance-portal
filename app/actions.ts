@@ -1419,17 +1419,73 @@ export async function createDailySale(formData: FormData) {
   const branchId = text(formData, "branch_id");
   const saleDate = text(formData, "sale_date");
   if (!branchId || !saleDate) failSalesManager("Branch and sale date are required.");
-  await requireEditableBranch(branchId);
+  const profile = await requirePermission("edit_finance");
+  if (!canEditBranch(profile, branchId)) {
+    failSalesManager("You do not have permission to create Daily Sales for this branch.");
+  }
   const supabase = await createClient();
-  const { data: activeSale, error: activeSaleError } = await supabase
-    .from("daily_sales")
-    .select("id, branch_id, sale_date, cash_amount, bank_transfer_amount, card_amount, panel_amount, qr_amount, notes, is_void, void_reason, voided_at, voided_by")
-    .eq("branch_id", branchId)
-    .eq("sale_date", saleDate)
-    .eq("is_void", false)
-    .maybeSingle();
+  const saleSelect = "id, branch_id, sale_date, cash_amount, bank_transfer_amount, card_amount, panel_amount, qr_amount, notes, entered_by, created_at, updated_at, is_void, void_reason, voided_at, voided_by";
+  const [{ data: activeSale, error: activeSaleError }, { data: voidedSales, error: voidedSalesError }] = await Promise.all([
+    supabase
+      .from("daily_sales")
+      .select(saleSelect)
+      .eq("branch_id", branchId)
+      .eq("sale_date", saleDate)
+      .eq("is_void", false)
+      .maybeSingle(),
+    supabase
+      .from("daily_sales")
+      .select("id, branch_id, sale_date, is_void, voided_at, voided_by, void_reason, created_at, updated_at, entered_by")
+      .eq("branch_id", branchId)
+      .eq("sale_date", saleDate)
+      .eq("is_void", true)
+  ]);
 
-  if (activeSaleError) throw activeSaleError;
+  if (activeSaleError) {
+    console.error("createDailySale active lookup failed", {
+      action: "createDailySale",
+      userId: profile.id,
+      role: profile.role,
+      currentUserBranchId: profile.branch_id ?? null,
+      selectedBranchId: branchId,
+      salesDate: saleDate,
+      code: activeSaleError.code,
+      error: activeSaleError.message,
+      details: activeSaleError.details,
+      hint: activeSaleError.hint
+    });
+    throw activeSaleError;
+  }
+
+  if (voidedSalesError) {
+    console.warn("createDailySale voided lookup failed", {
+      action: "createDailySale",
+      userId: profile.id,
+      role: profile.role,
+      currentUserBranchId: profile.branch_id ?? null,
+      selectedBranchId: branchId,
+      salesDate: saleDate,
+      code: voidedSalesError.code,
+      error: voidedSalesError.message,
+      details: voidedSalesError.details,
+      hint: voidedSalesError.hint
+    });
+  }
+
+  const existingVoidedRecordCount = voidedSales?.length ?? 0;
+  const attemptedOperation = activeSale ? "update" : "insert";
+
+  console.info("createDailySale resolved save operation", {
+    action: "createDailySale",
+    userId: profile.id,
+    role: profile.role,
+    currentUserBranchId: profile.branch_id ?? null,
+    selectedBranchId: branchId,
+    salesDate: saleDate,
+    existingActiveRecordFound: Boolean(activeSale),
+    existingVoidedRecordCount,
+    attemptedOperation
+  });
 
   const payload = {
     branch_id: branchId,
@@ -1448,18 +1504,36 @@ export async function createDailySale(formData: FormData) {
         .from("daily_sales")
         .update(payload)
         .eq("id", activeSale.id)
-        .select("id, branch_id, sale_date, cash_amount, bank_transfer_amount, card_amount, panel_amount, qr_amount, notes, is_void, void_reason, voided_at, voided_by")
+        .select(saleSelect)
         .single()
     : supabase
         .from("daily_sales")
         .insert(payload)
-        .select("id, branch_id, sale_date, cash_amount, bank_transfer_amount, card_amount, panel_amount, qr_amount, notes, is_void, void_reason, voided_at, voided_by")
+        .select(saleSelect)
         .single();
 
   const { data: sale, error } = await mutation;
 
+  if (error) {
+    console.error("createDailySale save failed", {
+      action: "createDailySale",
+      userId: profile.id,
+      role: profile.role,
+      currentUserBranchId: profile.branch_id ?? null,
+      selectedBranchId: branchId,
+      salesDate: saleDate,
+      existingActiveRecordFound: Boolean(activeSale),
+      existingVoidedRecordCount,
+      attemptedOperation,
+      code: error.code,
+      error: error.message,
+      details: error.details,
+      hint: error.hint
+    });
+  }
+
   if (error?.code === "23505") {
-    failSalesManager("An active daily sales record already exists for this branch and date.");
+    failSalesManager("Daily Sales could not be saved because an old branch/date unique constraint is still active. Run the latest Daily Sales active-only unique index migration.");
   }
 
   if (error || !sale) throw error ?? new Error("Daily sale could not be loaded after save.");
