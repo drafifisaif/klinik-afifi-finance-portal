@@ -88,8 +88,9 @@ export default async function CashBankInsPage({ searchParams }: { searchParams: 
   const cashInHandRows = buildCashInHandRows(data, range).filter((row) => !effectiveBranchId || row.branch.id === effectiveBranchId);
   const totalCashSales = totalBy(cashInHandRows, (row) => row.cashSales);
   const totalBankedIn = totalBy(cashInHandRows, (row) => row.bankedIn);
+  const totalCashLocumPayments = totalBy(cashInHandRows, (row) => row.cashLocumPayments);
   const totalCashInHand = totalBy(cashInHandRows, (row) => row.remaining);
-  const pendingBankIn = Math.max(0, totalCashSales - totalBankedIn);
+  const pendingBankIn = Math.max(0, totalCashSales - totalBankedIn - totalCashLocumPayments);
   const branchGroups = cashInHandRows.map((row) => ({
     balanceRow: row,
     branchId: row.branch.id,
@@ -132,7 +133,7 @@ export default async function CashBankInsPage({ searchParams }: { searchParams: 
       <section className="dashboard-grid">
         <MetricCard icon={Landmark} label="Total bank-in" value={formatCurrency(totalBankedIn)} detail={selectedBranchLabel} tone="blue" />
         <MetricCard icon={Banknote} label="Cash pending bank-in" value={formatCurrency(pendingBankIn)} detail={range.label} tone={pendingBankIn > 0 ? "amber" : "teal"} />
-        <MetricCard icon={WalletCards} label="Cash in hand" value={formatCurrency(totalCashInHand)} detail="Cash sales minus bank-ins" tone={totalCashInHand >= 0 ? "teal" : "rose"} />
+        <MetricCard icon={WalletCards} label="Cash in hand" value={formatCurrency(totalCashInHand)} detail="After bank-ins & cash locum" tone={totalCashInHand >= 0 ? "teal" : "rose"} />
         <MetricCard icon={Banknote} label="Bank-in count" value={String(selectedBankIns.length)} tone="rose" />
       </section>
 
@@ -183,12 +184,13 @@ export default async function CashBankInsPage({ searchParams }: { searchParams: 
           <ExportCsvLink label="Export cash CSV" report="cash-in-hand" searchParams={exportParams} />
         </div>
         <DataTable
-          columns={["Branch", "Opening balance", "Total cash sales", "Total cash banked in", "Remaining cash in hand"]}
+          columns={["Branch", "Opening balance", "Total cash sales", "Total cash banked in", "Cash locum payments", "Remaining cash in hand"]}
           rows={cashInHandRows.map((row) => [
             row.branch.name,
             formatCurrency(row.openingBalance),
             formatCurrency(row.cashSales),
             formatCurrency(row.bankedIn),
+            formatCurrency(row.cashLocumPayments),
             formatCurrency(row.remaining)
           ])}
         />
@@ -272,6 +274,7 @@ export default async function CashBankInsPage({ searchParams }: { searchParams: 
                   <span className="ledger-summary-chip">Opening {formatCurrency(group.balanceRow.openingBalance)}</span>
                   <span className="ledger-summary-chip">Cash sales {formatCurrency(group.balanceRow.cashSales)}</span>
                   <span className="ledger-summary-chip">Banked in {formatCurrency(group.balanceRow.bankedIn)}</span>
+                  <span className="ledger-summary-chip">Cash locum {formatCurrency(group.balanceRow.cashLocumPayments)}</span>
                   <span className="ledger-summary-chip">Cash in hand {formatCurrency(group.balanceRow.remaining)}</span>
                 </div>
               </div>

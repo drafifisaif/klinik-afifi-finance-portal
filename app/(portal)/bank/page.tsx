@@ -685,12 +685,13 @@ export default async function BankPage({ searchParams }: { searchParams: Promise
         <div className="table-section">
           <h2>Cash in hand by branch</h2>
           <DataTable
-            columns={["Branch", "Opening balance", "Total cash sales", "Total cash banked in", "Remaining cash in hand"]}
+            columns={["Branch", "Opening balance", "Total cash sales", "Total cash banked in", "Cash locum payments", "Remaining cash in hand"]}
             rows={cashInHandRows.map((row) => [
               row.branch.name,
               formatCurrency(row.openingBalance),
               formatCurrency(row.cashSales),
               formatCurrency(row.bankedIn),
+              formatCurrency(row.cashLocumPayments),
               formatCurrency(row.remaining)
             ])}
           />

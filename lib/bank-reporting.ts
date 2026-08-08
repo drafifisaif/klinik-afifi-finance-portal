@@ -1,5 +1,5 @@
 import { branchOpeningBalanceTotal } from "@/lib/opening-balances";
-import type { BankAccount, BankTransaction, BankingData, Branch, CashBankIn, DailySale, PettyCashTransaction } from "@/lib/types";
+import type { BankAccount, BankTransaction, BankingData, Branch, CashBankIn, DailySale, Expense, PettyCashTransaction } from "@/lib/types";
 
 export type DatePeriod = "today" | "this_month" | "last_month" | "custom";
 export type ReportRangeOption = "this_month" | "last_month" | "custom";
@@ -15,6 +15,7 @@ export type CashInHandRow = {
   bankedIn: number;
   branch: Branch;
   cashSales: number;
+  cashLocumPayments: number;
   openingBalance: number;
   remaining: number;
 };
@@ -146,6 +147,22 @@ export function cashSalesAmount(sale: DailySale) {
   return Number(sale.cash_amount ?? 0);
 }
 
+function isCashPaymentType(paymentType: string | null | undefined) {
+  return String(paymentType ?? "").trim().toLowerCase() === "cash";
+}
+
+export function cashLocumExpenseAmount(expense: Expense) {
+  return Number(expense.amount ?? 0);
+}
+
+export function isCashLocumExpense(expense: Expense) {
+  return (
+    isActiveFinancialRecord(expense) &&
+    String(expense.category ?? "").trim().toLowerCase() === "locum_doctor" &&
+    isCashPaymentType(expense.payment_type)
+  );
+}
+
 export function panelSalesAmount(sale: DailySale) {
   return Number(sale.panel_amount ?? 0);
 }
@@ -196,7 +213,7 @@ export function getBranchById(data: Pick<BankingData, "branches">) {
 }
 
 export function buildCashInHandRows(
-  data: Pick<BankingData, "branches" | "cashBankIns" | "openingBalances" | "sales">,
+  data: Pick<BankingData, "branches" | "cashBankIns" | "expenses" | "openingBalances" | "sales">,
   range: DateRange
 ): CashInHandRow[] {
   return data.branches.map((branch) => {
@@ -207,13 +224,17 @@ export function buildCashInHandRows(
     const bankedIn = data.cashBankIns
       .filter((bankIn) => isActiveFinancialRecord(bankIn) && bankIn.branch_id === branch.id && isWithinDateRange(bankIn.bank_in_date, range))
       .reduce((sum, bankIn) => sum + bankInAmount(bankIn), 0);
+    const cashLocumPayments = data.expenses
+      .filter((expense) => isCashLocumExpense(expense) && expense.branch_id === branch.id && isWithinDateRange(expense.expense_date, range))
+      .reduce((sum, expense) => sum + cashLocumExpenseAmount(expense), 0);
 
     return {
       bankedIn,
       branch,
+      cashLocumPayments,
       cashSales,
       openingBalance,
-      remaining: openingBalance + cashSales - bankedIn
+      remaining: openingBalance + cashSales - bankedIn - cashLocumPayments
     };
   });
 }

@@ -291,6 +291,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     ? buildCashInHandRows({
         branches: selectedBankBranches,
         cashBankIns: selectedCashBankIns,
+        expenses,
         openingBalances: bankingData.openingBalances,
         sales: selectedBankSales
       }, range)

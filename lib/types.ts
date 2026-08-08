@@ -482,6 +482,7 @@ export type BankingData = {
   branches: Branch[];
   openingBalances: OpeningBalance[];
   sales: DailySale[];
+  expenses: Expense[];
   bankAccounts: BankAccount[];
   bankAccountPermissions: BankAccountPermission[];
   bankTransactions: BankTransaction[];

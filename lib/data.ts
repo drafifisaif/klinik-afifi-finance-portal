@@ -352,6 +352,7 @@ export const demoBankingData: BankingData = {
   branches,
   openingBalances,
   sales,
+  expenses,
   bankAccounts,
   bankAccountPermissions,
   bankTransactions,
@@ -615,6 +616,8 @@ function filterBankingDataForProfile(data: BankingData, profile: Awaited<ReturnT
       (sale) => visibleBranchIds.has(sale.branch_id) && (!permittedBankAccountIds || mappedBranchIds.has(sale.branch_id))
     ),
 
+    expenses: data.expenses.filter((expense) => visibleBranchIds.has(expense.branch_id)),
+
     bankAccounts: data.bankAccounts.filter((account) => {
       return account.is_active && (!permittedBankAccountIds || permittedBankAccountIds.has(account.id));
     }),
@@ -755,7 +758,7 @@ export async function getBankingDataForScope(options: BankingDataOptions = {}): 
 
   const supabase = await createClient();
   const role = normalizeRole(profile?.role);
-  const [branchRows, openingBalanceRows, salesRows, permissionRows, transactionRows, mappingRows, cashBankInRows, pettyCashRows, supplierPaymentRows, panelPaymentRows] = await Promise.all([
+  const [branchRows, openingBalanceRows, salesRows, expenseRows, permissionRows, transactionRows, mappingRows, cashBankInRows, pettyCashRows, supplierPaymentRows, panelPaymentRows] = await Promise.all([
     fetchOrDemo(supabase.from("branches").select("*").eq("is_active", true).order("name"), demoBankingData.branches, "branches"),
     fetchOrDemo(
       supabase
@@ -772,6 +775,14 @@ export async function getBankingDataForScope(options: BankingDataOptions = {}): 
         .order("sale_date", { ascending: false }),
       demoBankingData.sales,
       "daily_sales"
+    ),
+    fetchOrDemo(
+      supabase
+        .from("expenses")
+        .select("*, branches(name, code)")
+        .order("expense_date", { ascending: false }),
+      demoBankingData.expenses,
+      "expenses_banking"
     ),
     fetchOrDemo<BankAccountPermission[]>(
       supabase
@@ -872,6 +883,7 @@ export async function getBankingDataForScope(options: BankingDataOptions = {}): 
       branches: branchRows as Branch[],
       openingBalances: openingBalanceRows as OpeningBalance[],
       sales: salesRows as DailySale[],
+      expenses: expenseRows as Expense[],
       bankAccounts: bankRows as BankAccount[],
       bankAccountPermissions: permissionRowsTyped,
       bankTransactions: transactionRows as BankTransaction[],
