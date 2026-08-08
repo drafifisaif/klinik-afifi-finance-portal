@@ -1491,6 +1491,7 @@ export async function createDailySale(formData: FormData) {
   const branchId = text(formData, "branch_id");
   const saleDate = text(formData, "sale_date");
   if (!branchId || !saleDate) failSalesManager("Branch and sale date are required.");
+  const formExistingRecordId = text(formData, "sale_id") ?? text(formData, "existing_record_id") ?? text(formData, "daily_sales_id") ?? text(formData, "record_id");
   const profile = await requirePermission("edit_finance");
   if (!canEditBranch(profile, branchId)) {
     failSalesManager("You do not have permission to create Daily Sales for this branch.");
@@ -1503,7 +1504,7 @@ export async function createDailySale(formData: FormData) {
       .select(saleSelect)
       .eq("branch_id", branchId)
       .eq("sale_date", saleDate)
-      .or("is_void.eq.false,is_void.is.null")
+      .eq("is_void", false)
       .order("updated_at", { ascending: false }),
     supabase
       .from("daily_sales")
@@ -1521,6 +1522,7 @@ export async function createDailySale(formData: FormData) {
       currentUserBranchId: profile.branch_id ?? null,
       selectedBranchId: branchId,
       salesDate: saleDate,
+      formExistingRecordId,
       code: activeSaleError.code,
       error: activeSaleError.message,
       details: activeSaleError.details,
@@ -1537,6 +1539,7 @@ export async function createDailySale(formData: FormData) {
       currentUserBranchId: profile.branch_id ?? null,
       selectedBranchId: branchId,
       salesDate: saleDate,
+      formExistingRecordId,
       code: voidedSalesError.code,
       error: voidedSalesError.message,
       details: voidedSalesError.details,
@@ -1554,6 +1557,7 @@ export async function createDailySale(formData: FormData) {
       currentUserBranchId: profile.branch_id ?? null,
       selectedBranchId: branchId,
       salesDate: saleDate,
+      formExistingRecordId,
       activeRecordIds: activeRows.map((sale) => sale.id),
       existingActiveRecordCount: activeRows.length,
       existingVoidedRecordCount
@@ -1571,6 +1575,7 @@ export async function createDailySale(formData: FormData) {
     currentUserBranchId: profile.branch_id ?? null,
     selectedBranchId: branchId,
     salesDate: saleDate,
+    formExistingRecordId,
     existingActiveRecordFound: Boolean(activeSale),
     activeRecordId: activeSale?.id ?? null,
     existingActiveRecordCount: activeRows.length,
@@ -1614,6 +1619,7 @@ export async function createDailySale(formData: FormData) {
       currentUserBranchId: profile.branch_id ?? null,
       selectedBranchId: branchId,
       salesDate: saleDate,
+      formExistingRecordId,
       existingActiveRecordFound: Boolean(activeSale),
       activeRecordId: activeSale?.id ?? null,
       existingActiveRecordCount: activeRows.length,
@@ -1633,6 +1639,26 @@ export async function createDailySale(formData: FormData) {
   }
 
   if (error || !sale) failSalesManager("Daily Sales could not be saved. Please try again.");
+
+  console.info("createDailySale save succeeded", {
+    action: "createDailySale",
+    userId: profile.id,
+    role: profile.role,
+    branchId,
+    saleDate,
+    activeRecordFound: Boolean(activeSale),
+    activeRecordId: activeSale?.id ?? null,
+    voidedRecordCount: existingVoidedRecordCount,
+    voidedRecordIds: voidedSales?.map((row) => row.id) ?? [],
+    formExistingRecordId,
+    attemptedOperation,
+    savedRecordId: sale.id,
+    resultOperation: attemptedOperation,
+    code: null,
+    message: null,
+    details: null,
+    hint: null
+  });
 
   const beforeData = activeSale ? dailySaleAuditData(activeSale) : null;
   const afterData = dailySaleAuditData(sale);

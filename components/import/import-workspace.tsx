@@ -522,7 +522,12 @@ async function markDatabaseDuplicates(type: ImportType, rows: ReviewedRow[]) {
   if (type === "daily_sales") {
     const branchIds = uniqueStrings(validPayloads.map((payload) => payload.branch_id));
     const dates = uniqueStrings(validPayloads.map((payload) => payload.sale_date));
-    const { data, error } = await supabase.from("daily_sales").select("branch_id, sale_date").in("branch_id", branchIds).in("sale_date", dates);
+    const { data, error } = await supabase
+      .from("daily_sales")
+      .select("branch_id, sale_date")
+      .in("branch_id", branchIds)
+      .in("sale_date", dates)
+      .eq("is_void", false);
     if (error) throw error;
     data?.forEach((row) => duplicateKeys.add(`${row.branch_id}|${row.sale_date}`));
   }
