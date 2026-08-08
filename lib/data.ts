@@ -519,6 +519,11 @@ type BankingDataOptions = {
   bankAccessOnly?: boolean;
 };
 
+export type DashboardOperationalCashData = Pick<
+  BankingData,
+  "branches" | "cashBankIns" | "expenses" | "openingBalances" | "pettyCashTransactions" | "sales"
+>;
+
 function permissionHasVisibleAccount(permission: BankAccountPermission) {
   return permission.can_view || permission.can_create_transaction || permission.can_edit_transaction || permission.can_manage_account;
 }
@@ -640,6 +645,95 @@ function filterBankingDataForProfile(data: BankingData, profile: Awaited<ReturnT
 
 export async function getBankingData(): Promise<BankingData> {
   return getBankingDataForScope();
+}
+
+export async function getDashboardOperationalCashData(): Promise<DashboardOperationalCashData> {
+  const profile = await getCurrentProfile();
+  const fallback = filterBankingDataForProfile(demoBankingData, profile);
+  const fallbackOperational = {
+    branches: fallback.branches,
+    cashBankIns: fallback.cashBankIns,
+    expenses: fallback.expenses.filter((expense) => String(expense.category ?? "").trim().toLowerCase() === "locum_doctor"),
+    openingBalances: fallback.openingBalances.filter((balance) => balance.balance_type === "cash_in_hand" || balance.balance_type === "petty_cash"),
+    pettyCashTransactions: fallback.pettyCashTransactions,
+    sales: fallback.sales
+  };
+
+  if (!hasSupabaseEnv()) return fallbackOperational;
+
+  const supabase = await createClient();
+  const [branchRows, openingBalanceRows, salesRows, expenseRows, cashBankInRows, pettyCashRows] = await Promise.all([
+    fetchOrDemo(supabase.from("branches").select("*").eq("is_active", true).order("name"), [], "dashboard_operational_branches"),
+    fetchOrDemo(
+      supabase
+        .from("opening_balances")
+        .select("*, branches(name, code)")
+        .in("balance_type", ["cash_in_hand", "petty_cash"])
+        .order("balance_date", { ascending: false }),
+      [],
+      "dashboard_operational_opening_balances"
+    ),
+    fetchOrDemo(
+      supabase
+        .from("daily_sales")
+        .select("*, branches(name, code)")
+        .order("sale_date", { ascending: false }),
+      [],
+      "dashboard_operational_daily_sales"
+    ),
+    fetchOrDemo(
+      supabase
+        .from("expenses")
+        .select("*, branches(name, code)")
+        .eq("category", "locum_doctor")
+        .order("expense_date", { ascending: false }),
+      [],
+      "dashboard_operational_cash_locum_expenses"
+    ),
+    fetchOrDemo(
+      supabase
+        .from("cash_bank_ins")
+        .select("*, branches(name, code)")
+        .order("bank_in_date", { ascending: false }),
+      [],
+      "dashboard_operational_cash_bank_ins"
+    ),
+    fetchOrDemo(
+      supabase
+        .from("petty_cash_transactions")
+        .select("*, branches(name, code)")
+        .order("transaction_date", { ascending: false }),
+      [],
+      "dashboard_operational_petty_cash_transactions"
+    )
+  ]);
+
+  const scoped = filterBankingDataForProfile(
+    {
+      branches: branchRows as Branch[],
+      openingBalances: openingBalanceRows as OpeningBalance[],
+      sales: salesRows as DailySale[],
+      expenses: expenseRows as Expense[],
+      bankAccounts: [],
+      bankAccountPermissions: [],
+      bankTransactions: [],
+      branchBankMappings: [],
+      cashBankIns: cashBankInRows as CashBankIn[],
+      pettyCashTransactions: pettyCashRows as PettyCashTransaction[],
+      supplierPayments: [],
+      panelPayments: []
+    },
+    profile
+  );
+
+  return {
+    branches: scoped.branches,
+    cashBankIns: scoped.cashBankIns,
+    expenses: scoped.expenses.filter((expense) => String(expense.category ?? "").trim().toLowerCase() === "locum_doctor"),
+    openingBalances: scoped.openingBalances.filter((balance) => balance.balance_type === "cash_in_hand" || balance.balance_type === "petty_cash"),
+    pettyCashTransactions: scoped.pettyCashTransactions,
+    sales: scoped.sales
+  };
 }
 
 export type BranchPicCashBankInTarget = {
