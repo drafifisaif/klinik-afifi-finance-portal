@@ -7,8 +7,8 @@ import {
   bankInAmount,
   cashBankInSourceDate,
   bankTransactionAmount,
-  buildCashInHandBalanceRows,
-  buildPettyCashAsOfRows,
+  buildCashInHandRows,
+  buildPettyCashBalanceRows,
   directBankInflow,
   getMappingByBranch,
   isActiveFinancialRecord,
@@ -74,12 +74,6 @@ function money(value: number) {
 
 function monthSortKey(date: string) {
   return date.slice(0, 7);
-}
-
-function previousDate(dateString: string) {
-  const date = new Date(`${dateString}T00:00:00Z`);
-  date.setUTCDate(date.getUTCDate() - 1);
-  return date.toISOString().slice(0, 10);
 }
 
 function addAmount(totals: Map<string, number>, key: string, amount: number) {
@@ -308,20 +302,6 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       && selectedBankBranchIds.has(transaction.branch_id)
       && isWithinDateRange(transaction.transaction_date, range);
   }) ?? [];
-  const balanceSales = bankingData?.sales.filter((sale) => {
-    return isActiveFinancialRecord(sale) && selectedBankBranchIds.has(sale.branch_id) && sale.sale_date <= range.endDate;
-  }) ?? [];
-  const balanceCashBankIns = bankingData?.cashBankIns.filter((bankIn) => {
-    return isActiveFinancialRecord(bankIn) && selectedBankBranchIds.has(bankIn.branch_id) && bankIn.bank_in_date <= range.endDate;
-  }) ?? [];
-  const balanceExpenses = bankingData?.expenses.filter((expense) => {
-    return isActiveFinancialRecord(expense) && selectedBankBranchIds.has(expense.branch_id) && expense.expense_date <= range.endDate;
-  }) ?? [];
-  const balancePettyCashTransactions = bankingData?.pettyCashTransactions.filter((transaction) => {
-    return isActiveFinancialRecord(transaction)
-      && selectedBankBranchIds.has(transaction.branch_id)
-      && transaction.transaction_date <= range.endDate;
-  }) ?? [];
   const selectedSupplierPayments = bankingData?.supplierPayments.filter((payment) => {
     return !payment.is_void
       && selectedBankBranchIds.has(payment.branch_id)
@@ -336,20 +316,20 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       && (transaction.transaction_type === "petty_cash_issued" || transaction.transaction_type === "petty_cash_returned");
   });
   const cashInHandRows = bankingData
-    ? buildCashInHandBalanceRows({
+    ? buildCashInHandRows({
         branches: selectedBankBranches,
-        cashBankIns: balanceCashBankIns,
-        expenses: balanceExpenses,
+        cashBankIns: bankingData.cashBankIns,
+        expenses: bankingData.expenses,
         openingBalances: bankingData.openingBalances,
-        sales: balanceSales
-      }, range.endDate)
+        sales: bankingData.sales
+      }, range)
     : [];
   const pettyCashRows = bankingData
-    ? buildPettyCashAsOfRows({
+    ? buildPettyCashBalanceRows({
         branches: selectedBankBranches,
         openingBalances: bankingData.openingBalances,
-        pettyCashTransactions: balancePettyCashTransactions
-      }, range.endDate)
+        pettyCashTransactions: bankingData.pettyCashTransactions
+      })
     : [];
   const cashInHandByBranchId = new Map(cashInHandRows.map((row) => [row.branch.id, row]));
   const pettyCashByBranchId = new Map(pettyCashRows.map((row) => [row.branch.id, row]));
@@ -476,27 +456,10 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   });
   const cashInHandChartRows = cashInHandRows.map((row) => ({ label: row.branch.name, value: row.remaining }));
   const bankMovementChartRows = bankSummaryRows.map((row) => ({ label: bankAccountLabel(row.account), value: row.inflow - row.outflow }));
-  const balanceAsOfLabel = `As of ${formatDate(range.endDate)}`;
-  const openingAsOfDate = previousDate(range.startDate);
-  const openingCashInHandRows = bankingData
-    ? buildCashInHandBalanceRows({
-        branches: selectedBankBranches,
-        cashBankIns: (bankingData.cashBankIns ?? []).filter((bankIn) => {
-          return isActiveFinancialRecord(bankIn) && selectedBankBranchIds.has(bankIn.branch_id) && bankIn.bank_in_date <= openingAsOfDate;
-        }),
-        expenses: (bankingData.expenses ?? []).filter((expense) => {
-          return isActiveFinancialRecord(expense) && selectedBankBranchIds.has(expense.branch_id) && expense.expense_date <= openingAsOfDate;
-        }),
-        openingBalances: bankingData.openingBalances,
-        sales: (bankingData.sales ?? []).filter((sale) => {
-          return isActiveFinancialRecord(sale) && selectedBankBranchIds.has(sale.branch_id) && sale.sale_date <= openingAsOfDate;
-        })
-      }, openingAsOfDate)
-    : [];
-  const openingCashInHandByBranchId = new Map(openingCashInHandRows.map((row) => [row.branch.id, row]));
+  const cashInHandDetailLabel = range.label;
+  const pettyCashDetailLabel = `As of ${formatDate(range.endDate)}`;
   const dashboardBalanceDiagnostics = cashInHandRows.map((cashRow) => {
     const pettyRow = pettyCashByBranchId.get(cashRow.branch.id);
-    const openingCashRow = openingCashInHandByBranchId.get(cashRow.branch.id);
     const periodCashSales = sales
       .filter((sale) => sale.branch_id === cashRow.branch.id)
       .reduce((sum, sale) => sum + money(sale.cash_amount), 0);
@@ -504,7 +467,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       .filter((bankIn) => {
         return isActiveFinancialRecord(bankIn)
           && bankIn.branch_id === cashRow.branch.id
-          && isWithinDateRange(bankIn.bank_in_date, range);
+          && isWithinDateRange(cashBankInSourceDate(bankIn), range);
       })
       .reduce((sum, bankIn) => sum + bankInAmount(bankIn), 0);
     const periodCashLocumPayments = (bankingData?.expenses ?? [])
@@ -522,7 +485,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       branchName: cashRow.branch.name,
       selectedStartDate: range.startDate,
       selectedEndDate: range.endDate,
-      openingCashInHandAsOfPreviousDay: openingCashRow?.remaining ?? 0,
+      openingCashInHand: cashRow.openingBalance,
       periodCashSales,
       periodCashBankIns,
       periodCashLocumPayments,
@@ -540,7 +503,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       currentUserBranchId: profile.branch_id ?? null,
       selectedBranchIds,
       periodStartDate: range.startDate,
-      balanceAsOfDate: range.endDate,
+      periodEndDate: range.endDate,
       balances: dashboardBalanceDiagnostics
     });
   }
@@ -656,10 +619,10 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         {!isFinanceDashboard ? (
           <>
             <MetricCard icon={CreditCard} label="Direct Sales" value={formatCurrency(directSales)} detail="Sales for selected period" tone="blue" />
-            <MetricCard icon={Banknote} label="Cash in Hand" value={formatCurrency(totalCashInHand)} detail={balanceAsOfLabel} tone={totalCashInHand >= 0 ? "teal" : "rose"} />
-            <MetricCard icon={Coins} label="Petty Cash" value={formatCurrency(totalPettyCash)} detail={balanceAsOfLabel} tone={totalPettyCash >= 0 ? "teal" : "rose"} />
+            <MetricCard icon={Banknote} label="Cash in Hand" value={formatCurrency(totalCashInHand)} detail={cashInHandDetailLabel} tone={totalCashInHand >= 0 ? "teal" : "rose"} />
+            <MetricCard icon={Coins} label="Petty Cash" value={formatCurrency(totalPettyCash)} detail={pettyCashDetailLabel} tone={totalPettyCash >= 0 ? "teal" : "rose"} />
             {isBranchPicDashboard ? (
-              <MetricCard icon={BadgeDollarSign} label="Total Physical Cash" value={formatCurrency(totalPhysicalCash)} detail={balanceAsOfLabel} tone={totalPhysicalCash >= 0 ? "teal" : "rose"} />
+              <MetricCard icon={BadgeDollarSign} label="Total Physical Cash" value={formatCurrency(totalPhysicalCash)} detail="Cash in hand plus petty cash" tone={totalPhysicalCash >= 0 ? "teal" : "rose"} />
             ) : null}
           </>
         ) : null}
@@ -673,9 +636,9 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
             <MetricCard icon={ReceiptText} label="Accrual Expenses" value={formatCurrency(accrualExpenses)} detail="Operating expenses and supplier purchases" tone="amber" />
             <MetricCard icon={WalletCards} label="Cash Outflow" value={formatCurrency(cashOutflow)} detail="Operating expenses plus supplier payments" tone="rose" />
             <MetricCard icon={TrendingUp} label="Net Cashflow" value={formatCurrency(netCashflow)} detail={selectedGroup.label} tone={netCashflow >= 0 ? "teal" : "rose"} />
-            <MetricCard icon={Banknote} label="Cash in Hand" value={formatCurrency(totalCashInHand)} detail={balanceAsOfLabel} tone={totalCashInHand >= 0 ? "teal" : "rose"} />
-            <MetricCard icon={Coins} label="Petty Cash" value={formatCurrency(totalPettyCash)} detail={balanceAsOfLabel} tone={totalPettyCash >= 0 ? "teal" : "rose"} />
-            <MetricCard icon={BadgeDollarSign} label="Total Physical Cash" value={formatCurrency(totalPhysicalCash)} detail={balanceAsOfLabel} tone={totalPhysicalCash >= 0 ? "teal" : "rose"} />
+            <MetricCard icon={Banknote} label="Cash in Hand" value={formatCurrency(totalCashInHand)} detail={cashInHandDetailLabel} tone={totalCashInHand >= 0 ? "teal" : "rose"} />
+            <MetricCard icon={Coins} label="Petty Cash" value={formatCurrency(totalPettyCash)} detail={pettyCashDetailLabel} tone={totalPettyCash >= 0 ? "teal" : "rose"} />
+            <MetricCard icon={BadgeDollarSign} label="Total Physical Cash" value={formatCurrency(totalPhysicalCash)} detail="Cash in hand plus petty cash" tone={totalPhysicalCash >= 0 ? "teal" : "rose"} />
             <MetricCard icon={ShieldAlert} label="Panel Outstanding" value={formatCurrency(panelOutstanding)} detail="Panel claims less linked panel payments" tone="rose" />
             <MetricCard icon={CircleDollarSign} label="Supplier Outstanding" value={formatCurrency(supplierOutstanding)} detail="Purchases less supplier payments" tone="amber" />
             <MetricCard icon={ShieldAlert} label="Supplier Due Soon" value={formatCurrency(supplierDueSoon)} detail="Not due and within 30 days" tone="blue" />

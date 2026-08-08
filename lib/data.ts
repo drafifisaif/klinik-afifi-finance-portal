@@ -649,14 +649,18 @@ export async function getBankingData(): Promise<BankingData> {
 
 export async function getDashboardOperationalCashData(): Promise<DashboardOperationalCashData> {
   const profile = await getCurrentProfile();
-  const fallback = filterBankingDataForProfile(demoBankingData, profile);
+  const fallbackBranches = filterBranchesForProfile(demoBankingData.branches, profile);
+  const fallbackBranchIds = new Set(fallbackBranches.map((branch) => branch.id));
   const fallbackOperational = {
-    branches: fallback.branches,
-    cashBankIns: fallback.cashBankIns,
-    expenses: fallback.expenses.filter((expense) => String(expense.category ?? "").trim().toLowerCase() === "locum_doctor"),
-    openingBalances: fallback.openingBalances.filter((balance) => balance.balance_type === "cash_in_hand" || balance.balance_type === "petty_cash"),
-    pettyCashTransactions: fallback.pettyCashTransactions,
-    sales: fallback.sales
+    branches: fallbackBranches,
+    cashBankIns: demoBankingData.cashBankIns.filter((bankIn) => fallbackBranchIds.has(bankIn.branch_id)),
+    expenses: demoBankingData.expenses.filter((expense) => fallbackBranchIds.has(expense.branch_id) && String(expense.category ?? "").trim().toLowerCase() === "locum_doctor"),
+    openingBalances: demoBankingData.openingBalances.filter((balance) => {
+      return (balance.balance_type === "cash_in_hand" || balance.balance_type === "petty_cash")
+        && (!balance.branch_id || fallbackBranchIds.has(balance.branch_id));
+    }),
+    pettyCashTransactions: demoBankingData.pettyCashTransactions.filter((transaction) => fallbackBranchIds.has(transaction.branch_id)),
+    sales: demoBankingData.sales.filter((sale) => fallbackBranchIds.has(sale.branch_id))
   };
 
   if (!hasSupabaseEnv()) return fallbackOperational;
@@ -708,31 +712,19 @@ export async function getDashboardOperationalCashData(): Promise<DashboardOperat
     )
   ]);
 
-  const scoped = filterBankingDataForProfile(
-    {
-      branches: branchRows as Branch[],
-      openingBalances: openingBalanceRows as OpeningBalance[],
-      sales: salesRows as DailySale[],
-      expenses: expenseRows as Expense[],
-      bankAccounts: [],
-      bankAccountPermissions: [],
-      bankTransactions: [],
-      branchBankMappings: [],
-      cashBankIns: cashBankInRows as CashBankIn[],
-      pettyCashTransactions: pettyCashRows as PettyCashTransaction[],
-      supplierPayments: [],
-      panelPayments: []
-    },
-    profile
-  );
+  const scopedBranches = filterBranchesForProfile(branchRows as Branch[], profile);
+  const scopedBranchIds = new Set(scopedBranches.map((branch) => branch.id));
 
   return {
-    branches: scoped.branches,
-    cashBankIns: scoped.cashBankIns,
-    expenses: scoped.expenses.filter((expense) => String(expense.category ?? "").trim().toLowerCase() === "locum_doctor"),
-    openingBalances: scoped.openingBalances.filter((balance) => balance.balance_type === "cash_in_hand" || balance.balance_type === "petty_cash"),
-    pettyCashTransactions: scoped.pettyCashTransactions,
-    sales: scoped.sales
+    branches: scopedBranches,
+    cashBankIns: (cashBankInRows as CashBankIn[]).filter((bankIn) => scopedBranchIds.has(bankIn.branch_id)),
+    expenses: (expenseRows as Expense[]).filter((expense) => scopedBranchIds.has(expense.branch_id) && String(expense.category ?? "").trim().toLowerCase() === "locum_doctor"),
+    openingBalances: (openingBalanceRows as OpeningBalance[]).filter((balance) => {
+      return (balance.balance_type === "cash_in_hand" || balance.balance_type === "petty_cash")
+        && (!balance.branch_id || scopedBranchIds.has(balance.branch_id));
+    }),
+    pettyCashTransactions: (pettyCashRows as PettyCashTransaction[]).filter((transaction) => scopedBranchIds.has(transaction.branch_id)),
+    sales: (salesRows as DailySale[]).filter((sale) => scopedBranchIds.has(sale.branch_id))
   };
 }
 

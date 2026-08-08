@@ -243,33 +243,6 @@ export function buildCashInHandRows(
   });
 }
 
-export function buildCashInHandBalanceRows(
-  data: Pick<BankingData, "branches" | "cashBankIns" | "expenses" | "openingBalances" | "sales">,
-  asOfDate: string
-): CashInHandRow[] {
-  return data.branches.map((branch) => {
-    const openingBalance = branchOpeningBalanceTotal(data.openingBalances, "cash_in_hand", branch.id, asOfDate);
-    const cashSales = data.sales
-      .filter((sale) => isActiveFinancialRecord(sale) && sale.branch_id === branch.id && sale.sale_date <= asOfDate)
-      .reduce((sum, sale) => sum + cashSalesAmount(sale), 0);
-    const bankedIn = data.cashBankIns
-      .filter((bankIn) => isActiveFinancialRecord(bankIn) && bankIn.branch_id === branch.id && bankIn.bank_in_date <= asOfDate)
-      .reduce((sum, bankIn) => sum + bankInAmount(bankIn), 0);
-    const cashLocumPayments = data.expenses
-      .filter((expense) => isCashLocumExpense(expense) && expense.branch_id === branch.id && expense.expense_date <= asOfDate)
-      .reduce((sum, expense) => sum + cashLocumExpenseAmount(expense), 0);
-
-    return {
-      bankedIn,
-      branch,
-      cashLocumPayments,
-      cashSales,
-      openingBalance,
-      remaining: openingBalance + cashSales - bankedIn - cashLocumPayments
-    };
-  });
-}
-
 export function buildPettyCashBalanceRows(
   data: Pick<BankingData, "branches" | "openingBalances" | "pettyCashTransactions">,
   range?: DateRange
@@ -280,42 +253,6 @@ export function buildPettyCashBalanceRows(
       return isActiveFinancialRecord(transaction)
         && transaction.branch_id === branch.id
         && (!range || isWithinDateRange(transaction.transaction_date, range));
-    });
-    const issued = transactions.reduce((sum, transaction) => {
-      return transaction.transaction_type === "petty_cash_issued" ? sum + pettyCashAmount(transaction) : sum;
-    }, 0);
-    const spent = transactions.reduce((sum, transaction) => {
-      return transaction.transaction_type === "petty_cash_spent" ? sum + pettyCashAmount(transaction) : sum;
-    }, 0);
-    const returned = transactions.reduce((sum, transaction) => {
-      return transaction.transaction_type === "petty_cash_returned" ? sum + pettyCashAmount(transaction) : sum;
-    }, 0);
-    const adjustments = transactions.reduce((sum, transaction) => {
-      return transaction.transaction_type === "petty_cash_adjustment" ? sum + pettyCashAmount(transaction) : sum;
-    }, 0);
-
-    return {
-      adjustments,
-      balance: openingBalance + issued - spent - returned + adjustments,
-      branch,
-      issued,
-      openingBalance,
-      returned,
-      spent
-    };
-  });
-}
-
-export function buildPettyCashAsOfRows(
-  data: Pick<BankingData, "branches" | "openingBalances" | "pettyCashTransactions">,
-  asOfDate: string
-): PettyCashBalanceRow[] {
-  return data.branches.map((branch) => {
-    const openingBalance = branchOpeningBalanceTotal(data.openingBalances, "petty_cash", branch.id, asOfDate);
-    const transactions = data.pettyCashTransactions.filter((transaction) => {
-      return isActiveFinancialRecord(transaction)
-        && transaction.branch_id === branch.id
-        && transaction.transaction_date <= asOfDate;
     });
     const issued = transactions.reduce((sum, transaction) => {
       return transaction.transaction_type === "petty_cash_issued" ? sum + pettyCashAmount(transaction) : sum;
