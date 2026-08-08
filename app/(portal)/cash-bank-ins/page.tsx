@@ -37,6 +37,41 @@ function todayInput() {
   return new Date().toISOString().slice(0, 10);
 }
 
+function monthInput(value: string | null | undefined) {
+  return value?.slice(0, 7) ?? todayInput().slice(0, 7);
+}
+
+function cashMonthLabel(value: string | null | undefined) {
+  if (!value) return "-";
+  return new Intl.DateTimeFormat("en-MY", { month: "long", year: "numeric" }).format(new Date(value));
+}
+
+function cashSalesPeriodLabel(from: string | null | undefined, to: string | null | undefined) {
+  if (!from && !to) return "-";
+  if (!from || !to) return formatDate(from ?? to);
+  if (from === to) return formatDate(from);
+  const fromDate = new Date(from);
+  const toDate = new Date(to);
+  const sameYear = fromDate.getUTCFullYear() === toDate.getUTCFullYear();
+  const sameMonth = sameYear && fromDate.getUTCMonth() === toDate.getUTCMonth();
+  if (sameMonth) {
+    return `${new Intl.DateTimeFormat("en-MY", { day: "2-digit", month: "short" }).format(fromDate)} - ${formatDate(to)}`;
+  }
+  return `${formatDate(from)} - ${formatDate(to)}`;
+}
+
+function bankInCashMonth(bankIn: { bank_in_date: string; cash_month?: string | null; cash_source_date?: string | null }) {
+  return bankIn.cash_month ?? bankIn.cash_source_date?.slice(0, 7).concat("-01") ?? `${bankIn.bank_in_date.slice(0, 7)}-01`;
+}
+
+function bankInCashSalesFrom(bankIn: { bank_in_date: string; cash_sales_from?: string | null; cash_source_date?: string | null }) {
+  return bankIn.cash_sales_from ?? bankIn.cash_source_date ?? bankIn.bank_in_date;
+}
+
+function bankInCashSalesTo(bankIn: { bank_in_date: string; cash_sales_to?: string | null; cash_source_date?: string | null }) {
+  return bankIn.cash_sales_to ?? bankIn.cash_source_date ?? bankIn.bank_in_date;
+}
+
 function isPanelBankAccount(account: Pick<BankAccount, "name" | "bank_name"> | null | undefined) {
   const haystack = `${account?.name ?? ""} ${account?.bank_name ?? ""}`.trim().toLowerCase();
   return haystack.includes("panel");
@@ -200,9 +235,19 @@ export default async function CashBankInsPage({ searchParams }: { searchParams: 
         <form action={createCashBankIn} className="form-card cash-bank-in-entry-form">
           <h2>Record cash bank-in</h2>
           <label>
-            Cash date
-            <input name="cash_source_date" type="date" defaultValue={todayInput()} required />
-            <span className="muted-copy">Date the cash belongs to.</span>
+            Cash month
+            <input name="cash_month" type="month" defaultValue={todayInput().slice(0, 7)} required />
+            <span className="muted-copy">Month the banked-in cash belongs to.</span>
+          </label>
+          <label>
+            Cash sales from
+            <input name="cash_sales_from" type="date" required />
+            <span className="muted-copy">First sales date included in this bank-in.</span>
+          </label>
+          <label>
+            Cash sales to
+            <input name="cash_sales_to" type="date" required />
+            <span className="muted-copy">Last sales date included in this bank-in.</span>
           </label>
           <label>
             Bank-in date
@@ -285,7 +330,7 @@ export default async function CashBankInsPage({ searchParams }: { searchParams: 
                 </div>
               </div>
               <DataTable
-                columns={["Cash date", "Bank-in date", "Branch", "Destination bank account", "Amount", "Reference", "Notes", "Documents", "Status", "View details", "Edit", "Void"]}
+                columns={["Cash Month", "Cash Sales Period", "Bank-In Date", "Branch", "Destination Bank", "Amount", "Documents", "Status", "View Details", "Edit", "Void"]}
                 rowKeys={group.records.map((bankIn) => bankIn.id)}
                 rows={group.records.map((bankIn) => {
                   const editableBankOptions = role === "branch_pic"
@@ -303,15 +348,18 @@ export default async function CashBankInsPage({ searchParams }: { searchParams: 
                     && profile.branch_id === bankIn.branch_id
                     && editableBankOptions.length > 0;
                   const canCorrectBankIn = managementCanCorrect || branchPicCanCorrect;
+                  const cashMonth = bankInCashMonth(bankIn);
+                  const cashSalesFrom = bankInCashSalesFrom(bankIn);
+                  const cashSalesTo = bankInCashSalesTo(bankIn);
+                  const cashSalesPeriod = cashSalesPeriodLabel(cashSalesFrom, cashSalesTo);
 
                   return [
-                    formatDate(bankIn.cash_source_date ?? bankIn.bank_in_date),
+                    cashMonthLabel(cashMonth),
+                    cashSalesPeriod,
                     formatDate(bankIn.bank_in_date),
                     branchLabel(bankIn.branches ?? branchById.get(bankIn.branch_id)),
                     bankAccountLabel(bankIn.bank_accounts ?? bankAccountById.get(bankIn.bank_account_id)),
                     formatCurrency(bankInAmount(bankIn)),
-                    bankIn.reference_no ?? "-",
-                    bankIn.notes ?? "-",
                     <DocumentManager
                       canDelete={role !== "branch_pic"}
                       documents={bankInDocuments.get(bankIn.id) ?? []}
@@ -324,8 +372,18 @@ export default async function CashBankInsPage({ searchParams }: { searchParams: 
                     </span>,
                     <FinanceRecordDetails
                       enteredBy={userDisplayLabel(userById.get(bankIn.entered_by ?? ""), bankIn.entered_by)}
+                      extraDetails={[
+                        { label: "Cash month", value: cashMonthLabel(cashMonth) },
+                        { label: "Cash sales period", value: cashSalesPeriod },
+                        { label: "Bank-in date", value: formatDate(bankIn.bank_in_date) },
+                        { label: "Branch", value: branchLabel(bankIn.branches ?? branchById.get(bankIn.branch_id)) },
+                        { label: "Destination bank", value: bankAccountLabel(bankIn.bank_accounts ?? bankAccountById.get(bankIn.bank_account_id)) },
+                        { label: "Amount", value: formatCurrency(bankInAmount(bankIn)) },
+                        { label: "Reference", value: bankIn.reference_no ?? "-" },
+                        { label: "Notes", value: bankIn.notes ?? "-" }
+                      ]}
                       key={`${bankIn.id}-details`}
-                      originalSummary={`Cash Bank-In • ${branchLabel(bankIn.branches ?? branchById.get(bankIn.branch_id))} • ${bankAccountLabel(bankIn.bank_accounts ?? bankAccountById.get(bankIn.bank_account_id))} • Cash ${formatDate(bankIn.cash_source_date ?? bankIn.bank_in_date)} • Banked ${formatDate(bankIn.bank_in_date)} • ${formatCurrency(bankInAmount(bankIn))}`}
+                      originalSummary={`Cash Bank-In • ${branchLabel(bankIn.branches ?? branchById.get(bankIn.branch_id))} • ${cashMonthLabel(cashMonth)} • ${cashSalesPeriod} • Banked ${formatDate(bankIn.bank_in_date)} • ${formatCurrency(bankInAmount(bankIn))}`}
                       recordId={bankIn.id}
                       status={bankIn.is_void ? "Voided" : "Active"}
                       voidReason={bankIn.void_reason}
@@ -348,8 +406,16 @@ export default async function CashBankInsPage({ searchParams }: { searchParams: 
                             </select>
                           </label>
                           <label>
-                            Cash date
-                            <input name="cash_source_date" type="date" defaultValue={bankIn.cash_source_date ?? bankIn.bank_in_date} required />
+                            Cash month
+                            <input name="cash_month" type="month" defaultValue={monthInput(cashMonth)} required />
+                          </label>
+                          <label>
+                            Cash sales from
+                            <input name="cash_sales_from" type="date" defaultValue={cashSalesFrom} required />
+                          </label>
+                          <label>
+                            Cash sales to
+                            <input name="cash_sales_to" type="date" defaultValue={cashSalesTo} required />
                           </label>
                           <label>
                             Bank-in date

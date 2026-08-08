@@ -479,6 +479,9 @@ type CashBankInAuditRow = {
   bank_account_id: string;
   bank_in_date: string;
   branch_id: string;
+  cash_month?: string | null;
+  cash_sales_from?: string | null;
+  cash_sales_to?: string | null;
   cash_source_date?: string | null;
   notes: string | null;
   reference_no: string | null;
@@ -733,6 +736,9 @@ function cashBankInAuditData(bankIn: CashBankInAuditRow) {
     bank_account_id: bankIn.bank_account_id,
     bank_in_date: bankIn.bank_in_date,
     branch_id: bankIn.branch_id,
+    cash_month: bankIn.cash_month ?? null,
+    cash_sales_from: bankIn.cash_sales_from ?? null,
+    cash_sales_to: bankIn.cash_sales_to ?? null,
     cash_source_date: bankIn.cash_source_date ?? bankIn.bank_in_date,
     notes: bankIn.notes,
     reference_no: bankIn.reference_no,
@@ -743,12 +749,60 @@ function cashBankInAuditData(bankIn: CashBankInAuditRow) {
   };
 }
 
-const cashBankInSelect = "id, branch_id, bank_account_id, bank_in_date, cash_source_date, amount, reference_no, notes, is_void, void_reason, voided_at, voided_by";
+const cashBankInSelect = "id, branch_id, bank_account_id, bank_in_date, cash_source_date, cash_month, cash_sales_from, cash_sales_to, amount, reference_no, notes, is_void, void_reason, voided_at, voided_by";
 const legacyCashBankInSelect = "id, branch_id, bank_account_id, bank_in_date, amount, reference_no, notes, is_void, void_reason, voided_at, voided_by";
 
-function isMissingCashSourceDateError(error: { code?: string | null; message?: string | null } | null | undefined) {
+function isMissingCashAttributionColumnError(error: { code?: string | null; message?: string | null } | null | undefined) {
   const message = String(error?.message ?? "").toLowerCase();
-  return error?.code === "42703" || error?.code === "PGRST204" || message.includes("cash_source_date");
+  return error?.code === "42703" || error?.code === "PGRST204" || message.includes("cash_source_date") || message.includes("cash_month") || message.includes("cash_sales_from") || message.includes("cash_sales_to");
+}
+
+function cashMonthStart(monthInput: string | null) {
+  if (!monthInput || !/^\d{4}-\d{2}$/.test(monthInput)) return null;
+  return `${monthInput}-01`;
+}
+
+function monthInputFromDate(date: string) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(date) ? `${date.slice(0, 7)}-01` : null;
+}
+
+function dateFallsInMonth(date: string, monthStart: string) {
+  return date >= monthStart && date < `${addDays(monthStart, 32).slice(0, 8)}01`;
+}
+
+function cashBankInLegacyRow<T extends { bank_in_date: string }>(row: T | null) {
+  if (!row) return row;
+  return {
+    ...row,
+    cash_month: monthInputFromDate(row.bank_in_date),
+    cash_sales_from: row.bank_in_date,
+    cash_sales_to: row.bank_in_date,
+    cash_source_date: row.bank_in_date
+  };
+}
+
+function resolveCashBankInPeriod(formData: FormData) {
+  const cashMonth = cashMonthStart(text(formData, "cash_month"));
+  const cashSalesFrom = text(formData, "cash_sales_from");
+  const cashSalesTo = text(formData, "cash_sales_to");
+
+  if (!cashMonth || !cashSalesFrom || !cashSalesTo) {
+    failCashBankInManager("Cash month and cash sales period are required.");
+  }
+
+  if (cashSalesTo < cashSalesFrom) {
+    failCashBankInManager("Cash sales to cannot be before cash sales from.");
+  }
+
+  if (!dateFallsInMonth(cashSalesFrom, cashMonth) || !dateFallsInMonth(cashSalesTo, cashMonth)) {
+    failCashBankInManager("Cash sales period must fall within the selected cash month.");
+  }
+
+  return {
+    cashMonth,
+    cashSalesFrom,
+    cashSalesTo
+  };
 }
 
 function pettyCashAuditData(transaction: PettyCashAuditRow) {
@@ -1663,7 +1717,7 @@ export async function createCashBankIn(formData: FormData) {
   const branchId = text(formData, "branch_id");
   const bankAccountId = text(formData, "bank_account_id");
   const bankInDate = text(formData, "bank_in_date");
-  const cashSourceDate = text(formData, "cash_source_date") ?? bankInDate;
+  const { cashMonth, cashSalesFrom, cashSalesTo } = resolveCashBankInPeriod(formData);
   const amount = number(formData, "amount");
   const role = normalizeRole(profile.role);
 
@@ -1730,7 +1784,10 @@ export async function createCashBankIn(formData: FormData) {
     branch_id: branchId,
     bank_account_id: bankAccountId,
     bank_in_date: bankInDate,
-    cash_source_date: cashSourceDate,
+    cash_month: cashMonth,
+    cash_sales_from: cashSalesFrom,
+    cash_sales_to: cashSalesTo,
+    cash_source_date: cashSalesTo,
     amount,
     reference_no: text(formData, "reference_no"),
     notes: text(formData, "notes"),
@@ -1738,14 +1795,16 @@ export async function createCashBankIn(formData: FormData) {
   };
   let { data: bankIn, error } = await supabase.from("cash_bank_ins").insert(insertPayload).select(cashBankInSelect).single();
 
-  if (isMissingCashSourceDateError(error)) {
+  if (isMissingCashAttributionColumnError(error)) {
     console.warn("createCashBankIn cash_source_date column unavailable; retrying legacy insert", {
       action: "createCashBankIn",
       userId: profile.id,
       role: profile.role,
       selectedBranchId: branchId,
       bankInDate,
-      cashSourceDate,
+      cashMonth,
+      cashSalesFrom,
+      cashSalesTo,
       code: error?.code,
       error: error?.message
     });
@@ -1759,7 +1818,7 @@ export async function createCashBankIn(formData: FormData) {
       entered_by: insertPayload.entered_by
     };
     const legacyResult = await supabase.from("cash_bank_ins").insert(legacyPayload).select(legacyCashBankInSelect).single();
-    bankIn = legacyResult.data ? { ...legacyResult.data, cash_source_date: legacyResult.data.bank_in_date } : legacyResult.data;
+    bankIn = cashBankInLegacyRow(legacyResult.data);
     error = legacyResult.error;
   }
 
@@ -1848,7 +1907,7 @@ export async function updateCashBankIn(formData: FormData) {
 
   const bankInId = text(formData, "bank_in_id");
   const bankInDate = text(formData, "bank_in_date");
-  const cashSourceDate = text(formData, "cash_source_date") ?? bankInDate;
+  const { cashMonth, cashSalesFrom, cashSalesTo } = resolveCashBankInPeriod(formData);
   const bankAccountId = text(formData, "bank_account_id");
   const amount = number(formData, "amount");
   if (!bankInId || !bankInDate || amount <= 0) {
@@ -1865,13 +1924,13 @@ export async function updateCashBankIn(formData: FormData) {
     .eq("id", bankInId)
     .maybeSingle();
 
-  if (isMissingCashSourceDateError(bankInError)) {
+  if (isMissingCashAttributionColumnError(bankInError)) {
     const legacyResult = await supabase
       .from("cash_bank_ins")
       .select(legacyCashBankInSelect)
       .eq("id", bankInId)
       .maybeSingle();
-    bankIn = legacyResult.data ? { ...legacyResult.data, cash_source_date: legacyResult.data.bank_in_date } : legacyResult.data;
+    bankIn = cashBankInLegacyRow(legacyResult.data);
     bankInError = legacyResult.error;
   }
 
@@ -1883,7 +1942,10 @@ export async function updateCashBankIn(formData: FormData) {
     amount,
     bank_account_id: bankAccountId,
     bank_in_date: bankInDate,
-    cash_source_date: cashSourceDate,
+    cash_month: cashMonth,
+    cash_sales_from: cashSalesFrom,
+    cash_sales_to: cashSalesTo,
+    cash_source_date: cashSalesTo,
     notes: text(formData, "notes"),
     reference_no: text(formData, "reference_no")
   };
@@ -1894,12 +1956,14 @@ export async function updateCashBankIn(formData: FormData) {
     .select(cashBankInSelect)
     .single();
 
-  if (isMissingCashSourceDateError(error)) {
+  if (isMissingCashAttributionColumnError(error)) {
     console.warn("updateCashBankIn cash_source_date column unavailable; retrying legacy update", {
       action: "updateCashBankIn",
       bankInId,
       bankInDate,
-      cashSourceDate,
+      cashMonth,
+      cashSalesFrom,
+      cashSalesTo,
       code: error?.code,
       error: error?.message
     });
@@ -1916,7 +1980,7 @@ export async function updateCashBankIn(formData: FormData) {
       .eq("id", bankIn.id)
       .select(legacyCashBankInSelect)
       .single();
-    updatedBankIn = legacyResult.data ? { ...legacyResult.data, cash_source_date: legacyResult.data.bank_in_date } : legacyResult.data;
+    updatedBankIn = cashBankInLegacyRow(legacyResult.data);
     error = legacyResult.error;
   }
 
@@ -1956,13 +2020,13 @@ export async function voidCashBankIn(formData: FormData) {
     .eq("id", bankInId)
     .maybeSingle();
 
-  if (isMissingCashSourceDateError(bankInError)) {
+  if (isMissingCashAttributionColumnError(bankInError)) {
     const legacyResult = await supabase
       .from("cash_bank_ins")
       .select(legacyCashBankInSelect)
       .eq("id", bankInId)
       .maybeSingle();
-    bankIn = legacyResult.data ? { ...legacyResult.data, cash_source_date: legacyResult.data.bank_in_date } : legacyResult.data;
+    bankIn = cashBankInLegacyRow(legacyResult.data);
     bankInError = legacyResult.error;
   }
 
@@ -2010,7 +2074,7 @@ export async function voidCashBankIn(formData: FormData) {
     .select(cashBankInSelect)
     .maybeSingle();
 
-  if (isMissingCashSourceDateError(error)) {
+  if (isMissingCashAttributionColumnError(error)) {
     const legacyResult = await supabase
       .from("cash_bank_ins")
       .update(voidFields(reason, await getUserId()))
@@ -2018,7 +2082,7 @@ export async function voidCashBankIn(formData: FormData) {
       .eq("is_void", false)
       .select(legacyCashBankInSelect)
       .maybeSingle();
-    voidedBankIn = legacyResult.data ? { ...legacyResult.data, cash_source_date: legacyResult.data.bank_in_date } : legacyResult.data;
+    voidedBankIn = cashBankInLegacyRow(legacyResult.data);
     error = legacyResult.error;
   }
 

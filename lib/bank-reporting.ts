@@ -172,7 +172,7 @@ export function bankInAmount(bankIn: CashBankIn) {
 }
 
 export function cashBankInSourceDate(bankIn: CashBankIn) {
-  return bankIn.cash_source_date || bankIn.bank_in_date;
+  return bankIn.cash_month || bankIn.cash_source_date || bankIn.bank_in_date;
 }
 
 export function bankTransactionAmount(transaction: BankTransaction) {

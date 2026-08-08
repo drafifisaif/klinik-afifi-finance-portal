@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 
 type FinanceRecordDetailsProps = {
   enteredBy?: ReactNode;
+  extraDetails?: { label: string; value: ReactNode }[];
   originalSummary: string;
   recordId: string;
   status: "Active" | "Voided";
@@ -18,6 +19,7 @@ function detailValue(value: ReactNode) {
 
 export function FinanceRecordDetails({
   enteredBy,
+  extraDetails = [],
   originalSummary,
   recordId,
   status,
@@ -44,6 +46,12 @@ export function FinanceRecordDetails({
               <span>{detailValue(enteredBy)}</span>
             </div>
           ) : null}
+          {extraDetails.map((detail) => (
+            <div key={detail.label}>
+              <strong>{detail.label}</strong>
+              <span>{detailValue(detail.value)}</span>
+            </div>
+          ))}
           {status === "Voided" ? (
             <>
               <div>

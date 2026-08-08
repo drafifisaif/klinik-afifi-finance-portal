@@ -476,7 +476,9 @@ export async function cashBankInsCsv(searchParams: URLSearchParams): Promise<Csv
       && matchesOptionalDate(bankIn.bank_in_date, searchParams)
       && (selectedBranchId === "all" || bankIn.branch_id === selectedBranchId);
   }).map((bankIn) => [
-    bankIn.cash_source_date ?? bankIn.bank_in_date,
+    bankIn.cash_month ?? bankIn.cash_source_date?.slice(0, 7).concat("-01") ?? `${bankIn.bank_in_date.slice(0, 7)}-01`,
+    bankIn.cash_sales_from ?? bankIn.cash_source_date ?? bankIn.bank_in_date,
+    bankIn.cash_sales_to ?? bankIn.cash_source_date ?? bankIn.bank_in_date,
     bankIn.bank_in_date,
     branchLabel(bankIn.branches),
     bankAccountLabel(bankIn.bank_accounts ?? bankAccountById.get(bankIn.bank_account_id)),
@@ -489,7 +491,7 @@ export async function cashBankInsCsv(searchParams: URLSearchParams): Promise<Csv
 
   return {
     filename: "cash-bank-ins.csv",
-    headers: ["Cash Date", "Bank-In Date", "Branch", "Bank Account", "Amount", "Reference", "Notes", "Entered By", "Status"],
+    headers: ["Cash Month", "Cash Sales From", "Cash Sales To", "Bank-In Date", "Branch", "Bank Account", "Amount", "Reference", "Notes", "Entered By", "Status"],
     rows
   };
 }
