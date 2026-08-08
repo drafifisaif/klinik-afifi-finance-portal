@@ -87,8 +87,15 @@ create table if not exists public.daily_sales (
   entered_by uuid references public.profiles(id) on delete set null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
-  unique (branch_id, sale_date)
+  is_void boolean not null default false,
+  voided_at timestamptz,
+  voided_by uuid references public.profiles(id) on delete set null,
+  void_reason text
 );
+
+create unique index if not exists daily_sales_one_active_per_branch_date
+on public.daily_sales (branch_id, sale_date)
+where coalesce(is_void, false) = false;
 
 create table if not exists public.expenses (
   id uuid primary key default gen_random_uuid(),

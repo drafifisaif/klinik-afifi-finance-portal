@@ -93,6 +93,14 @@ function failSalesManager(message: string): never {
   redirect(`/sales?error=${encodeURIComponent(message)}`);
 }
 
+function postgresConstraintName(error: {
+  details?: string | null;
+  message?: string | null;
+}) {
+  const match = `${error.message ?? ""} ${error.details ?? ""}`.match(/constraint "([^"]+)"/i);
+  return match?.[1] ?? null;
+}
+
 function failCashBankInManager(message: string): never {
   redirect(`/cash-bank-ins?error=${encodeURIComponent(message)}`);
 }
@@ -1489,14 +1497,14 @@ export async function createDailySale(formData: FormData) {
   }
   const supabase = await createClient();
   const saleSelect = "id, branch_id, sale_date, cash_amount, bank_transfer_amount, card_amount, panel_amount, qr_amount, notes, entered_by, created_at, updated_at, is_void, void_reason, voided_at, voided_by";
-  const [{ data: activeSale, error: activeSaleError }, { data: voidedSales, error: voidedSalesError }] = await Promise.all([
+  const [{ data: activeSales, error: activeSaleError }, { data: voidedSales, error: voidedSalesError }] = await Promise.all([
     supabase
       .from("daily_sales")
       .select(saleSelect)
       .eq("branch_id", branchId)
       .eq("sale_date", saleDate)
-      .eq("is_void", false)
-      .maybeSingle(),
+      .or("is_void.eq.false,is_void.is.null")
+      .order("updated_at", { ascending: false }),
     supabase
       .from("daily_sales")
       .select("id, branch_id, sale_date, is_void, voided_at, voided_by, void_reason, created_at, updated_at, entered_by")
@@ -1518,7 +1526,7 @@ export async function createDailySale(formData: FormData) {
       details: activeSaleError.details,
       hint: activeSaleError.hint
     });
-    throw activeSaleError;
+    failSalesManager("Daily Sales could not be checked. Please try again.");
   }
 
   if (voidedSalesError) {
@@ -1536,7 +1544,24 @@ export async function createDailySale(formData: FormData) {
     });
   }
 
+  const activeRows = activeSales ?? [];
   const existingVoidedRecordCount = voidedSales?.length ?? 0;
+  if (activeRows.length > 1) {
+    console.error("createDailySale duplicate active records found", {
+      action: "createDailySale",
+      userId: profile.id,
+      role: profile.role,
+      currentUserBranchId: profile.branch_id ?? null,
+      selectedBranchId: branchId,
+      salesDate: saleDate,
+      activeRecordIds: activeRows.map((sale) => sale.id),
+      existingActiveRecordCount: activeRows.length,
+      existingVoidedRecordCount
+    });
+    failSalesManager("Multiple active Daily Sales records exist for this branch/date. Please contact Owner/Admin to clean up duplicate active records.");
+  }
+
+  const activeSale = activeRows[0] ?? null;
   const attemptedOperation = activeSale ? "update" : "insert";
 
   console.info("createDailySale resolved save operation", {
@@ -1547,7 +1572,10 @@ export async function createDailySale(formData: FormData) {
     selectedBranchId: branchId,
     salesDate: saleDate,
     existingActiveRecordFound: Boolean(activeSale),
+    activeRecordId: activeSale?.id ?? null,
+    existingActiveRecordCount: activeRows.length,
     existingVoidedRecordCount,
+    voidedRecordIds: voidedSales?.map((sale) => sale.id) ?? [],
     attemptedOperation
   });
 
@@ -1587,12 +1615,16 @@ export async function createDailySale(formData: FormData) {
       selectedBranchId: branchId,
       salesDate: saleDate,
       existingActiveRecordFound: Boolean(activeSale),
+      activeRecordId: activeSale?.id ?? null,
+      existingActiveRecordCount: activeRows.length,
       existingVoidedRecordCount,
+      voidedRecordIds: voidedSales?.map((sale) => sale.id) ?? [],
       attemptedOperation,
       code: error.code,
       error: error.message,
       details: error.details,
-      hint: error.hint
+      hint: error.hint,
+      constraintName: postgresConstraintName(error)
     });
   }
 
@@ -1600,7 +1632,7 @@ export async function createDailySale(formData: FormData) {
     failSalesManager("Daily Sales could not be saved because an old branch/date unique constraint is still active. Run the latest Daily Sales active-only unique index migration.");
   }
 
-  if (error || !sale) throw error ?? new Error("Daily sale could not be loaded after save.");
+  if (error || !sale) failSalesManager("Daily Sales could not be saved. Please try again.");
 
   const beforeData = activeSale ? dailySaleAuditData(activeSale) : null;
   const afterData = dailySaleAuditData(sale);
@@ -1675,7 +1707,7 @@ export async function voidDailySale(formData: FormData) {
 
   const saleId = text(formData, "sale_id");
   const reason = requiredVoidReason(formData);
-  if (!saleId) throw new Error("Daily sales record is required.");
+  if (!saleId) failSalesManager("Daily sales record is required.");
 
   const supabase = await createClient();
   const { data: sale, error: saleError } = await supabase
@@ -1684,9 +1716,9 @@ export async function voidDailySale(formData: FormData) {
     .eq("id", saleId)
     .maybeSingle();
 
-  if (saleError || !sale) throw new Error("Daily sales record not found.");
+  if (saleError || !sale) failSalesManager("Daily sales record not found.");
   await requireEditableBranch(sale.branch_id);
-  if (sale.is_void) throw new Error("Daily sales record is already voided.");
+  if (sale.is_void) failSalesManager("Daily sales record is already voided.");
 
   const { data: voidedSale, error } = await supabase
     .from("daily_sales")
@@ -1696,7 +1728,19 @@ export async function voidDailySale(formData: FormData) {
     .select("id, branch_id, sale_date, cash_amount, bank_transfer_amount, card_amount, panel_amount, qr_amount, notes, is_void, void_reason, voided_at, voided_by")
     .single();
 
-  if (error || !voidedSale) throw error ?? new Error("Voided daily sales record could not be loaded.");
+  if (error || !voidedSale) {
+    console.error("voidDailySale failed", {
+      action: "voidDailySale",
+      saleId,
+      branchId: sale.branch_id,
+      salesDate: sale.sale_date,
+      code: error?.code ?? null,
+      error: error?.message ?? null,
+      details: error?.details ?? null,
+      hint: error?.hint ?? null
+    });
+    failSalesManager("Daily sales record could not be voided. Please try again.");
+  }
 
   await logAuditEvent({
     action: "void",
