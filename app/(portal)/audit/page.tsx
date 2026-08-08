@@ -82,6 +82,7 @@ const auditFieldLabels: Record<string, string> = {
   amount: "Amount",
   bank_account_id: "Bank account",
   bank_in_date: "Bank-in date",
+  cash_source_date: "Cash date",
   bank_name: "Bank name",
   bank_transfer_amount: "Bank transfer amount",
   balance_date: "Balance date",

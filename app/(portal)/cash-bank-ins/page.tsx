@@ -184,7 +184,7 @@ export default async function CashBankInsPage({ searchParams }: { searchParams: 
           <ExportCsvLink label="Export cash CSV" report="cash-in-hand" searchParams={exportParams} />
         </div>
         <DataTable
-          columns={["Branch", "Opening balance", "Total cash sales", "Total cash banked in", "Cash locum payments", "Remaining cash in hand"]}
+          columns={["Branch", "Opening balance", "Total cash sales", "Cash banked in by cash date", "Cash locum payments", "Remaining cash in hand"]}
           rows={cashInHandRows.map((row) => [
             row.branch.name,
             formatCurrency(row.openingBalance),
@@ -200,8 +200,14 @@ export default async function CashBankInsPage({ searchParams }: { searchParams: 
         <form action={createCashBankIn} className="form-card cash-bank-in-entry-form">
           <h2>Record cash bank-in</h2>
           <label>
+            Cash date
+            <input name="cash_source_date" type="date" defaultValue={todayInput()} required />
+            <span className="muted-copy">Date the cash belongs to.</span>
+          </label>
+          <label>
             Bank-in date
             <input name="bank_in_date" type="date" defaultValue={todayInput()} required />
+            <span className="muted-copy">Actual date deposited into bank.</span>
           </label>
           {role === "branch_pic" ? (
             <>
@@ -279,7 +285,7 @@ export default async function CashBankInsPage({ searchParams }: { searchParams: 
                 </div>
               </div>
               <DataTable
-                columns={["Date", "Branch", "Destination bank account", "Amount", "Reference", "Notes", "Documents", "Status", "View details", "Edit", "Void"]}
+                columns={["Cash date", "Bank-in date", "Branch", "Destination bank account", "Amount", "Reference", "Notes", "Documents", "Status", "View details", "Edit", "Void"]}
                 rowKeys={group.records.map((bankIn) => bankIn.id)}
                 rows={group.records.map((bankIn) => {
                   const editableBankOptions = role === "branch_pic"
@@ -299,6 +305,7 @@ export default async function CashBankInsPage({ searchParams }: { searchParams: 
                   const canCorrectBankIn = managementCanCorrect || branchPicCanCorrect;
 
                   return [
+                    formatDate(bankIn.cash_source_date ?? bankIn.bank_in_date),
                     formatDate(bankIn.bank_in_date),
                     branchLabel(bankIn.branches ?? branchById.get(bankIn.branch_id)),
                     bankAccountLabel(bankIn.bank_accounts ?? bankAccountById.get(bankIn.bank_account_id)),
@@ -318,7 +325,7 @@ export default async function CashBankInsPage({ searchParams }: { searchParams: 
                     <FinanceRecordDetails
                       enteredBy={userDisplayLabel(userById.get(bankIn.entered_by ?? ""), bankIn.entered_by)}
                       key={`${bankIn.id}-details`}
-                      originalSummary={`Cash Bank-In • ${branchLabel(bankIn.branches ?? branchById.get(bankIn.branch_id))} • ${bankAccountLabel(bankIn.bank_accounts ?? bankAccountById.get(bankIn.bank_account_id))} • ${formatDate(bankIn.bank_in_date)} • ${formatCurrency(bankInAmount(bankIn))}`}
+                      originalSummary={`Cash Bank-In • ${branchLabel(bankIn.branches ?? branchById.get(bankIn.branch_id))} • ${bankAccountLabel(bankIn.bank_accounts ?? bankAccountById.get(bankIn.bank_account_id))} • Cash ${formatDate(bankIn.cash_source_date ?? bankIn.bank_in_date)} • Banked ${formatDate(bankIn.bank_in_date)} • ${formatCurrency(bankInAmount(bankIn))}`}
                       recordId={bankIn.id}
                       status={bankIn.is_void ? "Voided" : "Active"}
                       voidReason={bankIn.void_reason}
@@ -341,7 +348,11 @@ export default async function CashBankInsPage({ searchParams }: { searchParams: 
                             </select>
                           </label>
                           <label>
-                            Date
+                            Cash date
+                            <input name="cash_source_date" type="date" defaultValue={bankIn.cash_source_date ?? bankIn.bank_in_date} required />
+                          </label>
+                          <label>
+                            Bank-in date
                             <input name="bank_in_date" type="date" defaultValue={bankIn.bank_in_date} required />
                           </label>
                           <label>

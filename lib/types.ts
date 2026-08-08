@@ -390,6 +390,7 @@ export type CashBankIn = {
   branch_id: string;
   bank_account_id: string;
   bank_in_date: string;
+  cash_source_date?: string | null;
   amount: number;
   reference_no?: string | null;
   notes?: string | null;

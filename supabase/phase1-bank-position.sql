@@ -26,6 +26,7 @@ create table if not exists public.cash_bank_ins (
   branch_id uuid not null references public.branches(id) on delete restrict,
   bank_account_id uuid not null references public.bank_accounts(id) on delete restrict,
   bank_in_date date not null,
+  cash_source_date date,
   amount numeric(12,2) not null check (amount > 0),
   reference_no text,
   notes text,

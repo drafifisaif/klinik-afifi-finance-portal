@@ -171,6 +171,10 @@ export function bankInAmount(bankIn: CashBankIn) {
   return Number(bankIn.amount ?? 0);
 }
 
+export function cashBankInSourceDate(bankIn: CashBankIn) {
+  return bankIn.cash_source_date || bankIn.bank_in_date;
+}
+
 export function bankTransactionAmount(transaction: BankTransaction) {
   return Number(transaction.amount ?? 0);
 }
@@ -222,7 +226,7 @@ export function buildCashInHandRows(
       .filter((sale) => isActiveFinancialRecord(sale) && sale.branch_id === branch.id && isWithinDateRange(sale.sale_date, range))
       .reduce((sum, sale) => sum + cashSalesAmount(sale), 0);
     const bankedIn = data.cashBankIns
-      .filter((bankIn) => isActiveFinancialRecord(bankIn) && bankIn.branch_id === branch.id && isWithinDateRange(bankIn.bank_in_date, range))
+      .filter((bankIn) => isActiveFinancialRecord(bankIn) && bankIn.branch_id === branch.id && isWithinDateRange(cashBankInSourceDate(bankIn), range))
       .reduce((sum, bankIn) => sum + bankInAmount(bankIn), 0);
     const cashLocumPayments = data.expenses
       .filter((expense) => isCashLocumExpense(expense) && expense.branch_id === branch.id && isWithinDateRange(expense.expense_date, range))

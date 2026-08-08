@@ -451,7 +451,7 @@ export async function cashInHandCsv(searchParams: URLSearchParams): Promise<CsvE
 
   return {
     filename: "cash-in-hand-report.csv",
-    headers: ["Start Date", "End Date", "Branch", "Opening Balance", "Cash Sales", "Cash Banked In", "Cash Locum Payments", "Cash In Hand"],
+    headers: ["Start Date", "End Date", "Branch", "Opening Balance", "Cash Sales", "Cash Banked In By Cash Date", "Cash Locum Payments", "Cash In Hand"],
     rows: buildCashInHandRows(data, range).map((row) => [
       range.startDate,
       range.endDate,
@@ -476,6 +476,7 @@ export async function cashBankInsCsv(searchParams: URLSearchParams): Promise<Csv
       && matchesOptionalDate(bankIn.bank_in_date, searchParams)
       && (selectedBranchId === "all" || bankIn.branch_id === selectedBranchId);
   }).map((bankIn) => [
+    bankIn.cash_source_date ?? bankIn.bank_in_date,
     bankIn.bank_in_date,
     branchLabel(bankIn.branches),
     bankAccountLabel(bankIn.bank_accounts ?? bankAccountById.get(bankIn.bank_account_id)),
@@ -488,7 +489,7 @@ export async function cashBankInsCsv(searchParams: URLSearchParams): Promise<Csv
 
   return {
     filename: "cash-bank-ins.csv",
-    headers: ["Date", "Branch", "Bank Account", "Amount", "Reference", "Notes", "Entered By", "Status"],
+    headers: ["Cash Date", "Bank-In Date", "Branch", "Bank Account", "Amount", "Reference", "Notes", "Entered By", "Status"],
     rows
   };
 }

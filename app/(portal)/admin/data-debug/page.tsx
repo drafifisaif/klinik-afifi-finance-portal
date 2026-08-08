@@ -69,7 +69,7 @@ const debugModules: DebugModule[] = [
     dateColumn: "bank_in_date",
     key: "cash_bank_ins",
     label: "Cash Bank-In",
-    select: "id, branch_id, bank_account_id, bank_in_date, amount, is_void, created_at",
+    select: "id, branch_id, bank_account_id, bank_in_date, cash_source_date, amount, is_void, created_at",
     table: "cash_bank_ins",
     voidColumn: "is_void"
   },

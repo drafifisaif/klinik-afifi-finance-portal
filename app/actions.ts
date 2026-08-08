@@ -479,6 +479,7 @@ type CashBankInAuditRow = {
   bank_account_id: string;
   bank_in_date: string;
   branch_id: string;
+  cash_source_date?: string | null;
   notes: string | null;
   reference_no: string | null;
   is_void?: boolean;
@@ -732,6 +733,7 @@ function cashBankInAuditData(bankIn: CashBankInAuditRow) {
     bank_account_id: bankIn.bank_account_id,
     bank_in_date: bankIn.bank_in_date,
     branch_id: bankIn.branch_id,
+    cash_source_date: bankIn.cash_source_date ?? bankIn.bank_in_date,
     notes: bankIn.notes,
     reference_no: bankIn.reference_no,
     is_void: bankIn.is_void ?? false,
@@ -739,6 +741,14 @@ function cashBankInAuditData(bankIn: CashBankInAuditRow) {
     voided_at: bankIn.voided_at ?? null,
     voided_by: bankIn.voided_by ?? null
   };
+}
+
+const cashBankInSelect = "id, branch_id, bank_account_id, bank_in_date, cash_source_date, amount, reference_no, notes, is_void, void_reason, voided_at, voided_by";
+const legacyCashBankInSelect = "id, branch_id, bank_account_id, bank_in_date, amount, reference_no, notes, is_void, void_reason, voided_at, voided_by";
+
+function isMissingCashSourceDateError(error: { code?: string | null; message?: string | null } | null | undefined) {
+  const message = String(error?.message ?? "").toLowerCase();
+  return error?.code === "42703" || error?.code === "PGRST204" || message.includes("cash_source_date");
 }
 
 function pettyCashAuditData(transaction: PettyCashAuditRow) {
@@ -1653,6 +1663,7 @@ export async function createCashBankIn(formData: FormData) {
   const branchId = text(formData, "branch_id");
   const bankAccountId = text(formData, "bank_account_id");
   const bankInDate = text(formData, "bank_in_date");
+  const cashSourceDate = text(formData, "cash_source_date") ?? bankInDate;
   const amount = number(formData, "amount");
   const role = normalizeRole(profile.role);
 
@@ -1715,15 +1726,42 @@ export async function createCashBankIn(formData: FormData) {
     await requireBankAccountPermission(bankAccountId, "create_transaction");
   }
 
-  const { data: bankIn, error } = await supabase.from("cash_bank_ins").insert({
+  const insertPayload = {
     branch_id: branchId,
     bank_account_id: bankAccountId,
     bank_in_date: bankInDate,
+    cash_source_date: cashSourceDate,
     amount,
     reference_no: text(formData, "reference_no"),
     notes: text(formData, "notes"),
     entered_by: await getUserId()
-  }).select("id, branch_id, bank_account_id, bank_in_date, amount, reference_no, notes, is_void, void_reason, voided_at, voided_by").single();
+  };
+  let { data: bankIn, error } = await supabase.from("cash_bank_ins").insert(insertPayload).select(cashBankInSelect).single();
+
+  if (isMissingCashSourceDateError(error)) {
+    console.warn("createCashBankIn cash_source_date column unavailable; retrying legacy insert", {
+      action: "createCashBankIn",
+      userId: profile.id,
+      role: profile.role,
+      selectedBranchId: branchId,
+      bankInDate,
+      cashSourceDate,
+      code: error?.code,
+      error: error?.message
+    });
+    const legacyPayload = {
+      branch_id: insertPayload.branch_id,
+      bank_account_id: insertPayload.bank_account_id,
+      bank_in_date: insertPayload.bank_in_date,
+      amount: insertPayload.amount,
+      reference_no: insertPayload.reference_no,
+      notes: insertPayload.notes,
+      entered_by: insertPayload.entered_by
+    };
+    const legacyResult = await supabase.from("cash_bank_ins").insert(legacyPayload).select(legacyCashBankInSelect).single();
+    bankIn = legacyResult.data ? { ...legacyResult.data, cash_source_date: legacyResult.data.bank_in_date } : legacyResult.data;
+    error = legacyResult.error;
+  }
 
   if (error || !bankIn) throw error ?? new Error("Cash bank-in could not be loaded after creation.");
 
@@ -1810,6 +1848,7 @@ export async function updateCashBankIn(formData: FormData) {
 
   const bankInId = text(formData, "bank_in_id");
   const bankInDate = text(formData, "bank_in_date");
+  const cashSourceDate = text(formData, "cash_source_date") ?? bankInDate;
   const bankAccountId = text(formData, "bank_account_id");
   const amount = number(formData, "amount");
   if (!bankInId || !bankInDate || amount <= 0) {
@@ -1820,28 +1859,66 @@ export async function updateCashBankIn(formData: FormData) {
   }
 
   const supabase = await createClient();
-  const { data: bankIn, error: bankInError } = await supabase
+  let { data: bankIn, error: bankInError } = await supabase
     .from("cash_bank_ins")
-    .select("id, branch_id, bank_account_id, bank_in_date, amount, reference_no, notes, is_void, void_reason, voided_at, voided_by")
+    .select(cashBankInSelect)
     .eq("id", bankInId)
     .maybeSingle();
+
+  if (isMissingCashSourceDateError(bankInError)) {
+    const legacyResult = await supabase
+      .from("cash_bank_ins")
+      .select(legacyCashBankInSelect)
+      .eq("id", bankInId)
+      .maybeSingle();
+    bankIn = legacyResult.data ? { ...legacyResult.data, cash_source_date: legacyResult.data.bank_in_date } : legacyResult.data;
+    bankInError = legacyResult.error;
+  }
 
   if (bankInError || !bankIn) throw new Error("Cash bank-in not found.");
   await requireCashBankInEditor(bankIn.branch_id, bankAccountId, "updateCashBankIn");
   if (bankIn.is_void) throw new Error("Voided cash bank-ins cannot be edited.");
 
-  const { data: updatedBankIn, error } = await supabase
+  const updatePayload = {
+    amount,
+    bank_account_id: bankAccountId,
+    bank_in_date: bankInDate,
+    cash_source_date: cashSourceDate,
+    notes: text(formData, "notes"),
+    reference_no: text(formData, "reference_no")
+  };
+  let { data: updatedBankIn, error } = await supabase
     .from("cash_bank_ins")
-    .update({
-      amount,
-      bank_account_id: bankAccountId,
-      bank_in_date: bankInDate,
-      notes: text(formData, "notes"),
-      reference_no: text(formData, "reference_no")
-    })
+    .update(updatePayload)
     .eq("id", bankIn.id)
-    .select("id, branch_id, bank_account_id, bank_in_date, amount, reference_no, notes, is_void, void_reason, voided_at, voided_by")
+    .select(cashBankInSelect)
     .single();
+
+  if (isMissingCashSourceDateError(error)) {
+    console.warn("updateCashBankIn cash_source_date column unavailable; retrying legacy update", {
+      action: "updateCashBankIn",
+      bankInId,
+      bankInDate,
+      cashSourceDate,
+      code: error?.code,
+      error: error?.message
+    });
+    const legacyPayload = {
+      amount: updatePayload.amount,
+      bank_account_id: updatePayload.bank_account_id,
+      bank_in_date: updatePayload.bank_in_date,
+      notes: updatePayload.notes,
+      reference_no: updatePayload.reference_no
+    };
+    const legacyResult = await supabase
+      .from("cash_bank_ins")
+      .update(legacyPayload)
+      .eq("id", bankIn.id)
+      .select(legacyCashBankInSelect)
+      .single();
+    updatedBankIn = legacyResult.data ? { ...legacyResult.data, cash_source_date: legacyResult.data.bank_in_date } : legacyResult.data;
+    error = legacyResult.error;
+  }
 
   if (error || !updatedBankIn) throw error ?? new Error("Updated cash bank-in could not be loaded.");
 
@@ -1873,11 +1950,21 @@ export async function voidCashBankIn(formData: FormData) {
   if (!bankInId) failCashBankInManager("Cash bank-in id is missing.");
 
   const supabase = await createClient();
-  const { data: bankIn, error: bankInError } = await supabase
+  let { data: bankIn, error: bankInError } = await supabase
     .from("cash_bank_ins")
-    .select("id, branch_id, bank_account_id, bank_in_date, amount, reference_no, notes, is_void, void_reason, voided_at, voided_by")
+    .select(cashBankInSelect)
     .eq("id", bankInId)
     .maybeSingle();
+
+  if (isMissingCashSourceDateError(bankInError)) {
+    const legacyResult = await supabase
+      .from("cash_bank_ins")
+      .select(legacyCashBankInSelect)
+      .eq("id", bankInId)
+      .maybeSingle();
+    bankIn = legacyResult.data ? { ...legacyResult.data, cash_source_date: legacyResult.data.bank_in_date } : legacyResult.data;
+    bankInError = legacyResult.error;
+  }
 
   if (bankInError || !bankIn) {
     console.error("voidCashBankIn load failed", {
@@ -1915,13 +2002,25 @@ export async function voidCashBankIn(formData: FormData) {
   }
   if (bankIn.is_void) failCashBankInManager("This cash bank-in has already been voided.");
 
-  const { data: voidedBankIn, error } = await supabase
+  let { data: voidedBankIn, error } = await supabase
     .from("cash_bank_ins")
     .update(voidFields(reason, await getUserId()))
     .eq("id", bankIn.id)
     .eq("is_void", false)
-    .select("id, branch_id, bank_account_id, bank_in_date, amount, reference_no, notes, is_void, void_reason, voided_at, voided_by")
+    .select(cashBankInSelect)
     .maybeSingle();
+
+  if (isMissingCashSourceDateError(error)) {
+    const legacyResult = await supabase
+      .from("cash_bank_ins")
+      .update(voidFields(reason, await getUserId()))
+      .eq("id", bankIn.id)
+      .eq("is_void", false)
+      .select(legacyCashBankInSelect)
+      .maybeSingle();
+    voidedBankIn = legacyResult.data ? { ...legacyResult.data, cash_source_date: legacyResult.data.bank_in_date } : legacyResult.data;
+    error = legacyResult.error;
+  }
 
   if (error || !voidedBankIn) {
     const { data: refreshedBankIn, error: refreshedError } = await supabase
