@@ -1,4 +1,4 @@
-import { createOpeningBalance, updateOpeningBalance } from "@/app/actions";
+import { createOpeningBalance, updateOpeningBalance, upsertMonthlyOpeningBalance } from "@/app/actions";
 import { DataTable } from "@/components/data-table";
 import { ModuleHeader } from "@/components/module-header";
 import { bankAccountLabel, branchLabel } from "@/lib/bank-reporting";
@@ -14,6 +14,7 @@ import {
   type OpeningBalanceSetupReferences
 } from "@/lib/opening-balances";
 import { requirePermission } from "@/lib/permissions";
+import { getCurrentProfile, normalizeRole } from "@/lib/permissions";
 import type { OpeningBalance, OpeningBalanceType } from "@/lib/types";
 
 type BalanceGroup = {
@@ -217,7 +218,10 @@ function OpeningBalanceEdit({ balance, references }: { balance: OpeningBalance; 
 }
 
 export default async function OpeningBalancesPage() {
-  await requirePermission("view_settings");
+  await requirePermission("view_bank_position");
+  const profile = await getCurrentProfile();
+  const role = normalizeRole(profile?.role);
+  const canManageOpeningBalances = role === "owner" || role === "finance";
   const references = await getOpeningBalanceSetupReferences();
   const hasUnverifiedBalances = references.balances.some(needsOpeningBalanceCaution);
 
@@ -228,6 +232,70 @@ export default async function OpeningBalancesPage() {
         title="Opening Balances"
         description="Set the starting finance position before real 2026 portal records begin."
       />
+
+      <section className="table-section">
+        <div className="section-heading-row">
+          <div>
+            <h2>Monthly controlled opening balances</h2>
+            <p className="muted-copy">
+              September 2026 is the first controlled month. Later months carry forward from the previous month&apos;s closing unless Owner or Finance records an override with notes.
+            </p>
+          </div>
+        </div>
+
+        {canManageOpeningBalances ? (
+          <form action={upsertMonthlyOpeningBalance} className="form-card mt-section">
+            <h3>Set branch monthly opening</h3>
+            <div className="form-grid">
+              <label>
+                Branch
+                <select name="branch_id" required>
+                  {references.branches.map((branch) => (
+                    <option key={branch.id} value={branch.id}>
+                      {branch.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Balance month
+                <input min="2026-09" name="balance_month" type="month" defaultValue="2026-09" required />
+              </label>
+              <label>
+                Opening cash
+                <input min="0" name="opening_cash" step="0.01" type="number" required />
+              </label>
+              <label>
+                Opening petty cash
+                <input min="0" name="opening_petty_cash" step="0.01" type="number" required />
+              </label>
+              <label className="full-span">
+                Notes
+                <textarea name="notes" placeholder="Required context when overriding carry-forward closing balance." />
+              </label>
+            </div>
+            <button className="primary-button" type="submit">
+              Save monthly opening balance
+            </button>
+          </form>
+        ) : (
+          <p className="import-message mt-section">
+            Opening balances are view-only for your role. Owner or Finance will maintain the controlled monthly starting balances.
+          </p>
+        )}
+
+        <DataTable
+          columns={["Month", "Branch", "Opening Cash", "Opening Petty Cash", "Notes", "Updated"]}
+          rows={references.monthlyBalances.map((balance) => [
+            formatDate(balance.balance_month),
+            branchLabel(balance.branches),
+            formatCurrency(balance.opening_cash),
+            formatCurrency(balance.opening_petty_cash),
+            balance.notes ?? "-",
+            formatDate(balance.updated_at)
+          ])}
+        />
+      </section>
 
       <datalist id="opening-balance-sources">
         {openingBalanceSourceReferences.map((source) => <option key={source} value={source} />)}
@@ -240,6 +308,7 @@ export default async function OpeningBalancesPage() {
       ) : null}
 
       <section className="section-grid">
+        {canManageOpeningBalances ? (
         <form action={createOpeningBalance} className="form-card">
           <h2>Add opening balance</h2>
           <p className="muted-copy">Opening balances seed positions only. They do not create sales, expenses, income, or bank transactions.</p>
@@ -316,6 +385,7 @@ export default async function OpeningBalancesPage() {
             Save opening balance
           </button>
         </form>
+        ) : null}
 
         <aside className="report-panel">
           <h2>Target rules</h2>
@@ -370,7 +440,7 @@ export default async function OpeningBalancesPage() {
                 <span key={`${balance.id}-source`}>{sourceLabel(balance)}</span>,
                 balance.notes ?? "-",
                 formatDate(balance.updated_at),
-                <OpeningBalanceEdit balance={balance} key={`${balance.id}-edit`} references={references} />
+                canManageOpeningBalances ? <OpeningBalanceEdit balance={balance} key={`${balance.id}-edit`} references={references} /> : "-"
               ])}
             />
           </section>

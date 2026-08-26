@@ -316,6 +316,20 @@ export type OpeningBalance = {
   panel_companies?: Pick<PanelCompany, "name"> | null;
 };
 
+export type MonthlyOpeningBalance = {
+  id: string;
+  branch_id: string;
+  balance_month: string;
+  opening_cash: number;
+  opening_petty_cash: number;
+  notes?: string | null;
+  created_by?: string | null;
+  created_at?: string;
+  updated_by?: string | null;
+  updated_at?: string;
+  branches?: Pick<Branch, "name" | "code"> | null;
+};
+
 export type BankTransactionType = "money_in" | "money_out" | "interbank_transfer" | "owner_drawing";
 
 export type BankTransactionDirection = "in" | "out";
@@ -485,6 +499,7 @@ export type DashboardData = {
 export type BankingData = {
   branches: Branch[];
   openingBalances: OpeningBalance[];
+  monthlyOpeningBalances: MonthlyOpeningBalance[];
   sales: DailySale[];
   expenses: Expense[];
   bankAccounts: BankAccount[];

@@ -13,6 +13,7 @@ import type {
   DailySale,
   DashboardData,
   Expense,
+  MonthlyOpeningBalance,
   OpeningBalance,
   PanelClaim,
   PanelPayment,
@@ -336,6 +337,7 @@ const bankAccountPermissions: BankAccountPermission[] = [];
 const bankTransactions: BankTransaction[] = [];
 const pettyCashTransactions: PettyCashTransaction[] = [];
 const openingBalances: OpeningBalance[] = [];
+const monthlyOpeningBalances: MonthlyOpeningBalance[] = [];
 
 export const demoData: DashboardData = {
   branches,
@@ -351,6 +353,7 @@ export const demoData: DashboardData = {
 export const demoBankingData: BankingData = {
   branches,
   openingBalances,
+  monthlyOpeningBalances,
   sales,
   expenses,
   bankAccounts,
@@ -521,7 +524,7 @@ type BankingDataOptions = {
 
 export type DashboardOperationalCashData = Pick<
   BankingData,
-  "branches" | "cashBankIns" | "expenses" | "openingBalances" | "pettyCashTransactions" | "sales"
+  "branches" | "cashBankIns" | "expenses" | "monthlyOpeningBalances" | "openingBalances" | "pettyCashTransactions" | "sales"
 >;
 
 function permissionHasVisibleAccount(permission: BankAccountPermission) {
@@ -623,6 +626,8 @@ function filterBankingDataForProfile(data: BankingData, profile: Awaited<ReturnT
 
     expenses: data.expenses.filter((expense) => visibleBranchIds.has(expense.branch_id)),
 
+    monthlyOpeningBalances: data.monthlyOpeningBalances.filter((balance) => visibleBranchIds.has(balance.branch_id)),
+
     bankAccounts: data.bankAccounts.filter((account) => {
       return account.is_active && (!permittedBankAccountIds || permittedBankAccountIds.has(account.id));
     }),
@@ -655,6 +660,7 @@ export async function getDashboardOperationalCashData(): Promise<DashboardOperat
     branches: fallbackBranches,
     cashBankIns: demoBankingData.cashBankIns.filter((bankIn) => fallbackBranchIds.has(bankIn.branch_id)),
     expenses: demoBankingData.expenses.filter((expense) => fallbackBranchIds.has(expense.branch_id) && String(expense.category ?? "").trim().toLowerCase() === "locum_doctor"),
+    monthlyOpeningBalances: demoBankingData.monthlyOpeningBalances.filter((balance) => fallbackBranchIds.has(balance.branch_id)),
     openingBalances: demoBankingData.openingBalances.filter((balance) => {
       return (balance.balance_type === "cash_in_hand" || balance.balance_type === "petty_cash")
         && (!balance.branch_id || fallbackBranchIds.has(balance.branch_id));
@@ -666,7 +672,7 @@ export async function getDashboardOperationalCashData(): Promise<DashboardOperat
   if (!hasSupabaseEnv()) return fallbackOperational;
 
   const supabase = await createClient();
-  const [branchRows, openingBalanceRows, salesRows, expenseRows, cashBankInRows, pettyCashRows] = await Promise.all([
+  const [branchRows, openingBalanceRows, monthlyOpeningBalanceRows, salesRows, expenseRows, cashBankInRows, pettyCashRows] = await Promise.all([
     fetchOrDemo(supabase.from("branches").select("*").eq("is_active", true).order("name"), [], "dashboard_operational_branches"),
     fetchOrDemo(
       supabase
@@ -676,6 +682,14 @@ export async function getDashboardOperationalCashData(): Promise<DashboardOperat
         .order("balance_date", { ascending: false }),
       [],
       "dashboard_operational_opening_balances"
+    ),
+    fetchOrDemo(
+      supabase
+        .from("monthly_opening_balances")
+        .select("*, branches(name, code)")
+        .order("balance_month", { ascending: false }),
+      [],
+      "dashboard_operational_monthly_opening_balances"
     ),
     fetchOrDemo(
       supabase
@@ -719,6 +733,7 @@ export async function getDashboardOperationalCashData(): Promise<DashboardOperat
     branches: scopedBranches,
     cashBankIns: (cashBankInRows as CashBankIn[]).filter((bankIn) => scopedBranchIds.has(bankIn.branch_id)),
     expenses: (expenseRows as Expense[]).filter((expense) => scopedBranchIds.has(expense.branch_id) && String(expense.category ?? "").trim().toLowerCase() === "locum_doctor"),
+    monthlyOpeningBalances: (monthlyOpeningBalanceRows as MonthlyOpeningBalance[]).filter((balance) => scopedBranchIds.has(balance.branch_id)),
     openingBalances: (openingBalanceRows as OpeningBalance[]).filter((balance) => {
       return (balance.balance_type === "cash_in_hand" || balance.balance_type === "petty_cash")
         && (!balance.branch_id || scopedBranchIds.has(balance.branch_id));
@@ -844,7 +859,7 @@ export async function getBankingDataForScope(options: BankingDataOptions = {}): 
 
   const supabase = await createClient();
   const role = normalizeRole(profile?.role);
-  const [branchRows, openingBalanceRows, salesRows, expenseRows, permissionRows, transactionRows, mappingRows, cashBankInRows, pettyCashRows, supplierPaymentRows, panelPaymentRows] = await Promise.all([
+  const [branchRows, openingBalanceRows, monthlyOpeningBalanceRows, salesRows, expenseRows, permissionRows, transactionRows, mappingRows, cashBankInRows, pettyCashRows, supplierPaymentRows, panelPaymentRows] = await Promise.all([
     fetchOrDemo(supabase.from("branches").select("*").eq("is_active", true).order("name"), demoBankingData.branches, "branches"),
     fetchOrDemo(
       supabase
@@ -853,6 +868,14 @@ export async function getBankingDataForScope(options: BankingDataOptions = {}): 
         .order("balance_date", { ascending: false }),
       demoBankingData.openingBalances,
       "opening_balances"
+    ),
+    fetchOrDemo(
+      supabase
+        .from("monthly_opening_balances")
+        .select("*, branches(name, code)")
+        .order("balance_month", { ascending: false }),
+      demoBankingData.monthlyOpeningBalances,
+      "monthly_opening_balances"
     ),
     fetchOrDemo(
       supabase
@@ -968,6 +991,7 @@ export async function getBankingDataForScope(options: BankingDataOptions = {}): 
     {
       branches: branchRows as Branch[],
       openingBalances: openingBalanceRows as OpeningBalance[],
+      monthlyOpeningBalances: monthlyOpeningBalanceRows as MonthlyOpeningBalance[],
       sales: salesRows as DailySale[],
       expenses: expenseRows as Expense[],
       bankAccounts: bankRows as BankAccount[],

@@ -1,4 +1,4 @@
-import { branchOpeningBalanceTotal } from "@/lib/opening-balances";
+import { addMonths, branchOpeningBalanceTotal, monthlyOpeningBalanceStartMonth, monthlyRowForBranch } from "@/lib/opening-balances";
 import type { BankAccount, BankTransaction, BankingData, Branch, CashBankIn, DailySale, Expense, PettyCashTransaction } from "@/lib/types";
 
 export type DatePeriod = "today" | "this_month" | "last_month" | "custom";
@@ -179,6 +179,78 @@ export function cashBankInCashMonth(bankIn: Pick<CashBankIn, "bank_in_date" | "c
   return bankIn.cash_month ?? bankIn.cash_source_date?.slice(0, 7).concat("-01") ?? `${bankIn.bank_in_date.slice(0, 7)}-01`;
 }
 
+function openingMonth(dateString: string) {
+  const date = new Date(`${dateString}T00:00:00Z`);
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1)).toISOString().slice(0, 10);
+}
+
+function monthlyRange(balanceMonth: string): DateRange {
+  const nextMonth = new Date(`${addMonths(balanceMonth, 1)}T00:00:00Z`);
+  nextMonth.setUTCDate(nextMonth.getUTCDate() - 1);
+  return {
+    endDate: nextMonth.toISOString().slice(0, 10),
+    label: "Monthly opening carry-forward",
+    period: "custom",
+    startDate: balanceMonth
+  };
+}
+
+function monthlyOpeningCashForBranch(
+  data: Pick<BankingData, "cashBankIns" | "expenses" | "monthlyOpeningBalances" | "sales">,
+  branchId: string,
+  targetDate: string
+): number | null {
+  const targetMonth = openingMonth(targetDate);
+  if (targetMonth < monthlyOpeningBalanceStartMonth) return null;
+
+  const manualRow = monthlyRowForBranch(data.monthlyOpeningBalances, branchId, targetMonth);
+  if (manualRow) return Number(manualRow.opening_cash ?? 0);
+  if (targetMonth === monthlyOpeningBalanceStartMonth) return 0;
+
+  const previousMonth = addMonths(targetMonth, -1);
+  const previousOpening = monthlyOpeningCashForBranch(data, branchId, previousMonth) ?? 0;
+  const previousRange = monthlyRange(previousMonth);
+  const cashSales = data.sales
+    .filter((sale) => isActiveFinancialRecord(sale) && sale.branch_id === branchId && isWithinDateRange(sale.sale_date, previousRange))
+    .reduce((sum, sale) => sum + cashSalesAmount(sale), 0);
+  const bankedIn = data.cashBankIns
+    .filter((bankIn) => isActiveFinancialRecord(bankIn) && bankIn.branch_id === branchId && cashBankInMatchesCashControlRange(bankIn, previousRange))
+    .reduce((sum, bankIn) => sum + bankInAmount(bankIn), 0);
+  const cashLocumPayments = data.expenses
+    .filter((expense) => isCashLocumExpense(expense) && expense.branch_id === branchId && isWithinDateRange(expense.expense_date, previousRange))
+    .reduce((sum, expense) => sum + cashLocumExpenseAmount(expense), 0);
+
+  return previousOpening + cashSales - bankedIn - cashLocumPayments;
+}
+
+function monthlyOpeningPettyCashForBranch(
+  data: Pick<BankingData, "monthlyOpeningBalances" | "pettyCashTransactions">,
+  branchId: string,
+  targetDate: string
+): number | null {
+  const targetMonth = openingMonth(targetDate);
+  if (targetMonth < monthlyOpeningBalanceStartMonth) return null;
+
+  const manualRow = monthlyRowForBranch(data.monthlyOpeningBalances, branchId, targetMonth);
+  if (manualRow) return Number(manualRow.opening_petty_cash ?? 0);
+  if (targetMonth === monthlyOpeningBalanceStartMonth) return 0;
+
+  const previousMonth = addMonths(targetMonth, -1);
+  const previousOpening = monthlyOpeningPettyCashForBranch(data, branchId, previousMonth) ?? 0;
+  const previousRange = monthlyRange(previousMonth);
+  const transactions = data.pettyCashTransactions.filter((transaction) => {
+    return isActiveFinancialRecord(transaction)
+      && transaction.branch_id === branchId
+      && isWithinDateRange(transaction.transaction_date, previousRange);
+  });
+  const issued = transactions.reduce((sum, transaction) => transaction.transaction_type === "petty_cash_issued" ? sum + pettyCashAmount(transaction) : sum, 0);
+  const spent = transactions.reduce((sum, transaction) => transaction.transaction_type === "petty_cash_spent" ? sum + pettyCashAmount(transaction) : sum, 0);
+  const returned = transactions.reduce((sum, transaction) => transaction.transaction_type === "petty_cash_returned" ? sum + pettyCashAmount(transaction) : sum, 0);
+  const adjustments = transactions.reduce((sum, transaction) => transaction.transaction_type === "petty_cash_adjustment" ? sum + pettyCashAmount(transaction) : sum, 0);
+
+  return previousOpening + issued - spent - returned + adjustments;
+}
+
 export function cashBankInCashSalesFrom(bankIn: Pick<CashBankIn, "bank_in_date" | "cash_sales_from" | "cash_source_date">) {
   return bankIn.cash_sales_from ?? bankIn.cash_source_date ?? bankIn.bank_in_date;
 }
@@ -237,11 +309,12 @@ export function getBranchById(data: Pick<BankingData, "branches">) {
 }
 
 export function buildCashInHandRows(
-  data: Pick<BankingData, "branches" | "cashBankIns" | "expenses" | "openingBalances" | "sales">,
+  data: Pick<BankingData, "branches" | "cashBankIns" | "expenses" | "monthlyOpeningBalances" | "openingBalances" | "sales">,
   range: DateRange
 ): CashInHandRow[] {
   return data.branches.map((branch) => {
-    const openingBalance = branchOpeningBalanceTotal(data.openingBalances, "cash_in_hand", branch.id, range.endDate);
+    const monthlyOpening = monthlyOpeningCashForBranch(data, branch.id, range.startDate);
+    const openingBalance = monthlyOpening ?? branchOpeningBalanceTotal(data.openingBalances, "cash_in_hand", branch.id, range.endDate);
     const cashSales = data.sales
       .filter((sale) => isActiveFinancialRecord(sale) && sale.branch_id === branch.id && isWithinDateRange(sale.sale_date, range))
       .reduce((sum, sale) => sum + cashSalesAmount(sale), 0);
@@ -264,11 +337,12 @@ export function buildCashInHandRows(
 }
 
 export function buildPettyCashBalanceRows(
-  data: Pick<BankingData, "branches" | "openingBalances" | "pettyCashTransactions">,
+  data: Pick<BankingData, "branches" | "monthlyOpeningBalances" | "openingBalances" | "pettyCashTransactions">,
   range?: DateRange
 ): PettyCashBalanceRow[] {
   return data.branches.map((branch) => {
-    const openingBalance = branchOpeningBalanceTotal(data.openingBalances, "petty_cash", branch.id, range?.endDate);
+    const monthlyOpening = range ? monthlyOpeningPettyCashForBranch(data, branch.id, range.startDate) : null;
+    const openingBalance = monthlyOpening ?? branchOpeningBalanceTotal(data.openingBalances, "petty_cash", branch.id, range?.endDate);
     const transactions = data.pettyCashTransactions.filter((transaction) => {
       return isActiveFinancialRecord(transaction)
         && transaction.branch_id === branch.id

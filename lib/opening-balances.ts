@@ -1,6 +1,15 @@
-import { getCurrentProfile, normalizeRole } from "@/lib/permissions";
+import { canViewAllBranches, filterBranchesForProfile, getCurrentProfile, normalizeRole } from "@/lib/permissions";
 import { createClient, hasSupabaseEnv } from "@/lib/supabase-server";
-import type { BankAccount, Branch, OpeningBalance, OpeningBalanceType, OpeningBalanceVerificationStatus, PanelCompany, Supplier } from "@/lib/types";
+import type {
+  BankAccount,
+  Branch,
+  MonthlyOpeningBalance,
+  OpeningBalance,
+  OpeningBalanceType,
+  OpeningBalanceVerificationStatus,
+  PanelCompany,
+  Supplier
+} from "@/lib/types";
 
 export const openingBalanceTypes: { label: string; value: OpeningBalanceType }[] = [
   { label: "Bank account", value: "bank_account" },
@@ -62,6 +71,26 @@ export function branchOpeningBalanceTotal(
     .reduce((sum, balance) => sum + Number(balance.amount ?? 0), 0);
 }
 
+export const monthlyOpeningBalanceStartMonth = "2026-09-01";
+
+export function monthStart(dateString: string) {
+  const date = new Date(`${dateString}T00:00:00Z`);
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1)).toISOString().slice(0, 10);
+}
+
+export function addMonths(dateString: string, months: number) {
+  const date = new Date(`${dateString}T00:00:00Z`);
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + months, 1)).toISOString().slice(0, 10);
+}
+
+export function monthlyRowForBranch(
+  balances: MonthlyOpeningBalance[] | undefined,
+  branchId: string,
+  balanceMonth: string
+) {
+  return balances?.find((balance) => balance.branch_id === branchId && balance.balance_month === balanceMonth) ?? null;
+}
+
 export function outstandingOpeningBalanceTotal(
   balances: OpeningBalance[],
   balanceType: "supplier_outstanding" | "panel_outstanding",
@@ -83,26 +112,31 @@ export type OpeningBalanceSetupReferences = {
   balances: OpeningBalance[];
   bankAccounts: BankAccount[];
   branches: Branch[];
+  monthlyBalances: MonthlyOpeningBalance[];
   panelCompanies: PanelCompany[];
   suppliers: Supplier[];
 };
 
 export async function getOpeningBalanceSetupReferences(): Promise<OpeningBalanceSetupReferences> {
   const profile = await getCurrentProfile();
-  if (!profile?.is_active || normalizeRole(profile.role) !== "owner") {
-    return { balances: [], bankAccounts: [], branches: [], panelCompanies: [], suppliers: [] };
+  if (!profile?.is_active) {
+    return { balances: [], bankAccounts: [], branches: [], monthlyBalances: [], panelCompanies: [], suppliers: [] };
   }
   if (!hasSupabaseEnv()) {
-    return { balances: [], bankAccounts: [], branches: [], panelCompanies: [], suppliers: [] };
+    return { balances: [], bankAccounts: [], branches: [], monthlyBalances: [], panelCompanies: [], suppliers: [] };
   }
 
   const supabase = await createClient();
-  const [balanceRows, branchRows, bankRows, supplierRows, panelRows] = await Promise.all([
+  const [balanceRows, branchRows, monthlyBalanceRows, bankRows, supplierRows, panelRows] = await Promise.all([
     supabase
       .from("opening_balances")
       .select("*, branches(name, code), bank_accounts(name, bank_name, account_no), suppliers(name), panel_companies(name)")
       .order("balance_date", { ascending: false }),
     supabase.from("branches").select("*").eq("is_active", true).order("name"),
+    supabase
+      .from("monthly_opening_balances")
+      .select("*, branches(name, code)")
+      .order("balance_month", { ascending: false }),
     supabase.from("bank_accounts").select("*").eq("is_active", true).order("name"),
     supabase.from("suppliers").select("*").eq("is_active", true).order("name"),
     supabase.from("panel_companies").select("*").eq("is_active", true).order("name")
@@ -110,14 +144,25 @@ export async function getOpeningBalanceSetupReferences(): Promise<OpeningBalance
 
   if (balanceRows.error) throw balanceRows.error;
   if (branchRows.error) throw branchRows.error;
+  if (monthlyBalanceRows.error) {
+    console.warn("[opening-balances] monthly_opening_balances could not be loaded. Run the monthly opening balances migration.", monthlyBalanceRows.error);
+  }
   if (bankRows.error) throw bankRows.error;
   if (supplierRows.error) throw supplierRows.error;
   if (panelRows.error) throw panelRows.error;
+  const visibleBranches = filterBranchesForProfile(branchRows.data ?? [], profile);
+  const visibleBranchIds = new Set(visibleBranches.map((branch) => branch.id));
+  const role = normalizeRole(profile.role);
+  const canSeeAll = canViewAllBranches(profile);
 
   return {
-    balances: (balanceRows.data ?? []) as OpeningBalance[],
+    balances: ((balanceRows.data ?? []) as OpeningBalance[]).filter((balance) => {
+      if (canSeeAll) return true;
+      return !balance.branch_id || visibleBranchIds.has(balance.branch_id);
+    }),
     bankAccounts: bankRows.data ?? [],
-    branches: branchRows.data ?? [],
+    branches: visibleBranches,
+    monthlyBalances: ((monthlyBalanceRows.data ?? []) as MonthlyOpeningBalance[]).filter((balance) => role === "owner" || role === "finance" || visibleBranchIds.has(balance.branch_id)),
     panelCompanies: panelRows.data ?? [],
     suppliers: supplierRows.data ?? []
   };

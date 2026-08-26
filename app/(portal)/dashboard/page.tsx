@@ -201,6 +201,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         branches: operationalData.branches,
         cashBankIns: operationalData.cashBankIns,
         expenses: operationalData.expenses,
+        monthlyOpeningBalances: operationalData.monthlyOpeningBalances,
         openingBalances: operationalData.openingBalances,
         panelPayments: [],
         pettyCashTransactions: operationalData.pettyCashTransactions,
@@ -320,6 +321,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         branches: selectedBankBranches,
         cashBankIns: bankingData.cashBankIns,
         expenses: bankingData.expenses,
+        monthlyOpeningBalances: bankingData.monthlyOpeningBalances,
         openingBalances: bankingData.openingBalances,
         sales: bankingData.sales
       }, range)
@@ -327,6 +329,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const pettyCashRows = bankingData
     ? buildPettyCashBalanceRows({
         branches: selectedBankBranches,
+        monthlyOpeningBalances: bankingData.monthlyOpeningBalances,
         openingBalances: bankingData.openingBalances,
         pettyCashTransactions: bankingData.pettyCashTransactions
       })

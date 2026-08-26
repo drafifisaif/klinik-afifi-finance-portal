@@ -1101,6 +1101,23 @@ async function requireOpeningBalanceOwner() {
   return profile;
 }
 
+async function requireOpeningBalanceManager() {
+  const profile = await requirePermission("view_bank_position");
+  const role = normalizeRole(profile.role);
+  if (role !== "owner" && role !== "finance") {
+    throw new Error("Only Owner or Finance can manage opening balances.");
+  }
+  return profile;
+}
+
+function monthStartDate(value: string | null) {
+  if (!value) throw new Error("Balance month is required.");
+  const normalized = /^\d{4}-\d{2}$/.test(value) ? `${value}-01` : value;
+  const date = new Date(`${normalized}T00:00:00Z`);
+  if (Number.isNaN(date.getTime())) throw new Error("Balance month is invalid.");
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1)).toISOString().slice(0, 10);
+}
+
 function openingBalanceType(formData: FormData): OpeningBalanceType {
   const value = text(formData, "balance_type");
   if (
@@ -1206,6 +1223,22 @@ function revalidateOpeningBalanceReports() {
     "/suppliers/payments",
     "/panels"
   ].forEach((path) => revalidatePath(path));
+}
+
+function monthlyOpeningBalanceAuditData(balance: {
+  balance_month?: string | null;
+  branch_id?: string | null;
+  notes?: string | null;
+  opening_cash?: number | string | null;
+  opening_petty_cash?: number | string | null;
+}) {
+  return {
+    balance_month: balance.balance_month,
+    branch_id: balance.branch_id,
+    notes: balance.notes ?? null,
+    opening_cash: Number(balance.opening_cash ?? 0),
+    opening_petty_cash: Number(balance.opening_petty_cash ?? 0)
+  };
 }
 
 function revalidateExpenseReports() {
@@ -1401,7 +1434,7 @@ export async function createBankAccount(formData: FormData) {
 
 export async function createOpeningBalance(formData: FormData) {
   if (!hasSupabaseEnv()) return;
-  await requireOpeningBalanceOwner();
+  await requireOpeningBalanceManager();
   const input = openingBalanceInput(formData);
   const userId = await getUserId();
   const reviewedFields = input.verification_status === "confirmed"
@@ -1435,7 +1468,7 @@ export async function createOpeningBalance(formData: FormData) {
 
 export async function updateOpeningBalance(formData: FormData) {
   if (!hasSupabaseEnv()) return;
-  await requireOpeningBalanceOwner();
+  await requireOpeningBalanceManager();
   const balanceId = text(formData, "balance_id");
   if (!balanceId) throw new Error("Opening balance is required.");
 
@@ -1482,6 +1515,70 @@ export async function updateOpeningBalance(formData: FormData) {
       entityName: "opening_balances"
     });
   }
+
+  revalidateOpeningBalanceReports();
+}
+
+export async function upsertMonthlyOpeningBalance(formData: FormData) {
+  if (!hasSupabaseEnv()) return;
+  const profile = await requireOpeningBalanceManager();
+  const branchId = text(formData, "branch_id");
+  const balanceMonth = monthStartDate(text(formData, "balance_month"));
+  const openingCash = number(formData, "opening_cash");
+  const openingPettyCash = number(formData, "opening_petty_cash");
+  const notes = text(formData, "notes");
+
+  if (!branchId) throw new Error("Select the branch for this opening balance.");
+  if (balanceMonth < "2026-09-01") throw new Error("Monthly opening balance starts from September 2026.");
+  if (openingCash < 0 || openingPettyCash < 0) throw new Error("Opening balance amounts cannot be negative.");
+  if (!canViewAllBranches(profile) && profile.branch_id !== branchId) {
+    throw new Error("You do not have permission to manage opening balances for this branch.");
+  }
+
+  const userId = await getUserId();
+  const supabase = await createClient();
+  const { data: existingBalance, error: existingError } = await supabase
+    .from("monthly_opening_balances")
+    .select("id, balance_month, branch_id, notes, opening_cash, opening_petty_cash")
+    .eq("branch_id", branchId)
+    .eq("balance_month", balanceMonth)
+    .maybeSingle();
+
+  if (existingError) throw existingError;
+
+  const payload = {
+    balance_month: balanceMonth,
+    branch_id: branchId,
+    notes,
+    opening_cash: openingCash,
+    opening_petty_cash: openingPettyCash,
+    updated_by: userId
+  };
+
+  const query = existingBalance
+    ? supabase
+        .from("monthly_opening_balances")
+        .update(payload)
+        .eq("id", existingBalance.id)
+    : supabase
+        .from("monthly_opening_balances")
+        .insert({ ...payload, created_by: userId });
+
+  const { data: savedBalance, error } = await query
+    .select("id, balance_month, branch_id, notes, opening_cash, opening_petty_cash")
+    .single();
+
+  if (error || !savedBalance) throw error ?? new Error("Monthly opening balance could not be saved.");
+
+  await logAuditEvent({
+    action: existingBalance ? "update" : "create",
+    afterData: monthlyOpeningBalanceAuditData(savedBalance),
+    beforeData: existingBalance ? monthlyOpeningBalanceAuditData(existingBalance) : null,
+    branchId,
+    description: existingBalance ? "Updated monthly opening balance." : "Created monthly opening balance.",
+    entityId: savedBalance.id,
+    entityName: "monthly_opening_balances"
+  });
 
   revalidateOpeningBalanceReports();
 }

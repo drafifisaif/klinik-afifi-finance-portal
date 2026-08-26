@@ -15,7 +15,7 @@ const navigation: { href: string; label: string; icon: string; permission: Permi
   { href: "/cash-bank-ins", label: "Cash Bank-In", icon: "Banknote", permission: "record_cash_bank_in" },
   { href: "/petty-cash", label: "Petty Cash", icon: "Coins", permission: "record_petty_cash" },
   { href: "/bank", label: "Bank Position", icon: "Landmark", permission: "view_bank_position" },
-  { href: "/opening-balances", label: "Opening Balances", icon: "WalletCards", permission: "view_settings" },
+  { href: "/opening-balances", label: "Opening Balances", icon: "WalletCards", permission: "view_bank_position" },
   { href: "/documents", label: "Documents", icon: "Files", permission: "edit_finance" },
   { href: "/import", label: "Import Data", icon: "FileUp", permission: "import_data" },
   { href: "/users", label: "Users", icon: "Users", permission: "manage_users" },

@@ -217,8 +217,20 @@ export async function dashboardSummaryCsv(searchParams: URLSearchParams): Promis
   const bankExpenses = bankingData.expenses.filter((expense) => {
     return isActiveFinancialRecord(expense) && bankBranchIds.has(expense.branch_id) && isWithinDateRange(expense.expense_date, range);
   });
-  const cashInHandRows = buildCashInHandRows({ branches: bankBranches, cashBankIns, expenses: bankExpenses, openingBalances: bankingData.openingBalances, sales: bankSales }, range);
-  const pettyCashRows = buildPettyCashBalanceRows({ branches: bankBranches, openingBalances: bankingData.openingBalances, pettyCashTransactions }, range);
+  const cashInHandRows = buildCashInHandRows({
+    branches: bankBranches,
+    cashBankIns,
+    expenses: bankExpenses,
+    monthlyOpeningBalances: bankingData.monthlyOpeningBalances,
+    openingBalances: bankingData.openingBalances,
+    sales: bankSales
+  }, range);
+  const pettyCashRows = buildPettyCashBalanceRows({
+    branches: bankBranches,
+    monthlyOpeningBalances: bankingData.monthlyOpeningBalances,
+    openingBalances: bankingData.openingBalances,
+    pettyCashTransactions
+  }, range);
   const mappedBankIds = new Set(bankingData.bankAccounts.map((account) => account.id));
   const mappingByBranch = getMappingByBranch(bankingData);
   const directSalesInflow = totalBy(bankSales, (sale) => {
