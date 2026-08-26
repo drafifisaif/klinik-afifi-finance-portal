@@ -175,6 +175,26 @@ export function cashBankInSourceDate(bankIn: CashBankIn) {
   return bankIn.cash_month || bankIn.cash_source_date || bankIn.bank_in_date;
 }
 
+export function cashBankInCashMonth(bankIn: Pick<CashBankIn, "bank_in_date" | "cash_month" | "cash_source_date">) {
+  return bankIn.cash_month ?? bankIn.cash_source_date?.slice(0, 7).concat("-01") ?? `${bankIn.bank_in_date.slice(0, 7)}-01`;
+}
+
+export function cashBankInCashSalesFrom(bankIn: Pick<CashBankIn, "bank_in_date" | "cash_sales_from" | "cash_source_date">) {
+  return bankIn.cash_sales_from ?? bankIn.cash_source_date ?? bankIn.bank_in_date;
+}
+
+export function cashBankInCashSalesTo(bankIn: Pick<CashBankIn, "bank_in_date" | "cash_sales_to" | "cash_source_date">) {
+  return bankIn.cash_sales_to ?? bankIn.cash_source_date ?? bankIn.bank_in_date;
+}
+
+export function cashBankInMatchesCashControlRange(bankIn: CashBankIn, range: Pick<DateRange, "endDate" | "period" | "startDate">) {
+  if (range.period === "custom") {
+    return cashBankInCashSalesFrom(bankIn) <= range.endDate && cashBankInCashSalesTo(bankIn) >= range.startDate;
+  }
+
+  return isWithinDateRange(cashBankInCashMonth(bankIn), range);
+}
+
 export function bankTransactionAmount(transaction: BankTransaction) {
   return Number(transaction.amount ?? 0);
 }
@@ -226,7 +246,7 @@ export function buildCashInHandRows(
       .filter((sale) => isActiveFinancialRecord(sale) && sale.branch_id === branch.id && isWithinDateRange(sale.sale_date, range))
       .reduce((sum, sale) => sum + cashSalesAmount(sale), 0);
     const bankedIn = data.cashBankIns
-      .filter((bankIn) => isActiveFinancialRecord(bankIn) && bankIn.branch_id === branch.id && isWithinDateRange(cashBankInSourceDate(bankIn), range))
+      .filter((bankIn) => isActiveFinancialRecord(bankIn) && bankIn.branch_id === branch.id && cashBankInMatchesCashControlRange(bankIn, range))
       .reduce((sum, bankIn) => sum + bankInAmount(bankIn), 0);
     const cashLocumPayments = data.expenses
       .filter((expense) => isCashLocumExpense(expense) && expense.branch_id === branch.id && isWithinDateRange(expense.expense_date, range))

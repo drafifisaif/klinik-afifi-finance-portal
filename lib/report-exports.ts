@@ -6,6 +6,10 @@ import {
   branchLabel,
   buildCashInHandRows,
   buildPettyCashBalanceRows,
+  cashBankInCashMonth,
+  cashBankInCashSalesFrom,
+  cashBankInCashSalesTo,
+  cashBankInMatchesCashControlRange,
   directBankInflow,
   getBankAccountById,
   getBranchById,
@@ -198,7 +202,7 @@ export async function dashboardSummaryCsv(searchParams: URLSearchParams): Promis
     return isActiveFinancialRecord(sale) && bankBranchIds.has(sale.branch_id) && isWithinDateRange(sale.sale_date, range);
   });
   const cashBankIns = bankingData.cashBankIns.filter((bankIn) => {
-    return isActiveFinancialRecord(bankIn) && bankBranchIds.has(bankIn.branch_id) && isWithinDateRange(bankIn.bank_in_date, range);
+    return isActiveFinancialRecord(bankIn) && bankBranchIds.has(bankIn.branch_id) && cashBankInMatchesCashControlRange(bankIn, range);
   });
   const bankTransactions = bankingData.bankTransactions.filter((transaction) => {
     return isActiveFinancialRecord(transaction)
@@ -473,12 +477,16 @@ export async function cashBankInsCsv(searchParams: URLSearchParams): Promise<Csv
 
   const rows = data.cashBankIns.filter((bankIn) => {
     return isActiveFinancialRecord(bankIn)
-      && matchesOptionalDate(bankIn.bank_in_date, searchParams)
+      && (!hasOptionalRange(searchParams) || cashBankInMatchesCashControlRange(bankIn, resolveDateRange({
+        end: param(searchParams, "end"),
+        period: param(searchParams, "period"),
+        start: param(searchParams, "start")
+      })))
       && (selectedBranchId === "all" || bankIn.branch_id === selectedBranchId);
   }).map((bankIn) => [
-    bankIn.cash_month ?? bankIn.cash_source_date?.slice(0, 7).concat("-01") ?? `${bankIn.bank_in_date.slice(0, 7)}-01`,
-    bankIn.cash_sales_from ?? bankIn.cash_source_date ?? bankIn.bank_in_date,
-    bankIn.cash_sales_to ?? bankIn.cash_source_date ?? bankIn.bank_in_date,
+    cashBankInCashMonth(bankIn),
+    cashBankInCashSalesFrom(bankIn),
+    cashBankInCashSalesTo(bankIn),
     bankIn.bank_in_date,
     branchLabel(bankIn.branches),
     bankAccountLabel(bankIn.bank_accounts ?? bankAccountById.get(bankIn.bank_account_id)),

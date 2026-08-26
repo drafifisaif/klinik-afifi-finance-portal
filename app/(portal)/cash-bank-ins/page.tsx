@@ -11,9 +11,12 @@ import {
   bankInAmount,
   branchLabel,
   buildCashInHandRows,
+  cashBankInCashMonth,
+  cashBankInCashSalesFrom,
+  cashBankInCashSalesTo,
+  cashBankInMatchesCashControlRange,
   getBankAccountById,
   getBranchById,
-  isWithinDateRange,
   resolveDateRange
 } from "@/lib/bank-reporting";
 import { getBankingData, getBranchPicCashBankInTarget, totalBy } from "@/lib/data";
@@ -60,18 +63,6 @@ function cashSalesPeriodLabel(from: string | null | undefined, to: string | null
   return `${formatDate(from)} - ${formatDate(to)}`;
 }
 
-function bankInCashMonth(bankIn: { bank_in_date: string; cash_month?: string | null; cash_source_date?: string | null }) {
-  return bankIn.cash_month ?? bankIn.cash_source_date?.slice(0, 7).concat("-01") ?? `${bankIn.bank_in_date.slice(0, 7)}-01`;
-}
-
-function bankInCashSalesFrom(bankIn: { bank_in_date: string; cash_sales_from?: string | null; cash_source_date?: string | null }) {
-  return bankIn.cash_sales_from ?? bankIn.cash_source_date ?? bankIn.bank_in_date;
-}
-
-function bankInCashSalesTo(bankIn: { bank_in_date: string; cash_sales_to?: string | null; cash_source_date?: string | null }) {
-  return bankIn.cash_sales_to ?? bankIn.cash_source_date ?? bankIn.bank_in_date;
-}
-
 function isPanelBankAccount(account: Pick<BankAccount, "name" | "bank_name"> | null | undefined) {
   const haystack = `${account?.name ?? ""} ${account?.bank_name ?? ""}`.trim().toLowerCase();
   return haystack.includes("panel");
@@ -115,7 +106,7 @@ export default async function CashBankInsPage({ searchParams }: { searchParams: 
     ? !branchPicMissingBranch && !branchPicMissingMapping
     : Boolean(data.branches.length && destinationBankAccounts.length);
   const selectedBankIns = data.cashBankIns.filter((bankIn) => {
-    return isWithinDateRange(bankIn.bank_in_date, range) && (!effectiveBranchId || bankIn.branch_id === effectiveBranchId);
+    return cashBankInMatchesCashControlRange(bankIn, range) && (!effectiveBranchId || bankIn.branch_id === effectiveBranchId);
   });
   const visibleUsers = await getVisibleProfilesById(selectedBankIns.flatMap((bankIn) => [bankIn.entered_by, bankIn.voided_by]));
   const userById = new Map(visibleUsers.map((user) => [user.id, user]));
@@ -348,9 +339,9 @@ export default async function CashBankInsPage({ searchParams }: { searchParams: 
                     && profile.branch_id === bankIn.branch_id
                     && editableBankOptions.length > 0;
                   const canCorrectBankIn = managementCanCorrect || branchPicCanCorrect;
-                  const cashMonth = bankInCashMonth(bankIn);
-                  const cashSalesFrom = bankInCashSalesFrom(bankIn);
-                  const cashSalesTo = bankInCashSalesTo(bankIn);
+                  const cashMonth = cashBankInCashMonth(bankIn);
+                  const cashSalesFrom = cashBankInCashSalesFrom(bankIn);
+                  const cashSalesTo = cashBankInCashSalesTo(bankIn);
                   const cashSalesPeriod = cashSalesPeriodLabel(cashSalesFrom, cashSalesTo);
 
                   return [
