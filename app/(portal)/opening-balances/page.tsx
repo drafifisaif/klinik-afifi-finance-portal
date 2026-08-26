@@ -403,6 +403,12 @@ export default async function OpeningBalancesPage({ searchParams }: OpeningBalan
           </div>
         </div>
 
+        {references.monthlyBalancesConfigError ? (
+          <p className="import-message opening-balance-warning">
+            Opening Balance configuration is incomplete. Run <code>supabase/2026-01-01-monthly-opening-reconciliation.sql</code> in Supabase SQL Editor, then refresh this page.
+          </p>
+        ) : null}
+
         {canManageOpeningBalances ? (
           <form action={upsertMonthlyOpeningBalance} className="form-card mt-section">
             <h3>Enter historical opening balance</h3>

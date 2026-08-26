@@ -367,7 +367,14 @@ export const demoBankingData: BankingData = {
 };
 
 async function fetchOrDemo<T>(query: PromiseLike<{ data: T | null; error: unknown }>, fallback: T, label?: string) {
-  const { data, error } = await query;
+  let result: { data: T | null; error: unknown };
+  try {
+    result = await query;
+  } catch (error) {
+    console.error(`fetchOrDemo rejected for ${label ?? "unknown query"}`, error);
+    return fallback;
+  }
+  const { data, error } = result;
   if (error || !data) {
     if (error) {
       console.error(`fetchOrDemo failed for ${label ?? "unknown query"}`, error);

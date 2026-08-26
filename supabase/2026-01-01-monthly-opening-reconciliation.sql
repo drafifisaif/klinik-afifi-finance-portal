@@ -14,8 +14,8 @@ create table if not exists public.monthly_opening_balances (
   id uuid primary key default gen_random_uuid(),
   branch_id uuid not null references public.branches(id) on delete restrict,
   balance_month date not null,
-  opening_cash numeric(12,2) not null default 0 check (opening_cash >= 0),
-  opening_petty_cash numeric(12,2) not null default 0 check (opening_petty_cash >= 0),
+  opening_cash numeric(14,2) not null default 0 check (opening_cash >= 0),
+  opening_petty_cash numeric(14,2) not null default 0 check (opening_petty_cash >= 0),
   source text not null default 'manual_verified',
   notes text,
   created_by uuid references public.profiles(id) on delete set null default auth.uid(),
@@ -30,6 +30,10 @@ create table if not exists public.monthly_opening_balances (
   constraint monthly_opening_balances_source_check check (source in ('legacy_system', 'manual_verified', 'carry_forward', 'adjustment')),
   constraint monthly_opening_balances_review_status_check check (review_status in ('pending_review', 'reviewed', 'reconciled', 'needs_investigation'))
 );
+
+alter table public.monthly_opening_balances
+  alter column opening_cash type numeric(14,2),
+  alter column opening_petty_cash type numeric(14,2);
 
 alter table public.monthly_opening_balances
   add column if not exists source text not null default 'manual_verified',
@@ -86,3 +90,5 @@ with check (
   and public.can_access_branch(branch_id)
   and coalesce(updated_by, auth.uid()) = auth.uid()
 );
+
+notify pgrst, 'reload schema';

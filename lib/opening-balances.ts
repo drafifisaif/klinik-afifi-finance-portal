@@ -112,18 +112,28 @@ export type OpeningBalanceSetupReferences = {
   balances: OpeningBalance[];
   bankAccounts: BankAccount[];
   branches: Branch[];
+  monthlyBalancesConfigError?: string | null;
   monthlyBalances: MonthlyOpeningBalance[];
   panelCompanies: PanelCompany[];
   suppliers: Supplier[];
 };
 
+function isMissingMonthlyOpeningBalancesTable(error: { code?: string | null; message?: string | null } | null | undefined) {
+  const message = String(error?.message ?? "").toLowerCase();
+  return error?.code === "PGRST205"
+    || error?.code === "42P01"
+    || message.includes("monthly_opening_balances")
+    || message.includes("could not find the table")
+    || message.includes("relation \"public.monthly_opening_balances\" does not exist");
+}
+
 export async function getOpeningBalanceSetupReferences(): Promise<OpeningBalanceSetupReferences> {
   const profile = await getCurrentProfile();
   if (!profile?.is_active) {
-    return { balances: [], bankAccounts: [], branches: [], monthlyBalances: [], panelCompanies: [], suppliers: [] };
+    return { balances: [], bankAccounts: [], branches: [], monthlyBalances: [], monthlyBalancesConfigError: null, panelCompanies: [], suppliers: [] };
   }
   if (!hasSupabaseEnv()) {
-    return { balances: [], bankAccounts: [], branches: [], monthlyBalances: [], panelCompanies: [], suppliers: [] };
+    return { balances: [], bankAccounts: [], branches: [], monthlyBalances: [], monthlyBalancesConfigError: null, panelCompanies: [], suppliers: [] };
   }
 
   const supabase = await createClient();
@@ -144,8 +154,12 @@ export async function getOpeningBalanceSetupReferences(): Promise<OpeningBalance
 
   if (balanceRows.error) throw balanceRows.error;
   if (branchRows.error) throw branchRows.error;
+  const monthlyBalancesConfigError = monthlyBalanceRows.error && isMissingMonthlyOpeningBalancesTable(monthlyBalanceRows.error)
+    ? "Monthly opening balances table is missing. Run supabase/2026-01-01-monthly-opening-reconciliation.sql in Supabase SQL Editor."
+    : null;
   if (monthlyBalanceRows.error) {
-    console.warn("[opening-balances] monthly_opening_balances could not be loaded. Run the monthly opening balances migration.", monthlyBalanceRows.error);
+    console.warn("[opening-balances] monthly_opening_balances could not be loaded. Run supabase/2026-01-01-monthly-opening-reconciliation.sql in Supabase SQL Editor.", monthlyBalanceRows.error);
+    if (!monthlyBalancesConfigError) throw monthlyBalanceRows.error;
   }
   if (bankRows.error) throw bankRows.error;
   if (supplierRows.error) throw supplierRows.error;
@@ -162,6 +176,7 @@ export async function getOpeningBalanceSetupReferences(): Promise<OpeningBalance
     }),
     bankAccounts: bankRows.data ?? [],
     branches: visibleBranches,
+    monthlyBalancesConfigError,
     monthlyBalances: ((monthlyBalanceRows.data ?? []) as MonthlyOpeningBalance[]).filter((balance) => role === "owner" || role === "finance" || visibleBranchIds.has(balance.branch_id)),
     panelCompanies: panelRows.data ?? [],
     suppliers: supplierRows.data ?? []

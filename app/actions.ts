@@ -1255,6 +1255,28 @@ function monthlyOpeningBalanceReviewStatus(value: string | null) {
   return "pending_review";
 }
 
+function isMissingMonthlyOpeningBalancesTable(error: {
+  code?: string | null;
+  message?: string | null;
+} | null | undefined) {
+  const message = String(error?.message ?? "").toLowerCase();
+  return error?.code === "PGRST205"
+    || error?.code === "42P01"
+    || message.includes("monthly_opening_balances")
+    || message.includes("could not find the table")
+    || message.includes("relation \"public.monthly_opening_balances\" does not exist");
+}
+
+function monthlyOpeningBalanceTableError(error: {
+  code?: string | null;
+  message?: string | null;
+} | null | undefined) {
+  if (isMissingMonthlyOpeningBalancesTable(error)) {
+    return new Error("Monthly opening balance table is missing. Run the latest Supabase migration first.");
+  }
+  return error ?? new Error("Monthly opening balance could not be saved.");
+}
+
 function revalidateExpenseReports() {
   ["/expenses", "/dashboard", "/reports/profit-loss", "/reports/cashflow"].forEach((path) => revalidatePath(path));
 }
@@ -1560,7 +1582,7 @@ export async function upsertMonthlyOpeningBalance(formData: FormData) {
     .eq("balance_month", balanceMonth)
     .maybeSingle();
 
-  if (existingError) throw existingError;
+  if (existingError) throw monthlyOpeningBalanceTableError(existingError);
 
   const payload = {
     balance_month: balanceMonth,
@@ -1588,7 +1610,7 @@ export async function upsertMonthlyOpeningBalance(formData: FormData) {
     .select("id, balance_month, branch_id, notes, opening_cash, opening_petty_cash, review_status, source")
     .single();
 
-  if (error || !savedBalance) throw error ?? new Error("Monthly opening balance could not be saved.");
+  if (error || !savedBalance) throw monthlyOpeningBalanceTableError(error);
 
   await logAuditEvent({
     action: existingBalance ? "update" : "create",
