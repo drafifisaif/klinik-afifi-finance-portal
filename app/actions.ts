@@ -757,12 +757,12 @@ function cashBankInAuditData(bankIn: CashBankInAuditRow) {
   };
 }
 
-const cashBankInSelect = "id, branch_id, bank_account_id, bank_in_date, cash_source_date, cash_month, cash_sales_from, cash_sales_to, amount, reference_no, notes, is_void, void_reason, voided_at, voided_by";
+const cashBankInSelect = "id, branch_id, bank_account_id, bank_in_date, cash_month, cash_sales_from, cash_sales_to, amount, reference_no, notes, is_void, void_reason, voided_at, voided_by";
 const legacyCashBankInSelect = "id, branch_id, bank_account_id, bank_in_date, amount, reference_no, notes, is_void, void_reason, voided_at, voided_by";
 
 function isMissingCashAttributionColumnError(error: { code?: string | null; message?: string | null } | null | undefined) {
   const message = String(error?.message ?? "").toLowerCase();
-  return error?.code === "42703" || error?.code === "PGRST204" || message.includes("cash_source_date") || message.includes("cash_month") || message.includes("cash_sales_from") || message.includes("cash_sales_to");
+  return error?.code === "42703" || error?.code === "PGRST204" || message.includes("cash_month") || message.includes("cash_sales_from") || message.includes("cash_sales_to");
 }
 
 function cashMonthStart(monthInput: string | null) {
@@ -1857,42 +1857,65 @@ export async function createCashBankIn(formData: FormData) {
     cash_month: cashMonth,
     cash_sales_from: cashSalesFrom,
     cash_sales_to: cashSalesTo,
-    cash_source_date: cashSalesTo,
     amount,
     reference_no: text(formData, "reference_no"),
     notes: text(formData, "notes"),
     entered_by: await getUserId()
   };
-  let { data: bankIn, error } = await supabase.from("cash_bank_ins").insert(insertPayload).select(cashBankInSelect).single();
 
-  if (isMissingCashAttributionColumnError(error)) {
-    console.warn("createCashBankIn cash_source_date column unavailable; retrying legacy insert", {
+  console.info("createCashBankIn input", {
+    action: "createCashBankIn",
+    userId: profile.id,
+    role: profile.role,
+    selectedBranchId: branchId,
+    selectedBankAccountId: bankAccountId,
+    cashMonthSubmitted: text(formData, "cash_month"),
+    cashSalesFromSubmitted: text(formData, "cash_sales_from"),
+    cashSalesToSubmitted: text(formData, "cash_sales_to"),
+    bankInDateSubmitted: bankInDate,
+    normalizedCashMonth: cashMonth,
+    insertPayloadKeys: Object.keys(insertPayload)
+  });
+
+  const { data: bankIn, error } = await supabase.from("cash_bank_ins").insert(insertPayload).select(cashBankInSelect).single();
+
+  if (error) {
+    console.error("createCashBankIn insert failed", {
       action: "createCashBankIn",
       userId: profile.id,
       role: profile.role,
       selectedBranchId: branchId,
+      selectedBankAccountId: bankAccountId,
       bankInDate,
       cashMonth,
       cashSalesFrom,
       cashSalesTo,
       code: error?.code,
-      error: error?.message
+      error: error?.message,
+      details: error?.details,
+      hint: error?.hint,
+      insertPayloadKeys: Object.keys(insertPayload),
+      missingCashAttributionColumn: isMissingCashAttributionColumnError(error)
     });
-    const legacyPayload = {
-      branch_id: insertPayload.branch_id,
-      bank_account_id: insertPayload.bank_account_id,
-      bank_in_date: insertPayload.bank_in_date,
-      amount: insertPayload.amount,
-      reference_no: insertPayload.reference_no,
-      notes: insertPayload.notes,
-      entered_by: insertPayload.entered_by
-    };
-    const legacyResult = await supabase.from("cash_bank_ins").insert(legacyPayload).select(legacyCashBankInSelect).single();
-    bankIn = cashBankInLegacyRow(legacyResult.data);
-    error = legacyResult.error;
+    if (isMissingCashAttributionColumnError(error)) {
+      failCashBankInManager("Cash Bank-In attribution columns are not available to the API yet. Refresh Supabase schema cache or run the latest migration.");
+    }
   }
 
   if (error || !bankIn) throw error ?? new Error("Cash bank-in could not be loaded after creation.");
+
+  console.info("createCashBankIn persisted attribution", {
+    action: "createCashBankIn",
+    userId: profile.id,
+    role: profile.role,
+    bankInId: bankIn.id,
+    selectedBranchId: bankIn.branch_id,
+    selectedBankAccountId: bankIn.bank_account_id,
+    returnedCashMonth: bankIn.cash_month ?? null,
+    returnedCashSalesFrom: bankIn.cash_sales_from ?? null,
+    returnedCashSalesTo: bankIn.cash_sales_to ?? null,
+    returnedBankInDate: bankIn.bank_in_date
+  });
 
   const afterData = cashBankInAuditData(bankIn);
   await logAuditEvent({
@@ -2015,19 +2038,30 @@ export async function updateCashBankIn(formData: FormData) {
     cash_month: cashMonth,
     cash_sales_from: cashSalesFrom,
     cash_sales_to: cashSalesTo,
-    cash_source_date: cashSalesTo,
     notes: text(formData, "notes"),
     reference_no: text(formData, "reference_no")
   };
-  let { data: updatedBankIn, error } = await supabase
+
+  console.info("updateCashBankIn input", {
+    action: "updateCashBankIn",
+    bankInId,
+    bankInDateSubmitted: bankInDate,
+    cashMonthSubmitted: text(formData, "cash_month"),
+    cashSalesFromSubmitted: text(formData, "cash_sales_from"),
+    cashSalesToSubmitted: text(formData, "cash_sales_to"),
+    normalizedCashMonth: cashMonth,
+    updatePayloadKeys: Object.keys(updatePayload)
+  });
+
+  const { data: updatedBankIn, error } = await supabase
     .from("cash_bank_ins")
     .update(updatePayload)
     .eq("id", bankIn.id)
     .select(cashBankInSelect)
     .single();
 
-  if (isMissingCashAttributionColumnError(error)) {
-    console.warn("updateCashBankIn cash_source_date column unavailable; retrying legacy update", {
+  if (error) {
+    console.error("updateCashBankIn update failed", {
       action: "updateCashBankIn",
       bankInId,
       bankInDate,
@@ -2035,26 +2069,27 @@ export async function updateCashBankIn(formData: FormData) {
       cashSalesFrom,
       cashSalesTo,
       code: error?.code,
-      error: error?.message
+      error: error?.message,
+      details: error?.details,
+      hint: error?.hint,
+      updatePayloadKeys: Object.keys(updatePayload),
+      missingCashAttributionColumn: isMissingCashAttributionColumnError(error)
     });
-    const legacyPayload = {
-      amount: updatePayload.amount,
-      bank_account_id: updatePayload.bank_account_id,
-      bank_in_date: updatePayload.bank_in_date,
-      notes: updatePayload.notes,
-      reference_no: updatePayload.reference_no
-    };
-    const legacyResult = await supabase
-      .from("cash_bank_ins")
-      .update(legacyPayload)
-      .eq("id", bankIn.id)
-      .select(legacyCashBankInSelect)
-      .single();
-    updatedBankIn = cashBankInLegacyRow(legacyResult.data);
-    error = legacyResult.error;
+    if (isMissingCashAttributionColumnError(error)) {
+      failCashBankInManager("Cash Bank-In attribution columns are not available to the API yet. Refresh Supabase schema cache or run the latest migration.");
+    }
   }
 
   if (error || !updatedBankIn) throw error ?? new Error("Updated cash bank-in could not be loaded.");
+
+  console.info("updateCashBankIn persisted attribution", {
+    action: "updateCashBankIn",
+    bankInId: updatedBankIn.id,
+    returnedCashMonth: updatedBankIn.cash_month ?? null,
+    returnedCashSalesFrom: updatedBankIn.cash_sales_from ?? null,
+    returnedCashSalesTo: updatedBankIn.cash_sales_to ?? null,
+    returnedBankInDate: updatedBankIn.bank_in_date
+  });
 
   const beforeData = cashBankInAuditData(bankIn);
   const afterData = cashBankInAuditData(updatedBankIn);
