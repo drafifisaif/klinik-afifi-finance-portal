@@ -1,10 +1,13 @@
 import { createOpeningBalance, updateOpeningBalance, upsertMonthlyOpeningBalance } from "@/app/actions";
 import { DataTable } from "@/components/data-table";
 import { ModuleHeader } from "@/components/module-header";
-import { bankAccountLabel, branchLabel } from "@/lib/bank-reporting";
+import { bankAccountLabel, branchLabel, buildCashInHandRows, buildPettyCashBalanceRows, type DateRange } from "@/lib/bank-reporting";
+import { getBankingData } from "@/lib/data";
 import { formatCurrency, formatDate, labelize } from "@/lib/format";
 import {
+  addMonths,
   getOpeningBalanceSetupReferences,
+  monthlyRowForBranch,
   needsOpeningBalanceCaution,
   openingBalanceSourceReferences,
   openingBalanceTypeLabel,
@@ -15,7 +18,11 @@ import {
 } from "@/lib/opening-balances";
 import { requirePermission } from "@/lib/permissions";
 import { getCurrentProfile, normalizeRole } from "@/lib/permissions";
-import type { OpeningBalance, OpeningBalanceType } from "@/lib/types";
+import type { Branch, MonthlyOpeningBalance, OpeningBalance, OpeningBalanceType } from "@/lib/types";
+
+type OpeningBalancesPageProps = {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+};
 
 type BalanceGroup = {
   label: string;
@@ -29,6 +36,105 @@ const balanceGroups: BalanceGroup[] = [
   { label: "Supplier Outstanding", type: "supplier_outstanding" },
   { label: "Panel Outstanding", type: "panel_outstanding" }
 ];
+
+const monthlyOpeningSources = [
+  { label: "Legacy system", value: "legacy_system" },
+  { label: "Manual verified", value: "manual_verified" },
+  { label: "Carry-forward", value: "carry_forward" },
+  { label: "Adjustment", value: "adjustment" }
+];
+
+const monthlyOpeningReviewStatuses = [
+  { label: "Pending Review", value: "pending_review" },
+  { label: "Reviewed", value: "reviewed" },
+  { label: "Reconciled", value: "reconciled" },
+  { label: "Needs Investigation", value: "needs_investigation" }
+];
+
+function searchValue(value: string | string[] | undefined) {
+  if (Array.isArray(value)) return value[0] ?? null;
+  return value ?? null;
+}
+
+function monthEnd(balanceMonth: string) {
+  const nextMonth = new Date(`${addMonths(balanceMonth, 1)}T00:00:00Z`);
+  nextMonth.setUTCDate(nextMonth.getUTCDate() - 1);
+  return nextMonth.toISOString().slice(0, 10);
+}
+
+function yearMonths(year: number) {
+  return Array.from({ length: 12 }, (_, index) => `${year}-${String(index + 1).padStart(2, "0")}-01`);
+}
+
+function varianceText(value: number) {
+  if (Math.abs(value) < 0.005) return formatCurrency(0);
+  return `${value > 0 ? "+" : ""}${formatCurrency(value)}`;
+}
+
+function MonthlyOpeningEdit({
+  balance,
+  branches
+}: {
+  balance: MonthlyOpeningBalance;
+  branches: Branch[];
+}) {
+  return (
+    <details className="manual-bank-editor">
+      <summary>Edit / Review</summary>
+      <form action={upsertMonthlyOpeningBalance} className="manual-bank-edit-form">
+        <label>
+          Branch
+          <select name="branch_id" defaultValue={balance.branch_id} required>
+            {branches.map((branch) => (
+              <option key={branch.id} value={branch.id}>
+                {branch.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Balance month
+          <input min="2026-01" name="balance_month" type="month" defaultValue={balance.balance_month.slice(0, 7)} required />
+        </label>
+        <label>
+          Opening cash
+          <input min="0" name="opening_cash" step="0.01" type="number" defaultValue={balance.opening_cash} required />
+        </label>
+        <label>
+          Opening petty cash
+          <input min="0" name="opening_petty_cash" step="0.01" type="number" defaultValue={balance.opening_petty_cash} required />
+        </label>
+        <label>
+          Source
+          <select name="source" defaultValue={balance.source ?? "manual_verified"}>
+            {monthlyOpeningSources.map((source) => (
+              <option key={source.value} value={source.value}>
+                {source.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Review status
+          <select name="review_status" defaultValue={balance.review_status ?? "pending_review"}>
+            {monthlyOpeningReviewStatuses.map((status) => (
+              <option key={status.value} value={status.value}>
+                {status.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Notes
+          <textarea name="notes" defaultValue={balance.notes ?? ""} />
+        </label>
+        <button className="primary-button compact-button" type="submit">
+          Save
+        </button>
+      </form>
+    </details>
+  );
+}
 
 function targetLabel(balance: OpeningBalance) {
   if (balance.balance_type === "bank_account") return bankAccountLabel(balance.bank_accounts);
@@ -217,13 +323,67 @@ function OpeningBalanceEdit({ balance, references }: { balance: OpeningBalance; 
   );
 }
 
-export default async function OpeningBalancesPage() {
+export default async function OpeningBalancesPage({ searchParams }: OpeningBalancesPageProps) {
   await requirePermission("view_bank_position");
   const profile = await getCurrentProfile();
   const role = normalizeRole(profile?.role);
   const canManageOpeningBalances = role === "owner" || role === "finance";
-  const references = await getOpeningBalanceSetupReferences();
+  const params = await searchParams;
+  const [references, bankingData] = await Promise.all([getOpeningBalanceSetupReferences(), getBankingData()]);
   const hasUnverifiedBalances = references.balances.some(needsOpeningBalanceCaution);
+  const requestedYear = Number(searchValue(params?.year) ?? 2026);
+  const selectedYear = Number.isFinite(requestedYear) && requestedYear >= 2026 ? requestedYear : 2026;
+  const selectedBranchId = searchValue(params?.branch) ?? "all";
+  const selectedBranches = selectedBranchId === "all"
+    ? references.branches
+    : references.branches.filter((branch) => branch.id === selectedBranchId);
+  const reconciliationRows = selectedBranches.flatMap((branch) => {
+    return yearMonths(selectedYear)
+      .filter((balanceMonth) => balanceMonth >= "2026-01-01")
+      .map((balanceMonth) => {
+        const range: DateRange = {
+          endDate: monthEnd(balanceMonth),
+          label: "Monthly reconciliation",
+          period: "custom",
+          startDate: balanceMonth
+        };
+        const historical = monthlyRowForBranch(references.monthlyBalances, branch.id, balanceMonth);
+        const nextHistorical = monthlyRowForBranch(references.monthlyBalances, branch.id, addMonths(balanceMonth, 1));
+        const cashRow = buildCashInHandRows({
+          branches: [branch],
+          cashBankIns: bankingData.cashBankIns,
+          expenses: bankingData.expenses,
+          monthlyOpeningBalances: bankingData.monthlyOpeningBalances,
+          openingBalances: bankingData.openingBalances,
+          sales: bankingData.sales
+        }, range)[0];
+        const pettyRow = buildPettyCashBalanceRows({
+          branches: [branch],
+          monthlyOpeningBalances: bankingData.monthlyOpeningBalances,
+          openingBalances: bankingData.openingBalances,
+          pettyCashTransactions: bankingData.pettyCashTransactions
+        }, range)[0];
+        const historicalCash = Number(historical?.opening_cash ?? 0);
+        const historicalPetty = Number(historical?.opening_petty_cash ?? 0);
+        return {
+          balanceMonth,
+          branch,
+          cashBankIn: cashRow?.bankedIn ?? 0,
+          cashLocum: cashRow?.cashLocumPayments ?? 0,
+          cashSales: cashRow?.cashSales ?? 0,
+          cashVariance: historical ? historicalCash - (cashRow?.openingBalance ?? 0) : null,
+          historical,
+          historicalCash,
+          historicalPetty,
+          nextCashVariance: nextHistorical ? Number(nextHistorical.opening_cash ?? 0) - (cashRow?.remaining ?? 0) : null,
+          nextHistorical,
+          pettyVariance: historical ? historicalPetty - (pettyRow?.openingBalance ?? 0) : null,
+          systemClosingCash: cashRow?.remaining ?? 0,
+          systemOpeningCash: cashRow?.openingBalance ?? 0,
+          systemOpeningPetty: pettyRow?.openingBalance ?? 0
+        };
+      });
+  });
 
   return (
     <>
@@ -236,16 +396,16 @@ export default async function OpeningBalancesPage() {
       <section className="table-section">
         <div className="section-heading-row">
           <div>
-            <h2>Monthly controlled opening balances</h2>
+            <h2>Monthly historical reconciliation</h2>
             <p className="muted-copy">
-              September 2026 is the first controlled month. Later months carry forward from the previous month&apos;s closing unless Owner or Finance records an override with notes.
+              January 2026 is the first historical month. January historical opening seeds system cash; later historical openings stay separate so Finance can compare legacy figures against portal carry-forward.
             </p>
           </div>
         </div>
 
         {canManageOpeningBalances ? (
           <form action={upsertMonthlyOpeningBalance} className="form-card mt-section">
-            <h3>Set branch monthly opening</h3>
+            <h3>Enter historical opening balance</h3>
             <div className="form-grid">
               <label>
                 Branch
@@ -259,7 +419,7 @@ export default async function OpeningBalancesPage() {
               </label>
               <label>
                 Balance month
-                <input min="2026-09" name="balance_month" type="month" defaultValue="2026-09" required />
+                <input min="2026-01" name="balance_month" type="month" defaultValue="2026-01" required />
               </label>
               <label>
                 Opening cash
@@ -269,13 +429,33 @@ export default async function OpeningBalancesPage() {
                 Opening petty cash
                 <input min="0" name="opening_petty_cash" step="0.01" type="number" required />
               </label>
+              <label>
+                Source
+                <select name="source" defaultValue="legacy_system">
+                  {monthlyOpeningSources.map((source) => (
+                    <option key={source.value} value={source.value}>
+                      {source.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Review status
+                <select name="review_status" defaultValue="pending_review">
+                  {monthlyOpeningReviewStatuses.map((status) => (
+                    <option key={status.value} value={status.value}>
+                      {status.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
               <label className="full-span">
                 Notes
-                <textarea name="notes" placeholder="Required context when overriding carry-forward closing balance." />
+                <textarea name="notes" placeholder="Opening balance from legacy finance system" />
               </label>
             </div>
             <button className="primary-button" type="submit">
-              Save monthly opening balance
+              Save historical opening
             </button>
           </form>
         ) : (
@@ -284,15 +464,71 @@ export default async function OpeningBalancesPage() {
           </p>
         )}
 
+        <form className="filter-form mt-section">
+          <label>
+            Year
+            <select name="year" defaultValue={String(selectedYear)}>
+              {[2026, 2027, 2028].map((year) => (
+                <option key={year} value={year}>
+                  {year}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Branch
+            <select name="branch" defaultValue={selectedBranchId}>
+              <option value="all">All Branches</option>
+              {references.branches.map((branch) => (
+                <option key={branch.id} value={branch.id}>
+                  {branch.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button className="primary-button compact-button" type="submit">
+            Apply
+          </button>
+        </form>
+
         <DataTable
-          columns={["Month", "Branch", "Opening Cash", "Opening Petty Cash", "Notes", "Updated"]}
-          rows={references.monthlyBalances.map((balance) => [
-            formatDate(balance.balance_month),
-            branchLabel(balance.branches),
-            formatCurrency(balance.opening_cash),
-            formatCurrency(balance.opening_petty_cash),
-            balance.notes ?? "-",
-            formatDate(balance.updated_at)
+          columns={[
+            "Month",
+            "Branch",
+            "Historical Opening Cash",
+            "System Carry-Forward Opening",
+            "Opening Variance",
+            "Cash Sales",
+            "Cash Bank-In",
+            "Cash Locum",
+            "System Closing Cash",
+            "Next Historical Opening",
+            "Carry-Forward Variance",
+            "Historical Opening Petty",
+            "System Petty Opening",
+            "Status",
+            "Source",
+            "Notes",
+            "Review / Edit"
+          ]}
+          rows={reconciliationRows.map((row) => [
+            formatDate(row.balanceMonth),
+            row.branch.name,
+            row.historical ? formatCurrency(row.historicalCash) : "-",
+            formatCurrency(row.systemOpeningCash),
+            row.cashVariance === null ? "-" : varianceText(row.cashVariance),
+            formatCurrency(row.cashSales),
+            formatCurrency(row.cashBankIn),
+            formatCurrency(row.cashLocum),
+            formatCurrency(row.systemClosingCash),
+            row.nextHistorical ? formatCurrency(row.nextHistorical.opening_cash) : "-",
+            row.nextCashVariance === null ? "-" : varianceText(row.nextCashVariance),
+            row.historical ? formatCurrency(row.historicalPetty) : "-",
+            formatCurrency(row.systemOpeningPetty),
+            row.historical ? labelize(row.historical.review_status ?? "pending_review") : "-",
+            row.historical ? labelize(row.historical.source ?? "manual_verified") : "-",
+            row.historical?.notes ?? "-",
+            canManageOpeningBalances && row.historical ? <MonthlyOpeningEdit balance={row.historical} branches={references.branches} key={`${row.historical.id}-monthly-edit`} /> : "-"
           ])}
         />
       </section>

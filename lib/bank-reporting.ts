@@ -204,8 +204,7 @@ function monthlyOpeningCashForBranch(
   if (targetMonth < monthlyOpeningBalanceStartMonth) return null;
 
   const manualRow = monthlyRowForBranch(data.monthlyOpeningBalances, branchId, targetMonth);
-  if (manualRow) return Number(manualRow.opening_cash ?? 0);
-  if (targetMonth === monthlyOpeningBalanceStartMonth) return 0;
+  if (targetMonth === monthlyOpeningBalanceStartMonth) return Number(manualRow?.opening_cash ?? 0);
 
   const previousMonth = addMonths(targetMonth, -1);
   const previousOpening = monthlyOpeningCashForBranch(data, branchId, previousMonth) ?? 0;
@@ -232,8 +231,7 @@ function monthlyOpeningPettyCashForBranch(
   if (targetMonth < monthlyOpeningBalanceStartMonth) return null;
 
   const manualRow = monthlyRowForBranch(data.monthlyOpeningBalances, branchId, targetMonth);
-  if (manualRow) return Number(manualRow.opening_petty_cash ?? 0);
-  if (targetMonth === monthlyOpeningBalanceStartMonth) return 0;
+  if (targetMonth === monthlyOpeningBalanceStartMonth) return Number(manualRow?.opening_petty_cash ?? 0);
 
   const previousMonth = addMonths(targetMonth, -1);
   const previousOpening = monthlyOpeningPettyCashForBranch(data, branchId, previousMonth) ?? 0;

@@ -322,11 +322,15 @@ export type MonthlyOpeningBalance = {
   balance_month: string;
   opening_cash: number;
   opening_petty_cash: number;
+  source?: "legacy_system" | "manual_verified" | "carry_forward" | "adjustment" | string | null;
   notes?: string | null;
   created_by?: string | null;
   created_at?: string;
   updated_by?: string | null;
   updated_at?: string;
+  reviewed_by?: string | null;
+  reviewed_at?: string | null;
+  review_status?: "pending_review" | "reviewed" | "reconciled" | "needs_investigation" | string | null;
   branches?: Pick<Branch, "name" | "code"> | null;
 };
 

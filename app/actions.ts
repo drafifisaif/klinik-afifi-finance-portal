@@ -1231,14 +1231,28 @@ function monthlyOpeningBalanceAuditData(balance: {
   notes?: string | null;
   opening_cash?: number | string | null;
   opening_petty_cash?: number | string | null;
+  review_status?: string | null;
+  source?: string | null;
 }) {
   return {
     balance_month: balance.balance_month,
     branch_id: balance.branch_id,
     notes: balance.notes ?? null,
     opening_cash: Number(balance.opening_cash ?? 0),
-    opening_petty_cash: Number(balance.opening_petty_cash ?? 0)
+    opening_petty_cash: Number(balance.opening_petty_cash ?? 0),
+    review_status: balance.review_status ?? "pending_review",
+    source: balance.source ?? "manual_verified"
   };
+}
+
+function monthlyOpeningBalanceSource(value: string | null) {
+  if (value === "legacy_system" || value === "manual_verified" || value === "carry_forward" || value === "adjustment") return value;
+  return "manual_verified";
+}
+
+function monthlyOpeningBalanceReviewStatus(value: string | null) {
+  if (value === "reviewed" || value === "reconciled" || value === "needs_investigation") return value;
+  return "pending_review";
 }
 
 function revalidateExpenseReports() {
@@ -1527,9 +1541,11 @@ export async function upsertMonthlyOpeningBalance(formData: FormData) {
   const openingCash = number(formData, "opening_cash");
   const openingPettyCash = number(formData, "opening_petty_cash");
   const notes = text(formData, "notes");
+  const source = monthlyOpeningBalanceSource(text(formData, "source"));
+  const reviewStatus = monthlyOpeningBalanceReviewStatus(text(formData, "review_status"));
 
   if (!branchId) throw new Error("Select the branch for this opening balance.");
-  if (balanceMonth < "2026-09-01") throw new Error("Monthly opening balance starts from September 2026.");
+  if (balanceMonth < "2026-01-01") throw new Error("Monthly opening balance starts from January 2026.");
   if (openingCash < 0 || openingPettyCash < 0) throw new Error("Opening balance amounts cannot be negative.");
   if (!canViewAllBranches(profile) && profile.branch_id !== branchId) {
     throw new Error("You do not have permission to manage opening balances for this branch.");
@@ -1539,7 +1555,7 @@ export async function upsertMonthlyOpeningBalance(formData: FormData) {
   const supabase = await createClient();
   const { data: existingBalance, error: existingError } = await supabase
     .from("monthly_opening_balances")
-    .select("id, balance_month, branch_id, notes, opening_cash, opening_petty_cash")
+    .select("id, balance_month, branch_id, notes, opening_cash, opening_petty_cash, review_status, source")
     .eq("branch_id", branchId)
     .eq("balance_month", balanceMonth)
     .maybeSingle();
@@ -1552,6 +1568,10 @@ export async function upsertMonthlyOpeningBalance(formData: FormData) {
     notes,
     opening_cash: openingCash,
     opening_petty_cash: openingPettyCash,
+    review_status: reviewStatus,
+    reviewed_at: reviewStatus === "pending_review" ? null : new Date().toISOString(),
+    reviewed_by: reviewStatus === "pending_review" ? null : userId,
+    source,
     updated_by: userId
   };
 
@@ -1565,7 +1585,7 @@ export async function upsertMonthlyOpeningBalance(formData: FormData) {
         .insert({ ...payload, created_by: userId });
 
   const { data: savedBalance, error } = await query
-    .select("id, balance_month, branch_id, notes, opening_cash, opening_petty_cash")
+    .select("id, balance_month, branch_id, notes, opening_cash, opening_petty_cash, review_status, source")
     .single();
 
   if (error || !savedBalance) throw error ?? new Error("Monthly opening balance could not be saved.");

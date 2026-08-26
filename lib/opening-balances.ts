@@ -71,7 +71,7 @@ export function branchOpeningBalanceTotal(
     .reduce((sum, balance) => sum + Number(balance.amount ?? 0), 0);
 }
 
-export const monthlyOpeningBalanceStartMonth = "2026-09-01";
+export const monthlyOpeningBalanceStartMonth = "2026-01-01";
 
 export function monthStart(dateString: string) {
   const date = new Date(`${dateString}T00:00:00Z`);
