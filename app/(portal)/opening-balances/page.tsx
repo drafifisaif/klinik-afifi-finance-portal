@@ -531,7 +531,7 @@ export default async function OpeningBalancesPage({ searchParams }: OpeningBalan
             row.nextCashVariance === null ? "-" : varianceText(row.nextCashVariance),
             row.historical ? formatCurrency(row.historicalPetty) : "-",
             formatCurrency(row.systemOpeningPetty),
-            row.historical ? labelize(row.historical.review_status ?? "pending_review") : "-",
+            row.historical ? labelize(row.historical.review_status ?? (row.historical.reviewed_at ? "reviewed" : "pending_review")) : "-",
             row.historical ? labelize(row.historical.source ?? "manual_verified") : "-",
             row.historical?.notes ?? "-",
             canManageOpeningBalances && row.historical ? <MonthlyOpeningEdit balance={row.historical} branches={references.branches} key={`${row.historical.id}-monthly-edit`} /> : "-"

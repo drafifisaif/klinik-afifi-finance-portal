@@ -1,5 +1,5 @@
 import { canViewAllBranches, filterBranchesForProfile, getCurrentProfile, normalizeRole } from "@/lib/permissions";
-import { createClient, hasSupabaseEnv } from "@/lib/supabase-server";
+import { createClient, getSupabaseHost, hasSupabaseEnv } from "@/lib/supabase-server";
 import type {
   BankAccount,
   Branch,
@@ -118,13 +118,39 @@ export type OpeningBalanceSetupReferences = {
   suppliers: Supplier[];
 };
 
-function isMissingMonthlyOpeningBalancesTable(error: { code?: string | null; message?: string | null } | null | undefined) {
+function isMissingMonthlyOpeningBalancesTable(error: {
+  code?: string | null;
+  details?: string | null;
+  hint?: string | null;
+  message?: string | null;
+} | null | undefined) {
   const message = String(error?.message ?? "").toLowerCase();
+  const details = String(error?.details ?? "").toLowerCase();
+  const hint = String(error?.hint ?? "").toLowerCase();
+  const haystack = `${message} ${details} ${hint}`;
   return error?.code === "PGRST205"
     || error?.code === "42P01"
-    || message.includes("monthly_opening_balances")
-    || message.includes("could not find the table")
-    || message.includes("relation \"public.monthly_opening_balances\" does not exist");
+    || haystack.includes("could not find the table 'public.monthly_opening_balances'")
+    || haystack.includes("relation \"public.monthly_opening_balances\" does not exist")
+    || haystack.includes("relation \"monthly_opening_balances\" does not exist");
+}
+
+function logMonthlyOpeningBalanceLoadError(context: string, error: {
+  code?: string | null;
+  details?: string | null;
+  hint?: string | null;
+  message?: string | null;
+} | null | undefined) {
+  if (!error) return;
+  console.error("[opening-balances] Supabase load error", {
+    code: error.code ?? null,
+    context,
+    details: error.details ?? null,
+    hint: error.hint ?? null,
+    message: error.message ?? null,
+    supabaseHost: getSupabaseHost(),
+    table: "public.monthly_opening_balances"
+  });
 }
 
 export async function getOpeningBalanceSetupReferences(): Promise<OpeningBalanceSetupReferences> {
@@ -155,10 +181,10 @@ export async function getOpeningBalanceSetupReferences(): Promise<OpeningBalance
   if (balanceRows.error) throw balanceRows.error;
   if (branchRows.error) throw branchRows.error;
   const monthlyBalancesConfigError = monthlyBalanceRows.error && isMissingMonthlyOpeningBalancesTable(monthlyBalanceRows.error)
-    ? "Monthly opening balances table is missing. Run supabase/2026-01-01-monthly-opening-reconciliation.sql in Supabase SQL Editor."
+    ? "Opening Balance database migration is missing."
     : null;
   if (monthlyBalanceRows.error) {
-    console.warn("[opening-balances] monthly_opening_balances could not be loaded. Run supabase/2026-01-01-monthly-opening-reconciliation.sql in Supabase SQL Editor.", monthlyBalanceRows.error);
+    logMonthlyOpeningBalanceLoadError("getOpeningBalanceSetupReferences:monthly_opening_balances", monthlyBalanceRows.error);
     if (!monthlyBalancesConfigError) throw monthlyBalanceRows.error;
   }
   if (bankRows.error) throw bankRows.error;

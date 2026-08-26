@@ -6,7 +6,7 @@ import { getAuditChangedFields, logAuditEvent } from "@/lib/audit";
 import { importConfigs, type ImportType } from "@/lib/import-config";
 import { panelReceivingBankAccounts, panelReceivingBankError, panelReceivingBankRequirement } from "@/lib/panel-accounting";
 import { createAdminClient } from "@/lib/supabase-admin";
-import { createClient, hasSupabaseEnv } from "@/lib/supabase-server";
+import { createClient, getSupabaseHost, hasSupabaseEnv } from "@/lib/supabase-server";
 import {
   canEditBranch,
   canManageBankPermissions,
@@ -1231,7 +1231,7 @@ function monthlyOpeningBalanceAuditData(balance: {
   notes?: string | null;
   opening_cash?: number | string | null;
   opening_petty_cash?: number | string | null;
-  review_status?: string | null;
+  reviewed_at?: string | null;
   source?: string | null;
 }) {
   return {
@@ -1240,7 +1240,7 @@ function monthlyOpeningBalanceAuditData(balance: {
     notes: balance.notes ?? null,
     opening_cash: Number(balance.opening_cash ?? 0),
     opening_petty_cash: Number(balance.opening_petty_cash ?? 0),
-    review_status: balance.review_status ?? "pending_review",
+    reviewed_at: balance.reviewed_at ?? null,
     source: balance.source ?? "manual_verified"
   };
 }
@@ -1256,24 +1256,52 @@ function monthlyOpeningBalanceReviewStatus(value: string | null) {
 }
 
 function isMissingMonthlyOpeningBalancesTable(error: {
+  details?: string | null;
+  hint?: string | null;
   code?: string | null;
   message?: string | null;
 } | null | undefined) {
   const message = String(error?.message ?? "").toLowerCase();
+  const details = String(error?.details ?? "").toLowerCase();
+  const hint = String(error?.hint ?? "").toLowerCase();
+  const haystack = `${message} ${details} ${hint}`;
   return error?.code === "PGRST205"
     || error?.code === "42P01"
-    || message.includes("monthly_opening_balances")
-    || message.includes("could not find the table")
-    || message.includes("relation \"public.monthly_opening_balances\" does not exist");
+    || haystack.includes("could not find the table 'public.monthly_opening_balances'")
+    || haystack.includes("relation \"public.monthly_opening_balances\" does not exist")
+    || haystack.includes("relation \"monthly_opening_balances\" does not exist");
+}
+
+function logMonthlyOpeningBalanceSupabaseError(context: string, error: {
+  code?: string | null;
+  details?: string | null;
+  hint?: string | null;
+  message?: string | null;
+} | null | undefined) {
+  if (!error) return;
+  console.error("[opening-balances] Supabase error", {
+    code: error.code ?? null,
+    context,
+    details: error.details ?? null,
+    hint: error.hint ?? null,
+    message: error.message ?? null,
+    supabaseHost: getSupabaseHost(),
+    table: "public.monthly_opening_balances"
+  });
 }
 
 function monthlyOpeningBalanceTableError(error: {
   code?: string | null;
+  details?: string | null;
+  hint?: string | null;
   message?: string | null;
 } | null | undefined) {
   if (isMissingMonthlyOpeningBalancesTable(error)) {
-    return new Error("Monthly opening balance table is missing. Run the latest Supabase migration first.");
+    return new Error("Opening Balance database migration is missing.");
   }
+  if (error?.code === "42501") return new Error("You do not have permission to access Opening Balances.");
+  if (error?.code === "42703") return new Error("Opening Balance schema is outdated.");
+  if (error?.code === "23505") return new Error("An opening balance already exists for this branch and month.");
   return error ?? new Error("Monthly opening balance could not be saved.");
 }
 
@@ -1577,12 +1605,15 @@ export async function upsertMonthlyOpeningBalance(formData: FormData) {
   const supabase = await createClient();
   const { data: existingBalance, error: existingError } = await supabase
     .from("monthly_opening_balances")
-    .select("id, balance_month, branch_id, notes, opening_cash, opening_petty_cash, review_status, source")
+    .select("id, balance_month, branch_id, notes, opening_cash, opening_petty_cash, reviewed_at, source")
     .eq("branch_id", branchId)
     .eq("balance_month", balanceMonth)
     .maybeSingle();
 
-  if (existingError) throw monthlyOpeningBalanceTableError(existingError);
+  if (existingError) {
+    logMonthlyOpeningBalanceSupabaseError("upsertMonthlyOpeningBalance:load_existing", existingError);
+    throw monthlyOpeningBalanceTableError(existingError);
+  }
 
   const payload = {
     balance_month: balanceMonth,
@@ -1590,7 +1621,6 @@ export async function upsertMonthlyOpeningBalance(formData: FormData) {
     notes,
     opening_cash: openingCash,
     opening_petty_cash: openingPettyCash,
-    review_status: reviewStatus,
     reviewed_at: reviewStatus === "pending_review" ? null : new Date().toISOString(),
     reviewed_by: reviewStatus === "pending_review" ? null : userId,
     source,
@@ -1607,10 +1637,13 @@ export async function upsertMonthlyOpeningBalance(formData: FormData) {
         .insert({ ...payload, created_by: userId });
 
   const { data: savedBalance, error } = await query
-    .select("id, balance_month, branch_id, notes, opening_cash, opening_petty_cash, review_status, source")
+    .select("id, balance_month, branch_id, notes, opening_cash, opening_petty_cash, reviewed_at, source")
     .single();
 
-  if (error || !savedBalance) throw monthlyOpeningBalanceTableError(error);
+  if (error || !savedBalance) {
+    logMonthlyOpeningBalanceSupabaseError("upsertMonthlyOpeningBalance:save", error);
+    throw monthlyOpeningBalanceTableError(error);
+  }
 
   await logAuditEvent({
     action: existingBalance ? "update" : "create",

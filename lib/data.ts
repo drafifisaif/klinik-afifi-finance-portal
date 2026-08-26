@@ -1,5 +1,5 @@
 import { createAdminClient } from "@/lib/supabase-admin";
-import { hasSupabaseEnv, createClient } from "@/lib/supabase-server";
+import { createClient, getSupabaseHost, hasSupabaseEnv } from "@/lib/supabase-server";
 import { branchPicHiddenExpenseCategories } from "@/lib/constants";
 import { canViewAllBranches, filterBranchesForProfile, filterDashboardDataForProfile, getCurrentProfile, normalizeRole } from "@/lib/permissions";
 import type {
@@ -377,7 +377,10 @@ async function fetchOrDemo<T>(query: PromiseLike<{ data: T | null; error: unknow
   const { data, error } = result;
   if (error || !data) {
     if (error) {
-      console.error(`fetchOrDemo failed for ${label ?? "unknown query"}`, error);
+      console.error(`fetchOrDemo failed for ${label ?? "unknown query"}`, {
+        error,
+        supabaseHost: label?.includes("monthly_opening_balances") ? getSupabaseHost() : undefined
+      });
     }
     return fallback;
   }
