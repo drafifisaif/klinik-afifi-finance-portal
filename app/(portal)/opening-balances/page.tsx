@@ -2,7 +2,7 @@ import { createOpeningBalance, updateOpeningBalance, upsertMonthlyOpeningBalance
 import { DataTable } from "@/components/data-table";
 import { ModuleHeader } from "@/components/module-header";
 import { bankAccountLabel, branchLabel, buildCashInHandRows, buildPettyCashBalanceRows, type DateRange } from "@/lib/bank-reporting";
-import { getBankingData } from "@/lib/data";
+import { getDashboardOperationalCashData } from "@/lib/data";
 import { formatCurrency, formatDate, labelize } from "@/lib/format";
 import {
   addMonths,
@@ -329,7 +329,7 @@ export default async function OpeningBalancesPage({ searchParams }: OpeningBalan
   const role = normalizeRole(profile?.role);
   const canManageOpeningBalances = role === "owner" || role === "finance";
   const params = await searchParams;
-  const [references, bankingData] = await Promise.all([getOpeningBalanceSetupReferences(), getBankingData()]);
+  const [references, operationalCashData] = await Promise.all([getOpeningBalanceSetupReferences(), getDashboardOperationalCashData()]);
   const hasUnverifiedBalances = references.balances.some(needsOpeningBalanceCaution);
   const requestedYear = Number(searchValue(params?.year) ?? 2026);
   const selectedYear = Number.isFinite(requestedYear) && requestedYear >= 2026 ? requestedYear : 2026;
@@ -337,6 +337,15 @@ export default async function OpeningBalancesPage({ searchParams }: OpeningBalan
   const selectedBranches = selectedBranchId === "all"
     ? references.branches
     : references.branches.filter((branch) => branch.id === selectedBranchId);
+  console.info("[opening-balances] reconciliation source rows", {
+    branchCount: selectedBranches.length,
+    cashBankInRows: operationalCashData.cashBankIns.length,
+    cashLocumExpenseRows: operationalCashData.expenses.length,
+    dailySalesRows: operationalCashData.sales.length,
+    monthlyOpeningRows: operationalCashData.monthlyOpeningBalances.length,
+    selectedBranchId,
+    selectedYear
+  });
   const reconciliationRows = selectedBranches.flatMap((branch) => {
     return yearMonths(selectedYear)
       .filter((balanceMonth) => balanceMonth >= "2026-01-01")
@@ -351,17 +360,17 @@ export default async function OpeningBalancesPage({ searchParams }: OpeningBalan
         const nextHistorical = monthlyRowForBranch(references.monthlyBalances, branch.id, addMonths(balanceMonth, 1));
         const cashRow = buildCashInHandRows({
           branches: [branch],
-          cashBankIns: bankingData.cashBankIns,
-          expenses: bankingData.expenses,
-          monthlyOpeningBalances: bankingData.monthlyOpeningBalances,
-          openingBalances: bankingData.openingBalances,
-          sales: bankingData.sales
+          cashBankIns: operationalCashData.cashBankIns,
+          expenses: operationalCashData.expenses,
+          monthlyOpeningBalances: operationalCashData.monthlyOpeningBalances,
+          openingBalances: operationalCashData.openingBalances,
+          sales: operationalCashData.sales
         }, range)[0];
         const pettyRow = buildPettyCashBalanceRows({
           branches: [branch],
-          monthlyOpeningBalances: bankingData.monthlyOpeningBalances,
-          openingBalances: bankingData.openingBalances,
-          pettyCashTransactions: bankingData.pettyCashTransactions
+          monthlyOpeningBalances: operationalCashData.monthlyOpeningBalances,
+          openingBalances: operationalCashData.openingBalances,
+          pettyCashTransactions: operationalCashData.pettyCashTransactions
         }, range)[0];
         const historicalCash = Number(historical?.opening_cash ?? 0);
         const historicalPetty = Number(historical?.opening_petty_cash ?? 0);
