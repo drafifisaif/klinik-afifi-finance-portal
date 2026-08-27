@@ -172,11 +172,11 @@ export function bankInAmount(bankIn: CashBankIn) {
 }
 
 export function cashBankInSourceDate(bankIn: CashBankIn) {
-  return bankIn.cash_month || bankIn.cash_source_date || bankIn.bank_in_date;
+  return bankIn.cash_month ?? null;
 }
 
-export function cashBankInCashMonth(bankIn: Pick<CashBankIn, "bank_in_date" | "cash_month" | "cash_source_date">) {
-  return bankIn.cash_month ?? bankIn.cash_source_date?.slice(0, 7).concat("-01") ?? `${bankIn.bank_in_date.slice(0, 7)}-01`;
+export function cashBankInCashMonth(bankIn: Pick<CashBankIn, "cash_month">) {
+  return bankIn.cash_month ?? null;
 }
 
 function openingMonth(dateString: string) {
@@ -249,20 +249,18 @@ function monthlyOpeningPettyCashForBranch(
   return previousOpening + issued - spent - returned + adjustments;
 }
 
-export function cashBankInCashSalesFrom(bankIn: Pick<CashBankIn, "bank_in_date" | "cash_sales_from" | "cash_source_date">) {
-  return bankIn.cash_sales_from ?? bankIn.cash_source_date ?? bankIn.bank_in_date;
+export function cashBankInCashSalesFrom(bankIn: Pick<CashBankIn, "cash_sales_from" | "cash_source_date">) {
+  return bankIn.cash_sales_from ?? bankIn.cash_source_date ?? null;
 }
 
-export function cashBankInCashSalesTo(bankIn: Pick<CashBankIn, "bank_in_date" | "cash_sales_to" | "cash_source_date">) {
-  return bankIn.cash_sales_to ?? bankIn.cash_source_date ?? bankIn.bank_in_date;
+export function cashBankInCashSalesTo(bankIn: Pick<CashBankIn, "cash_sales_to" | "cash_source_date">) {
+  return bankIn.cash_sales_to ?? bankIn.cash_source_date ?? null;
 }
 
 export function cashBankInMatchesCashControlRange(bankIn: CashBankIn, range: Pick<DateRange, "endDate" | "period" | "startDate">) {
-  if (range.period === "custom") {
-    return cashBankInCashSalesFrom(bankIn) <= range.endDate && cashBankInCashSalesTo(bankIn) >= range.startDate;
-  }
-
-  return isWithinDateRange(cashBankInCashMonth(bankIn), range);
+  const cashMonth = cashBankInCashMonth(bankIn);
+  if (!cashMonth) return false;
+  return isWithinDateRange(cashMonth, range);
 }
 
 export function bankTransactionAmount(transaction: BankTransaction) {

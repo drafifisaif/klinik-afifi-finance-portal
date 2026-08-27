@@ -17,9 +17,10 @@ import {
   cashBankInMatchesCashControlRange,
   getBankAccountById,
   getBranchById,
+  isActiveFinancialRecord,
   resolveDateRange
 } from "@/lib/bank-reporting";
-import { getBankingData, getBranchPicCashBankInTarget, totalBy } from "@/lib/data";
+import { getBankingDataForScope, getBranchPicCashBankInTarget, totalBy } from "@/lib/data";
 import { userDisplayLabel } from "@/lib/display";
 import { formatCurrency, formatDate } from "@/lib/format";
 import { canViewAllBranches, hasBankAccountPermission, normalizeRole, requirePermission } from "@/lib/permissions";
@@ -30,6 +31,7 @@ import { Banknote, Landmark, WalletCards } from "lucide-react";
 
 type CashBankInsSearchParams = {
   branch?: string;
+  cash_month_status?: string;
   error?: string;
   end?: string;
   period?: string;
@@ -45,7 +47,7 @@ function monthInput(value: string | null | undefined) {
 }
 
 function cashMonthLabel(value: string | null | undefined) {
-  if (!value) return "-";
+  if (!value) return "Unassigned Cash Month";
   return new Intl.DateTimeFormat("en-MY", { month: "long", year: "numeric" }).format(new Date(value));
 }
 
@@ -75,7 +77,7 @@ export default async function CashBankInsPage({ searchParams }: { searchParams: 
   const role = normalizeRole(profile.role);
   const canSelectBranches = canViewAllBranches(profile);
   const [data, branchPicTarget] = await Promise.all([
-    getBankingData(),
+    getBankingDataForScope({ cashControlOnly: true }),
     role === "branch_pic"
       ? getBranchPicCashBankInTarget(profile.branch_id)
       : Promise.resolve({ bankAccount: null, bankAccounts: [], branch: null, mapping: null, mappings: [] })
@@ -85,7 +87,7 @@ export default async function CashBankInsPage({ searchParams }: { searchParams: 
       .filter((permission) => permission.user_id === profile.id && (permission.can_create_transaction || permission.can_manage_account))
       .map((permission) => permission.bank_account_id)
   );
-  const destinationBankAccounts = role === "admin" || role === "finance"
+  const destinationBankAccounts = role === "admin"
     ? data.bankAccounts.filter((account) => creatableBankAccountIds.has(account.id))
     : data.bankAccounts;
   const bankAccountById = getBankAccountById(data);
@@ -105,7 +107,16 @@ export default async function CashBankInsPage({ searchParams }: { searchParams: 
   const canCreateCashBankIn = role === "branch_pic"
     ? !branchPicMissingBranch && !branchPicMissingMapping
     : Boolean(data.branches.length && destinationBankAccounts.length);
+  const unassignedCashMonthBankIns = data.cashBankIns.filter((bankIn) => {
+    return isActiveFinancialRecord(bankIn)
+      && !bankIn.cash_month
+      && (!effectiveBranchId || bankIn.branch_id === effectiveBranchId);
+  });
+  const showUnassignedCashMonth = params.cash_month_status === "unassigned";
   const selectedBankIns = data.cashBankIns.filter((bankIn) => {
+    if (showUnassignedCashMonth) {
+      return isActiveFinancialRecord(bankIn) && !bankIn.cash_month && (!effectiveBranchId || bankIn.branch_id === effectiveBranchId);
+    }
     return cashBankInMatchesCashControlRange(bankIn, range) && (!effectiveBranchId || bankIn.branch_id === effectiveBranchId);
   });
   const visibleUsers = await getVisibleProfilesById(selectedBankIns.flatMap((bankIn) => [bankIn.entered_by, bankIn.voided_by]));
@@ -117,13 +128,14 @@ export default async function CashBankInsPage({ searchParams }: { searchParams: 
   const totalCashLocumPayments = totalBy(cashInHandRows, (row) => row.cashLocumPayments);
   const totalCashInHand = totalBy(cashInHandRows, (row) => row.remaining);
   const pendingBankIn = Math.max(0, totalCashSales - totalBankedIn - totalCashLocumPayments);
+  const unassignedCashMonthTotal = totalBy(unassignedCashMonthBankIns, (bankIn) => bankInAmount(bankIn));
   const branchGroups = cashInHandRows.map((row) => ({
     balanceRow: row,
     branchId: row.branch.id,
     branchLabel: row.branch.name,
     records: selectedBankIns.filter((bankIn) => bankIn.branch_id === row.branch.id)
   }));
-  const allowedDestinationAccounts = role === "admin" || role === "finance" ? destinationBankAccounts : data.bankAccounts;
+  const allowedDestinationAccounts = role === "admin" ? destinationBankAccounts : data.bankAccounts;
   const destinationAccountsByBranchId = new Map(
     data.branches.map((branch) => {
       const branchAccounts = data.branchBankMappings
@@ -141,6 +153,10 @@ export default async function CashBankInsPage({ searchParams }: { searchParams: 
     ...params,
     ...(effectiveBranchId ? { branch_id: effectiveBranchId, branch: effectiveBranchId } : {})
   };
+  const unassignedHrefParams = new URLSearchParams({
+    cash_month_status: "unassigned",
+    ...(effectiveBranchId ? { branch: effectiveBranchId } : { branch: "all" })
+  });
 
   return (
     <>
@@ -162,6 +178,18 @@ export default async function CashBankInsPage({ searchParams }: { searchParams: 
         <MetricCard icon={WalletCards} label="Cash in hand" value={formatCurrency(totalCashInHand)} detail="After bank-ins & cash locum" tone={totalCashInHand >= 0 ? "teal" : "rose"} />
         <MetricCard icon={Banknote} label="Bank-in count" value={String(selectedBankIns.length)} tone="rose" />
       </section>
+
+      {unassignedCashMonthBankIns.length ? (
+        <section className="report-panel mt-section">
+          <h2>Unassigned Cash Bank-Ins</h2>
+          <p className="selected-branches">
+            {unassignedCashMonthBankIns.length} active records · {formatCurrency(unassignedCashMonthTotal)} excluded from monthly cash-control totals until Finance assigns Cash Month.
+          </p>
+          <a className="secondary-button compact-button" href={`/cash-bank-ins?${unassignedHrefParams.toString()}`}>
+            Review unassigned records
+          </a>
+        </section>
+      ) : null}
 
       <section className="table-section mt-section">
         <form className="reporting-filter cash-bank-in-filter" method="get">
@@ -197,10 +225,17 @@ export default async function CashBankInsPage({ searchParams }: { searchParams: 
             End date
             <input name="end" type="date" defaultValue={range.endDate} />
           </label>
+          <label>
+            Cash month status
+            <select name="cash_month_status" defaultValue={showUnassignedCashMonth ? "unassigned" : "assigned"}>
+              <option value="assigned">Assigned cash month</option>
+              <option value="unassigned">Unassigned cash month</option>
+            </select>
+          </label>
           <button className="primary-button" type="submit">
             Apply
           </button>
-          <p className="selected-branches">Showing {selectedBranchLabel} · {range.label}</p>
+          <p className="selected-branches">Showing {selectedBranchLabel} · {showUnassignedCashMonth ? "Unassigned Cash Month" : range.label}</p>
         </form>
       </section>
 
@@ -331,9 +366,13 @@ export default async function CashBankInsPage({ searchParams }: { searchParams: 
                     ? bankIn.bank_account_id
                     : editableBankOptions[0]?.id ?? "";
                   const managementCanCorrect = !bankIn.is_void
-                    && (role === "owner" || role === "admin" || role === "finance")
+                    && (role === "owner" || role === "finance" || role === "admin")
                     && editableBankOptions.length > 0
-                    && hasBankAccountPermission(profile, data.bankAccountPermissions, bankIn.bank_account_id, "edit_transaction");
+                    && (
+                      role === "owner"
+                      || role === "finance"
+                      || hasBankAccountPermission(profile, data.bankAccountPermissions, bankIn.bank_account_id, "edit_transaction")
+                    );
                   const branchPicCanCorrect = !bankIn.is_void
                     && role === "branch_pic"
                     && profile.branch_id === bankIn.branch_id
@@ -402,11 +441,11 @@ export default async function CashBankInsPage({ searchParams }: { searchParams: 
                           </label>
                           <label>
                             Cash sales from
-                            <input name="cash_sales_from" type="date" defaultValue={cashSalesFrom} required />
+                            <input name="cash_sales_from" type="date" defaultValue={cashSalesFrom ?? ""} required />
                           </label>
                           <label>
                             Cash sales to
-                            <input name="cash_sales_to" type="date" defaultValue={cashSalesTo} required />
+                            <input name="cash_sales_to" type="date" defaultValue={cashSalesTo ?? ""} required />
                           </label>
                           <label>
                             Bank-in date

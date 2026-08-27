@@ -1,7 +1,7 @@
 import { createOpeningBalance, updateOpeningBalance, upsertMonthlyOpeningBalance } from "@/app/actions";
 import { DataTable } from "@/components/data-table";
 import { ModuleHeader } from "@/components/module-header";
-import { bankAccountLabel, branchLabel, buildCashInHandRows, buildPettyCashBalanceRows, type DateRange } from "@/lib/bank-reporting";
+import { bankAccountLabel, bankInAmount, branchLabel, buildCashInHandRows, buildPettyCashBalanceRows, isActiveFinancialRecord, type DateRange } from "@/lib/bank-reporting";
 import { getDashboardOperationalCashData } from "@/lib/data";
 import { formatCurrency, formatDate, labelize } from "@/lib/format";
 import {
@@ -346,6 +346,15 @@ export default async function OpeningBalancesPage({ searchParams }: OpeningBalan
     selectedBranchId,
     selectedYear
   });
+  const selectedBranchIds = new Set(selectedBranches.map((branch) => branch.id));
+  const unassignedCashMonthBankIns = operationalCashData.cashBankIns.filter((bankIn) => {
+    return isActiveFinancialRecord(bankIn) && !bankIn.cash_month && selectedBranchIds.has(bankIn.branch_id);
+  });
+  const unassignedCashMonthTotal = unassignedCashMonthBankIns.reduce((sum, bankIn) => sum + bankInAmount(bankIn), 0);
+  const unassignedHrefParams = new URLSearchParams({
+    cash_month_status: "unassigned",
+    ...(selectedBranchId !== "all" ? { branch: selectedBranchId } : { branch: "all" })
+  });
   const reconciliationRows = selectedBranches.flatMap((branch) => {
     return yearMonths(selectedYear)
       .filter((balanceMonth) => balanceMonth >= "2026-01-01")
@@ -415,6 +424,13 @@ export default async function OpeningBalancesPage({ searchParams }: OpeningBalan
         {references.monthlyBalancesConfigError ? (
           <p className="import-message opening-balance-warning">
             Opening Balance configuration is incomplete. Run <code>supabase/2026-01-01-monthly-opening-reconciliation.sql</code> in Supabase SQL Editor, then refresh this page.
+          </p>
+        ) : null}
+
+        {unassignedCashMonthBankIns.length ? (
+          <p className="import-message opening-balance-warning">
+            Unassigned Cash Bank-Ins: {unassignedCashMonthBankIns.length} active records · {formatCurrency(unassignedCashMonthTotal)} are excluded from monthly reconciliation totals until Finance assigns Cash Month.{" "}
+            <a href={`/cash-bank-ins?${unassignedHrefParams.toString()}`}>Review unassigned records</a>
           </p>
         ) : null}
 

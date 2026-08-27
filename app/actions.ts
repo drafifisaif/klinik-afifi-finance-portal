@@ -2161,7 +2161,7 @@ async function requireCashBankInEditor(
     throw new Error("You do not have permission to use this bank account.");
   }
 
-  if (role === "admin" || role === "finance") {
+  if (role === "admin") {
     await requireBankAccountPermission(bankAccountId, "edit_transaction");
   }
   return profile;

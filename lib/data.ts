@@ -530,6 +530,7 @@ export async function getExpensesReportingData(): Promise<Pick<DashboardData, "b
 
 type BankingDataOptions = {
   bankAccessOnly?: boolean;
+  cashControlOnly?: boolean;
 };
 
 export type DashboardOperationalCashData = Pick<
@@ -546,7 +547,7 @@ function filterBankingDataForProfile(data: BankingData, profile: Awaited<ReturnT
   const branchIds = new Set(filteredBranches.map((branch) => branch.id));
   const role = normalizeRole(profile?.role);
 
-  const shouldFilterByBankPermissions = profile?.is_active && (role === "admin" || role === "finance");
+  const shouldFilterByBankPermissions = profile?.is_active && !options.cashControlOnly && (role === "admin" || role === "finance");
   const shouldUseAssignedBranchPicBanks = role === "branch_pic" && options.bankAccessOnly;
 
   const branchPicBankAccountIds =

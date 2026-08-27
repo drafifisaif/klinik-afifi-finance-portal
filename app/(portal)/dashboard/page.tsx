@@ -292,7 +292,9 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     return isActiveFinancialRecord(sale) && selectedBankBranchIds.has(sale.branch_id) && isWithinDateRange(sale.sale_date, range);
   }) ?? [];
   const selectedCashBankIns = bankingData?.cashBankIns.filter((bankIn) => {
-    return isActiveFinancialRecord(bankIn) && selectedBankBranchIds.has(bankIn.branch_id) && isWithinDateRange(cashBankInSourceDate(bankIn), range);
+    const cashSourceDate = cashBankInSourceDate(bankIn);
+    if (!cashSourceDate) return false;
+    return isActiveFinancialRecord(bankIn) && selectedBankBranchIds.has(bankIn.branch_id) && isWithinDateRange(cashSourceDate, range);
   }) ?? [];
   const selectedBankTransactions = bankingData?.bankTransactions.filter((transaction) => {
     const matchesBranch = transaction.branch_id ? selectedBranchIdSet.has(transaction.branch_id) : isAllSelectedBranches;
@@ -468,9 +470,11 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       .reduce((sum, sale) => sum + money(sale.cash_amount), 0);
     const periodCashBankIns = (bankingData?.cashBankIns ?? [])
       .filter((bankIn) => {
+        const cashSourceDate = cashBankInSourceDate(bankIn);
+        if (!cashSourceDate) return false;
         return isActiveFinancialRecord(bankIn)
           && bankIn.branch_id === cashRow.branch.id
-          && isWithinDateRange(cashBankInSourceDate(bankIn), range);
+          && isWithinDateRange(cashSourceDate, range);
       })
       .reduce((sum, bankIn) => sum + bankInAmount(bankIn), 0);
     const periodCashLocumPayments = (bankingData?.expenses ?? [])
