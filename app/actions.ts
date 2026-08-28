@@ -770,10 +770,6 @@ function cashMonthStart(monthInput: string | null) {
   return `${monthInput}-01`;
 }
 
-function monthInputFromDate(date: string) {
-  return /^\d{4}-\d{2}-\d{2}$/.test(date) ? `${date.slice(0, 7)}-01` : null;
-}
-
 function dateFallsInMonth(date: string, monthStart: string) {
   return date >= monthStart && date < `${addDays(monthStart, 32).slice(0, 8)}01`;
 }
@@ -782,10 +778,10 @@ function cashBankInLegacyRow<T extends { bank_in_date: string }>(row: T | null) 
   if (!row) return row;
   return {
     ...row,
-    cash_month: monthInputFromDate(row.bank_in_date),
-    cash_sales_from: row.bank_in_date,
-    cash_sales_to: row.bank_in_date,
-    cash_source_date: row.bank_in_date
+    cash_month: null,
+    cash_sales_from: null,
+    cash_sales_to: null,
+    cash_source_date: null
   };
 }
 
