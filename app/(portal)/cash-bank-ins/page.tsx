@@ -76,12 +76,10 @@ export default async function CashBankInsPage({ searchParams }: { searchParams: 
   const range = resolveDateRange(params);
   const role = normalizeRole(profile.role);
   const canSelectBranches = canViewAllBranches(profile);
-  const [data, branchPicTarget] = await Promise.all([
-    getBankingDataForScope({ cashControlOnly: true }),
-    role === "branch_pic"
-      ? getBranchPicCashBankInTarget(profile.branch_id)
-      : Promise.resolve({ bankAccount: null, bankAccounts: [], branch: null, mapping: null, mappings: [] })
-  ]);
+  const data = await getBankingDataForScope({ cashControlOnly: true, cashControlRange: range });
+  const branchPicTarget = role === "branch_pic"
+    ? await getBranchPicCashBankInTarget(profile.branch_id, data)
+    : { bankAccount: null, bankAccounts: [], branch: null, mapping: null, mappings: [] };
   const creatableBankAccountIds = new Set(
     data.bankAccountPermissions
       .filter((permission) => permission.user_id === profile.id && (permission.can_create_transaction || permission.can_manage_account))

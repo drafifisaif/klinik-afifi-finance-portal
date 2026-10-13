@@ -585,12 +585,12 @@ export async function getExpensesReportingData(dateRange?: { startDate: string; 
   const adminSupabase = createAdminClient();
   let expensesQuery = supabase
     .from("expenses")
-    .select("*, branches(name, code)")
+    .select("id, branch_id, expense_date, category, vendor_name, description, payment_type, amount, receipt_path, entered_by, created_at, is_void, voided_at, voided_by, void_reason, branches(name, code)")
     .order("expense_date", { ascending: false })
     .order("created_at", { ascending: false });
   let supplierPaymentsQuery = adminSupabase
     .from("supplier_payment_entries")
-    .select("*, suppliers(name), branches(name, code), bank_accounts(name, bank_name, account_no), supplier_purchase_entries(id, invoice_no, branch_id, supplier_id, due_date, total_amount)")
+    .select("id, supplier_purchase_entry_id, supplier_id, branch_id, payment_date, payment_method, bank_account_id, amount, reference_no, notes, is_void, created_at, suppliers(name), branches(name, code), bank_accounts(name, bank_name, account_no), supplier_purchase_entries(invoice_no)")
     .order("payment_date", { ascending: false })
     .order("created_at", { ascending: false });
   if (dateRange) {
@@ -598,9 +598,13 @@ export async function getExpensesReportingData(dateRange?: { startDate: string; 
     supplierPaymentsQuery = supplierPaymentsQuery.gte("payment_date", dateRange.startDate).lte("payment_date", dateRange.endDate);
   }
   const [branchRows, expenseRows, supplierPaymentRows] = await Promise.all([
-    fetchOrDemo(supabase.from("branches").select("*").order("name"), demoData.branches),
-    fetchOrDemo(expensesQuery, demoData.expenses, "expenses_reporting"),
-    fetchOrDemo(supplierPaymentsQuery, demoData.supplierPayments, "supplier_payment_entries_reporting")
+    fetchProjectedOrDemo<Branch[]>(
+      supabase.from("branches").select("id, name, code, is_active").order("name"),
+      demoData.branches,
+      "expenses_reporting_branches"
+    ),
+    fetchProjectedOrDemo<Expense[]>(expensesQuery, demoData.expenses, "expenses_reporting"),
+    fetchProjectedOrDemo<SupplierPaymentEntry[]>(supplierPaymentsQuery, demoData.supplierPayments, "supplier_payment_entries_reporting")
   ]);
 
   const filtered = filterDashboardDataForProfile({
@@ -629,6 +633,7 @@ export async function getExpensesReportingData(dateRange?: { startDate: string; 
 type BankingDataOptions = {
   bankAccessOnly?: boolean;
   cashControlOnly?: boolean;
+  cashControlRange?: Pick<DateRange, "endDate" | "startDate">;
 };
 
 export type DashboardOperationalCashData = Pick<
@@ -964,8 +969,34 @@ function isPanelBankAccount(account: Pick<BankAccount, "name" | "bank_name"> | n
   return haystack.includes("panel");
 }
 
-export async function getBranchPicCashBankInTarget(branchId: string | null | undefined): Promise<BranchPicCashBankInTarget> {
+export async function getBranchPicCashBankInTarget(
+  branchId: string | null | undefined,
+  bankingData?: Pick<BankingData, "bankAccounts" | "branches" | "branchBankMappings">
+): Promise<BranchPicCashBankInTarget> {
   if (!branchId) return { bankAccount: null, bankAccounts: [], branch: null, mapping: null, mappings: [] };
+
+  if (bankingData) {
+    const branch = bankingData.branches.find((item) => item.id === branchId) ?? null;
+    const mappings = bankingData.branchBankMappings.filter((item) => item.branch_id === branchId && item.is_active);
+    const nonPanelBankAccounts = mappings
+      .map((mapping) => bankingData.bankAccounts.find((account) => account.id === mapping.bank_account_id && account.is_active) ?? null)
+      .filter((account): account is BankAccount => Boolean(account))
+      .filter((account) => !isPanelBankAccount(account));
+    const bankAccount = nonPanelBankAccounts[0] ?? null;
+    const mapping = bankAccount ? mappings.find((item) => item.bank_account_id === bankAccount.id) ?? null : null;
+
+    if (!bankAccount) {
+      console.warn("cash-bank-in bank loader found no non-panel mapped banks", {
+        action: "getBranchPicCashBankInTarget",
+        selectedBranchId: branchId,
+        mappedBankRowsReturned: mappings.length,
+        nonPanelCandidateBanks: nonPanelBankAccounts.map((account) => account.name),
+        reason: "no_non_panel_mapped_banks"
+      });
+    }
+
+    return { bankAccount, bankAccounts: nonPanelBankAccounts, branch, mapping, mappings };
+  }
 
   if (!hasSupabaseEnv()) {
     const branch = branches.find((item) => item.id === branchId) ?? null;
@@ -1064,6 +1095,148 @@ export async function getBranchPicCashBankInTarget(branchId: string | null | und
 export async function getBankingDataForScope(options: BankingDataOptions = {}): Promise<BankingData> {
   const profile = await getCurrentProfile();
   if (!hasSupabaseEnv()) return filterBankingDataForProfile(demoBankingData, profile, options);
+
+  if (options.cashControlOnly) {
+    const supabase = await createClient();
+    const role = normalizeRole(profile?.role);
+    const reportStartDate = options.cashControlRange?.startDate ?? monthlyOpeningBalanceStartMonth;
+    const reportEndDate = options.cashControlRange?.endDate;
+    const cashControlStartDate = reportStartDate < monthlyOpeningBalanceStartMonth
+      ? reportStartDate
+      : monthlyOpeningBalanceStartMonth;
+    const dateBounded = <T extends { lte: (column: string, value: string) => T }>(query: T, column: string) =>
+      reportEndDate ? query.lte(column, reportEndDate) : query;
+
+    let cashBankInsQuery = supabase.from("cash_bank_ins").select(
+      "id, branch_id, bank_account_id, bank_in_date, cash_month, cash_sales_from, cash_sales_to, cash_source_date, amount, reference_no, notes, entered_by, created_at, is_void, voided_at, voided_by, void_reason"
+    );
+    if (reportEndDate) {
+      cashBankInsQuery = cashBankInsQuery.or(
+        `cash_month.is.null,and(cash_month.gte.${cashControlStartDate},cash_month.lte.${reportEndDate})`
+      );
+    }
+
+    const branchesQuery = supabase.from("branches").select("id, name, code, is_active").eq("is_active", true).order("name");
+    if (role === "branch_pic" && profile?.branch_id) branchesQuery.eq("id", profile.branch_id);
+    const mappingsQuery = supabase.from("branch_bank_mappings")
+      .select("id, branch_id, bank_account_id, is_active")
+      .eq("is_active", true);
+    if (role === "branch_pic" && profile?.branch_id) mappingsQuery.eq("branch_id", profile.branch_id);
+
+    const [branchRows, openingBalanceRows, monthlyOpeningBalanceRows, salesRows, expenseRows, permissionRows, mappingRows, cashBankInRows] = await Promise.all([
+      fetchProjectedOrDemo(
+        branchesQuery,
+        demoBankingData.branches,
+        "cash_bank_in_branches"
+      ),
+      fetchProjectedOrDemo(
+        dateBounded(
+          supabase.from("opening_balances")
+            .select("id, branch_id, balance_date, balance_type, amount, verification_status")
+            .in("balance_type", ["cash_in_hand", "petty_cash"]),
+          "balance_date"
+        ).order("balance_date", { ascending: false }),
+        demoBankingData.openingBalances,
+        "cash_bank_in_opening_balances"
+      ),
+      fetchProjectedOrDemo(
+        dateBounded(
+          supabase.from("monthly_opening_balances")
+            .select("id, branch_id, balance_month, opening_cash, opening_petty_cash"),
+          "balance_month"
+        ).order("balance_month", { ascending: false }),
+        demoBankingData.monthlyOpeningBalances,
+        "cash_bank_in_monthly_opening_balances"
+      ),
+      fetchProjectedOrDemo(
+        dateBounded(
+          supabase.from("daily_sales")
+            .select("id, branch_id, sale_date, cash_amount, is_void")
+            .gte("sale_date", cashControlStartDate),
+          "sale_date"
+        ).order("sale_date", { ascending: false }),
+        demoBankingData.sales,
+        "cash_bank_in_sales"
+      ),
+      fetchProjectedOrDemo(
+        dateBounded(
+          supabase.from("expenses")
+            .select("id, branch_id, expense_date, category, payment_type, amount, is_void")
+            .eq("category", "locum_doctor")
+            .gte("expense_date", cashControlStartDate),
+          "expense_date"
+        ).order("expense_date", { ascending: false }),
+        demoBankingData.expenses,
+        "cash_bank_in_locum_expenses"
+      ),
+      fetchOrDemo<BankAccountPermission[]>(
+        supabase.from("bank_account_permissions")
+          .select("id, user_id, bank_account_id, can_view, can_create_transaction, can_edit_transaction, can_manage_account"),
+        demoBankingData.bankAccountPermissions,
+        "cash_bank_in_bank_permissions"
+      ),
+      fetchProjectedOrDemo(
+        mappingsQuery,
+        demoBankingData.branchBankMappings,
+        "cash_bank_in_branch_bank_mappings"
+      ),
+      fetchProjectedOrDemo(
+        cashBankInsQuery.order("bank_in_date", { ascending: false }),
+        demoBankingData.cashBankIns,
+        "cash_bank_in_records"
+      )
+    ]);
+
+    const permissions = permissionRows as BankAccountPermission[];
+    const mappings = mappingRows as BranchBankMapping[];
+    const allowedBankAccountIds = Array.from(new Set(
+      permissions
+        .filter((permission) => role === "owner" || (permission.user_id === profile?.id && permissionHasVisibleAccount(permission)))
+        .map((permission) => permission.bank_account_id)
+    ));
+    const branchMappedBankAccountIds = Array.from(new Set(
+      mappings
+        .filter((mapping) => role !== "branch_pic" || mapping.branch_id === profile?.branch_id)
+        .map((mapping) => mapping.bank_account_id)
+    ));
+    const permittedBankAccountIds = role === "branch_pic" ? branchMappedBankAccountIds : allowedBankAccountIds;
+    const bankRows: BankAccount[] = role === "admin" || role === "finance" || role === "branch_pic"
+      ? permittedBankAccountIds.length
+        ? await fetchOrDemo(
+            supabase.from("bank_accounts")
+              .select("id, name, bank_name, account_no, is_active")
+              .in("id", permittedBankAccountIds)
+              .eq("is_active", true)
+              .order("name"),
+            [],
+            "cash_bank_in_permitted_bank_accounts"
+          ) as BankAccount[]
+        : []
+      : await fetchProjectedOrDemo(
+          supabase.from("bank_accounts")
+            .select("id, name, bank_name, account_no, is_active")
+            .eq("is_active", true)
+            .order("name"),
+          demoBankingData.bankAccounts,
+          "cash_bank_in_bank_accounts"
+        ) as BankAccount[];
+
+    return filterBankingDataForProfile({
+      branches: branchRows as Branch[],
+      openingBalances: openingBalanceRows as OpeningBalance[],
+      monthlyOpeningBalances: monthlyOpeningBalanceRows as MonthlyOpeningBalance[],
+      sales: salesRows as DailySale[],
+      expenses: expenseRows as Expense[],
+      bankAccounts: bankRows,
+      bankAccountPermissions: permissions,
+      bankTransactions: [],
+      branchBankMappings: mappings,
+      cashBankIns: cashBankInRows as CashBankIn[],
+      pettyCashTransactions: [],
+      supplierPayments: [],
+      panelPayments: []
+    }, profile, options);
+  }
 
   const supabase = await createClient();
   const role = normalizeRole(profile?.role);
