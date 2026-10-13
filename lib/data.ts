@@ -19,6 +19,7 @@ import type {
   PanelPayment,
   PanelCompany,
   PettyCashTransaction,
+  Profile,
   PurchaseCategory,
   Supplier,
   SupplierPayment,
@@ -470,7 +471,100 @@ export async function getDashboardData(): Promise<DashboardData> {
   }, profile);
 }
 
-export async function getExpensesReportingData(): Promise<Pick<DashboardData, "branches" | "expenses" | "supplierPayments">> {
+export async function getBranchManagementBranches(profile: Profile): Promise<Branch[]> {
+  if (!hasSupabaseEnv()) return filterBranchesForProfile(demoData.branches, profile);
+  const supabase = await createClient();
+  const rows = await fetchOrDemo(supabase.from("branches").select("*").order("name"), demoData.branches, "branch_management_branches");
+  return filterBranchesForProfile(rows as Branch[], profile);
+}
+
+export async function getDailySalesPageData(
+  profile: Profile,
+  dateRange?: { startDate: string; endDate: string }
+): Promise<Pick<DashboardData, "branches" | "sales">> {
+  if (!hasSupabaseEnv()) {
+    const data = filterDashboardDataForProfile(demoData, profile);
+    return { branches: data.branches, sales: data.sales };
+  }
+
+  const supabase = await createClient();
+  let salesQuery = supabase.from("daily_sales").select("*, branches(name, code)").order("sale_date", { ascending: false });
+  if (dateRange) salesQuery = salesQuery.gte("sale_date", dateRange.startDate).lte("sale_date", dateRange.endDate);
+  const [branchRows, salesRows] = await Promise.all([
+    fetchOrDemo(supabase.from("branches").select("*").order("name"), demoData.branches, "daily_sales_branches"),
+    fetchOrDemo(salesQuery, demoData.sales, "daily_sales_page")
+  ]);
+  const visibleBranches = filterBranchesForProfile(branchRows as Branch[], profile);
+  const visibleBranchIds = new Set(visibleBranches.map((branch) => branch.id));
+
+  return {
+    branches: visibleBranches,
+    sales: (salesRows as DailySale[]).filter((sale) => visibleBranchIds.has(sale.branch_id))
+  };
+}
+
+export async function getPanelOutstandingPageData(profile: Profile): Promise<Pick<DashboardData, "branches" | "openingBalances" | "panels" | "panelPayments">> {
+  if (!hasSupabaseEnv()) {
+    const data = filterDashboardDataForProfile(demoData, profile);
+    return {
+      branches: data.branches,
+      openingBalances: data.openingBalances,
+      panels: data.panels,
+      panelPayments: data.panelPayments
+    };
+  }
+
+  const supabase = await createClient();
+  const [branchRows, openingBalanceRows, panelRows, panelPaymentRows] = await Promise.all([
+    fetchOrDemo(supabase.from("branches").select("*").order("name"), demoData.branches, "panel_outstanding_branches"),
+    fetchOrDemo(
+      supabase.from("opening_balances")
+        .select("*, branches(name, code), bank_accounts(name, bank_name, account_no), suppliers(name), panel_companies(name)")
+        .order("balance_date", { ascending: false }),
+      demoData.openingBalances,
+      "panel_outstanding_opening_balances"
+    ),
+    fetchOrDemo(
+      supabase.from("panel_claims").select("*, panel_companies(name), branches(name, code)").order("claim_month", { ascending: false }),
+      demoData.panels,
+      "panel_outstanding_claims"
+    ),
+    fetchOrDemo(
+      supabase.from("panel_payments")
+        .select("*, bank_accounts(name, bank_name, account_no), panel_claims(branch_id, claim_no, panel_company_id, branches(name, code), panel_companies(name))")
+        .order("payment_date", { ascending: false }),
+      demoData.panelPayments,
+      "panel_outstanding_payments"
+    )
+  ]);
+  const normalizedPanelPayments = (panelPaymentRows as PanelPayment[]).map((payment) => ({
+    ...payment,
+    branch_id: payment.branch_id ?? payment.panel_claims?.branch_id ?? null,
+    panel_company_id: payment.panel_company_id ?? payment.panel_claims?.panel_company_id ?? null,
+    panel_companies: payment.panel_companies ?? payment.panel_claims?.panel_companies ?? null,
+    branches: payment.branches ?? payment.panel_claims?.branches ?? null,
+    panel_claims: payment.panel_claims ?? null
+  }));
+  const visible = filterDashboardDataForProfile({
+    branches: branchRows as Branch[],
+    openingBalances: openingBalanceRows as OpeningBalance[],
+    sales: [],
+    expenses: [],
+    purchases: [],
+    supplierPayments: [],
+    panels: panelRows as PanelClaim[],
+    panelPayments: normalizedPanelPayments
+  }, profile);
+
+  return {
+    branches: visible.branches,
+    openingBalances: visible.openingBalances,
+    panels: visible.panels,
+    panelPayments: visible.panelPayments
+  };
+}
+
+export async function getExpensesReportingData(dateRange?: { startDate: string; endDate: string }): Promise<Pick<DashboardData, "branches" | "expenses" | "supplierPayments">> {
   const profile = await getCurrentProfile();
   if (!hasSupabaseEnv()) {
     const filtered = filterDashboardDataForProfile(demoData, profile);
@@ -483,26 +577,24 @@ export async function getExpensesReportingData(): Promise<Pick<DashboardData, "b
 
   const supabase = await createClient();
   const adminSupabase = createAdminClient();
+  let expensesQuery = supabase
+    .from("expenses")
+    .select("*, branches(name, code)")
+    .order("expense_date", { ascending: false })
+    .order("created_at", { ascending: false });
+  let supplierPaymentsQuery = adminSupabase
+    .from("supplier_payment_entries")
+    .select("*, suppliers(name), branches(name, code), bank_accounts(name, bank_name, account_no), supplier_purchase_entries(id, invoice_no, branch_id, supplier_id, due_date, total_amount)")
+    .order("payment_date", { ascending: false })
+    .order("created_at", { ascending: false });
+  if (dateRange) {
+    expensesQuery = expensesQuery.gte("expense_date", dateRange.startDate).lte("expense_date", dateRange.endDate);
+    supplierPaymentsQuery = supplierPaymentsQuery.gte("payment_date", dateRange.startDate).lte("payment_date", dateRange.endDate);
+  }
   const [branchRows, expenseRows, supplierPaymentRows] = await Promise.all([
     fetchOrDemo(supabase.from("branches").select("*").order("name"), demoData.branches),
-    fetchOrDemo(
-      supabase
-        .from("expenses")
-        .select("*, branches(name, code)")
-        .order("expense_date", { ascending: false })
-        .order("created_at", { ascending: false }),
-      demoData.expenses,
-      "expenses_reporting"
-    ),
-    fetchOrDemo(
-      adminSupabase
-        .from("supplier_payment_entries")
-        .select("*, suppliers(name), branches(name, code), bank_accounts(name, bank_name, account_no), supplier_purchase_entries(id, invoice_no, branch_id, supplier_id, due_date, total_amount)")
-        .order("payment_date", { ascending: false })
-        .order("created_at", { ascending: false }),
-      demoData.supplierPayments,
-      "supplier_payment_entries_reporting"
-    )
+    fetchOrDemo(expensesQuery, demoData.expenses, "expenses_reporting"),
+    fetchOrDemo(supplierPaymentsQuery, demoData.supplierPayments, "supplier_payment_entries_reporting")
   ]);
 
   const filtered = filterDashboardDataForProfile({
@@ -661,6 +753,95 @@ function filterBankingDataForProfile(data: BankingData, profile: Awaited<ReturnT
 
 export async function getBankingData(): Promise<BankingData> {
   return getBankingDataForScope();
+}
+
+export async function getPettyCashPageData(profile: Profile): Promise<Pick<BankingData, "bankAccounts" | "branches" | "monthlyOpeningBalances" | "openingBalances" | "pettyCashTransactions">> {
+  if (!hasSupabaseEnv()) {
+    const data = filterBankingDataForProfile(demoBankingData, profile);
+    return {
+      bankAccounts: data.bankAccounts,
+      branches: data.branches,
+      monthlyOpeningBalances: data.monthlyOpeningBalances,
+      openingBalances: data.openingBalances,
+      pettyCashTransactions: data.pettyCashTransactions
+    };
+  }
+
+  const supabase = await createClient();
+  const [branchRows, openingBalanceRows, monthlyOpeningBalanceRows, permissionRows, mappingRows, pettyCashRows] = await Promise.all([
+    fetchOrDemo(supabase.from("branches").select("*").eq("is_active", true).order("name"), demoBankingData.branches, "petty_cash_branches"),
+    fetchOrDemo(
+      supabase.from("opening_balances")
+        .select("*, branches(name, code), bank_accounts(name, bank_name, account_no), suppliers(name), panel_companies(name)")
+        .order("balance_date", { ascending: false }),
+      demoBankingData.openingBalances,
+      "petty_cash_opening_balances"
+    ),
+    fetchOrDemo(
+      supabase.from("monthly_opening_balances").select("*, branches(name, code)").order("balance_month", { ascending: false }),
+      demoBankingData.monthlyOpeningBalances,
+      "petty_cash_monthly_opening_balances"
+    ),
+    fetchOrDemo<BankAccountPermission[]>(
+      supabase.from("bank_account_permissions")
+        .select("id, user_id, bank_account_id, can_view, can_create_transaction, can_edit_transaction, can_manage_account"),
+      demoBankingData.bankAccountPermissions,
+      "petty_cash_bank_permissions"
+    ),
+    fetchOrDemo(
+      supabase.from("branch_bank_mappings").select("*, branches(name, code), bank_accounts(name, bank_name, account_no)").eq("is_active", true),
+      demoBankingData.branchBankMappings,
+      "petty_cash_branch_bank_mappings"
+    ),
+    fetchOrDemo(
+      supabase.from("petty_cash_transactions").select("*, branches(name, code), bank_accounts(name, bank_name, account_no)").order("transaction_date", { ascending: false }),
+      demoBankingData.pettyCashTransactions,
+      "petty_cash_transactions"
+    )
+  ]);
+  const role = normalizeRole(profile.role);
+  const permissions = permissionRows as BankAccountPermission[];
+  const allowedBankAccountIds = Array.from(new Set(
+    permissions
+      .filter((permission) => role === "owner" || (permission.user_id === profile.id && permissionHasVisibleAccount(permission)))
+      .map((permission) => permission.bank_account_id)
+  ));
+  const bankRows: BankAccount[] = role === "admin" || role === "finance"
+    ? allowedBankAccountIds.length
+      ? await fetchOrDemo(
+          supabase.from("bank_accounts").select("id, name, bank_name, is_active").in("id", allowedBankAccountIds).eq("is_active", true).order("name"),
+          [],
+          "petty_cash_permitted_bank_accounts"
+        )
+      : []
+    : await fetchOrDemo(
+        supabase.from("bank_accounts").select("*").eq("is_active", true).order("name"),
+        demoBankingData.bankAccounts,
+        "petty_cash_bank_accounts"
+      );
+  const filtered = filterBankingDataForProfile({
+    branches: branchRows as Branch[],
+    openingBalances: openingBalanceRows as OpeningBalance[],
+    monthlyOpeningBalances: monthlyOpeningBalanceRows as MonthlyOpeningBalance[],
+    sales: [],
+    expenses: [],
+    bankAccounts: bankRows,
+    bankAccountPermissions: permissions,
+    bankTransactions: [],
+    branchBankMappings: mappingRows as BranchBankMapping[],
+    cashBankIns: [],
+    pettyCashTransactions: pettyCashRows as PettyCashTransaction[],
+    supplierPayments: [],
+    panelPayments: []
+  }, profile);
+
+  return {
+    bankAccounts: filtered.bankAccounts,
+    branches: filtered.branches,
+    monthlyOpeningBalances: filtered.monthlyOpeningBalances,
+    openingBalances: filtered.openingBalances,
+    pettyCashTransactions: filtered.pettyCashTransactions
+  };
 }
 
 export async function getDashboardOperationalCashData(): Promise<DashboardOperationalCashData> {
@@ -1019,6 +1200,161 @@ export async function getBankingDataForScope(options: BankingDataOptions = {}): 
   );
 }
 
+export async function getFinanceDashboardData(profile: Profile): Promise<{ dashboardData: DashboardData; bankingData: BankingData }> {
+  if (!hasSupabaseEnv()) {
+    return {
+      dashboardData: filterDashboardDataForProfile(demoData, profile),
+      bankingData: filterBankingDataForProfile(demoBankingData, profile)
+    };
+  }
+
+  const supabase = await createClient();
+  const adminSupabase = createAdminClient();
+  const [branchRows, openingBalanceRows, salesRows, expenseRows, purchaseRows, paymentRows, bankSupplierPaymentRows, panelRows, panelPaymentRows,
+    monthlyOpeningBalanceRows, permissionRows, transactionRows, mappingRows, cashBankInRows, pettyCashRows] = await Promise.all([
+    fetchOrDemo(supabase.from("branches").select("*").order("name"), demoData.branches, "dashboard_branches"),
+    fetchOrDemo(
+      supabase.from("opening_balances")
+        .select("*, branches(name, code), bank_accounts(name, bank_name, account_no), suppliers(name), panel_companies(name)")
+        .order("balance_date", { ascending: false }),
+      demoData.openingBalances,
+      "dashboard_opening_balances"
+    ),
+    fetchOrDemo(
+      supabase.from("daily_sales").select("*, branches(name, code)").order("sale_date", { ascending: false }),
+      demoData.sales,
+      "dashboard_daily_sales"
+    ),
+    fetchOrDemo(
+      supabase.from("expenses").select("*, branches(name, code)").order("expense_date", { ascending: false }),
+      demoData.expenses,
+      "dashboard_expenses"
+    ),
+    fetchOrDemo(
+      supabase.from("supplier_purchase_entries").select("*, suppliers(name), branches(name, code)").order("purchase_date", { ascending: false }),
+      demoData.purchases,
+      "dashboard_supplier_purchases"
+    ),
+    fetchOrDemo(
+      adminSupabase.from("supplier_payment_entries")
+        .select("*, suppliers(name), branches(name, code), bank_accounts(name, bank_name, account_no), supplier_purchase_entries(id, invoice_no, branch_id, supplier_id, due_date, total_amount)")
+        .order("payment_date", { ascending: false }),
+      demoData.supplierPayments,
+      "dashboard_supplier_payments"
+    ),
+    fetchOrDemo(
+      supabase.from("supplier_payment_entries")
+        .select("*, suppliers(name), branches(name, code), bank_accounts(name, bank_name, account_no), supplier_purchase_entries(id, invoice_no, branch_id, supplier_id, due_date, total_amount)")
+        .order("payment_date", { ascending: false }),
+      demoBankingData.supplierPayments,
+      "dashboard_banking_supplier_payments"
+    ),
+    fetchOrDemo(
+      supabase.from("panel_claims").select("*, panel_companies(name), branches(name, code)").order("claim_month", { ascending: false }),
+      demoData.panels,
+      "dashboard_panel_claims"
+    ),
+    fetchOrDemo(
+      supabase.from("panel_payments")
+        .select("*, bank_accounts(name, bank_name, account_no), panel_claims(branch_id, claim_no, panel_company_id, branches(name, code), panel_companies(name))")
+        .order("payment_date", { ascending: false }),
+      demoData.panelPayments,
+      "dashboard_panel_payments"
+    ),
+    fetchOrDemo(
+      supabase.from("monthly_opening_balances").select("*, branches(name, code)").order("balance_month", { ascending: false }),
+      demoBankingData.monthlyOpeningBalances,
+      "dashboard_monthly_opening_balances"
+    ),
+    fetchOrDemo<BankAccountPermission[]>(
+      supabase.from("bank_account_permissions")
+        .select("id, user_id, bank_account_id, can_view, can_create_transaction, can_edit_transaction, can_manage_account"),
+      demoBankingData.bankAccountPermissions,
+      "dashboard_bank_account_permissions"
+    ),
+    fetchOrDemo(
+      supabase.from("bank_transactions")
+        .select("*, branches(name, code), bank_accounts:bank_accounts!bank_transactions_bank_account_id_fkey(id, name, bank_name, account_no)")
+        .order("transaction_date", { ascending: false }),
+      demoBankingData.bankTransactions,
+      "dashboard_bank_transactions"
+    ),
+    fetchOrDemo(
+      supabase.from("branch_bank_mappings").select("*, branches(name, code), bank_accounts(name, bank_name, account_no)").eq("is_active", true),
+      demoBankingData.branchBankMappings,
+      "dashboard_branch_bank_mappings"
+    ),
+    fetchOrDemo(
+      supabase.from("cash_bank_ins").select("*, branches(name, code), bank_accounts(name, bank_name, account_no)").order("bank_in_date", { ascending: false }),
+      demoBankingData.cashBankIns,
+      "dashboard_cash_bank_ins"
+    ),
+    fetchOrDemo(
+      supabase.from("petty_cash_transactions").select("*, branches(name, code), bank_accounts(name, bank_name, account_no)").order("transaction_date", { ascending: false }),
+      demoBankingData.pettyCashTransactions,
+      "dashboard_petty_cash_transactions"
+    )
+  ]);
+
+  const role = normalizeRole(profile.role);
+  const permissionRowsTyped = permissionRows as BankAccountPermission[];
+  const allowedBankAccountIds = Array.from(new Set(
+    permissionRowsTyped
+      .filter((permission) => role === "owner" || (permission.user_id === profile.id && permissionHasVisibleAccount(permission)))
+      .map((permission) => permission.bank_account_id)
+  ));
+  const bankRows: BankAccount[] = role === "admin" || role === "finance"
+    ? allowedBankAccountIds.length
+      ? await fetchOrDemo(
+          supabase.from("bank_accounts").select("id, name, bank_name, is_active").in("id", allowedBankAccountIds).eq("is_active", true).order("name"),
+          [],
+          "dashboard_permitted_bank_accounts"
+        )
+      : []
+    : await fetchOrDemo(
+        supabase.from("bank_accounts").select("*").eq("is_active", true).order("name"),
+        demoBankingData.bankAccounts,
+        "dashboard_bank_accounts"
+      );
+
+  const normalizedPanelPayments = (panelPaymentRows as PanelPayment[]).map((payment) => ({
+    ...payment,
+    branch_id: payment.branch_id ?? payment.panel_claims?.branch_id ?? null,
+    panel_company_id: payment.panel_company_id ?? payment.panel_claims?.panel_company_id ?? null,
+    panel_companies: payment.panel_companies ?? payment.panel_claims?.panel_companies ?? null,
+    branches: payment.branches ?? payment.panel_claims?.branches ?? null,
+    panel_claims: payment.panel_claims ?? null
+  }));
+
+  const dashboardData = filterDashboardDataForProfile({
+    branches: branchRows as Branch[],
+    openingBalances: openingBalanceRows as OpeningBalance[],
+    sales: salesRows as DailySale[],
+    expenses: expenseRows as Expense[],
+    purchases: purchaseRows as SupplierPurchaseEntry[],
+    supplierPayments: paymentRows as SupplierPaymentEntry[],
+    panels: panelRows as PanelClaim[],
+    panelPayments: normalizedPanelPayments
+  }, profile);
+  const bankingData = filterBankingDataForProfile({
+    branches: (branchRows as Branch[]).filter((branch) => branch.is_active),
+    openingBalances: openingBalanceRows as OpeningBalance[],
+    monthlyOpeningBalances: monthlyOpeningBalanceRows as MonthlyOpeningBalance[],
+    sales: salesRows as DailySale[],
+    expenses: expenseRows as Expense[],
+    bankAccounts: bankRows as BankAccount[],
+    bankAccountPermissions: permissionRowsTyped,
+    bankTransactions: transactionRows as BankTransaction[],
+    branchBankMappings: mappingRows as BranchBankMapping[],
+    cashBankIns: cashBankInRows as CashBankIn[],
+    pettyCashTransactions: pettyCashRows as PettyCashTransaction[],
+    supplierPayments: bankSupplierPaymentRows as SupplierPaymentEntry[],
+    panelPayments: normalizedPanelPayments
+  }, profile);
+
+  return { dashboardData, bankingData };
+}
+
 export async function getSuppliers(options: { includeInactive?: boolean } = {}) {
   if (!hasSupabaseEnv()) return suppliers;
   const supabase = await createClient();
@@ -1256,9 +1592,9 @@ export function branchName(data: DashboardData, branchId: string) {
   return data.branches.find((branch) => branch.id === branchId)?.name ?? branchId;
 }
 
-export async function getSupplierOutstanding() {
+export async function getSupplierOutstanding(profileOverride?: Profile | null) {
+  const profile = profileOverride === undefined ? await getCurrentProfile() : profileOverride;
   if (!hasSupabaseEnv()) {
-    const profile = await getCurrentProfile();
     const rows = supplierPurchaseEntriesDemo.map((row) => {
       const paidAmount = supplierPaymentEntriesDemo
         .filter((payment) => !payment.is_void && payment.supplier_purchase_entry_id === row.id)
@@ -1280,7 +1616,6 @@ export async function getSupplierOutstanding() {
     return rows.filter((row) => row.branch_id === profile.branch_id);
   }
 
-  const profile = await getCurrentProfile();
   const supabase = createAdminClient();
   const [purchaseRows, paymentRows] = await Promise.all([
     fetchOrDemo(

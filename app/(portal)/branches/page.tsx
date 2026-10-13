@@ -1,12 +1,12 @@
 import { createBranch } from "@/app/actions";
 import { DataTable } from "@/components/data-table";
 import { ModuleHeader } from "@/components/module-header";
-import { getDashboardData } from "@/lib/data";
+import { getBranchManagementBranches } from "@/lib/data";
 import { hasPermission, requirePermission } from "@/lib/permissions";
 
 export default async function BranchesPage() {
   const profile = await requirePermission("view_branches");
-  const data = await getDashboardData();
+  const branches = await getBranchManagementBranches(profile);
   const canManageBranches = hasPermission(profile, "manage_branches");
 
   return (
@@ -20,7 +20,7 @@ export default async function BranchesPage() {
       <section className="section-grid">
         <DataTable
           columns={["Branch", "Code", "Phone", "Status"]}
-          rows={data.branches.map((branch) => [
+          rows={branches.map((branch) => [
             branch.name,
             branch.code,
             branch.phone ?? "-",

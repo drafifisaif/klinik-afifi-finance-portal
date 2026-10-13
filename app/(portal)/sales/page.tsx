@@ -6,7 +6,7 @@ import { MetricCard } from "@/components/metric-card";
 import { ModuleHeader } from "@/components/module-header";
 import { isActiveFinancialRecord } from "@/lib/bank-reporting";
 import { resolveSelectedBranchIds } from "@/lib/branch-reporting";
-import { getDashboardData, totalBy } from "@/lib/data";
+import { getDailySalesPageData, totalBy } from "@/lib/data";
 import {
   currentMonth,
   isDailySaleInResolvedRange,
@@ -36,7 +36,15 @@ type SalesSearchParams = {
 export default async function SalesPage({ searchParams }: { searchParams: Promise<SalesSearchParams> }) {
   const profile = await requirePermission("edit_finance");
   const params = await searchParams;
-  const data = await getDashboardData();
+  const reportFilter = resolveDailySalesFilter({
+    end: params.end,
+    filter: params.filter,
+    month: params.month,
+    range: params.range ?? params.period,
+    sort: params.sort,
+    start: params.start
+  });
+  const data = await getDailySalesPageData(profile, reportFilter);
   const canSelectBranches = canViewAllBranches(profile);
   const selectedBranchIds = resolveSelectedBranchIds({
     allowedBranches: data.branches,
@@ -51,14 +59,6 @@ export default async function SalesPage({ searchParams }: { searchParams: Promis
   const selectedBranchValue = canSelectBranches && selectedBranches.length === data.branches.length
     ? "all"
     : selectedBranches[0]?.id ?? "all";
-  const reportFilter = resolveDailySalesFilter({
-    end: params.end,
-    filter: params.filter,
-    month: params.month,
-    range: params.range ?? params.period,
-    sort: params.sort,
-    start: params.start
-  });
   const filteredSales = reportFilter.error
     ? []
     : sortDailySales(

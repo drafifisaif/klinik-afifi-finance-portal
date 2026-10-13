@@ -17,7 +17,7 @@ import {
   resolveDateRange
 } from "@/lib/bank-reporting";
 import { branchGroups, getBranchGroup, resolveSelectedBranchIds, toParamArray } from "@/lib/branch-reporting";
-import { getBankingData, getDashboardData, getDashboardOperationalCashData, getSupplierOutstanding, totalBy } from "@/lib/data";
+import { getDashboardOperationalCashData, getFinanceDashboardData, getSupplierOutstanding, totalBy } from "@/lib/data";
 import { formatCurrency, formatDate, monthKey } from "@/lib/format";
 import { bankOpeningBalanceTotal, needsOpeningBalanceCaution, outstandingOpeningBalanceTotal } from "@/lib/opening-balances";
 import { activePanelPayments, activePanelClaims, panelClaimOutstandingAmount } from "@/lib/panel-accounting";
@@ -177,13 +177,12 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const role = normalizeRole(profile.role);
   const isFinanceDashboard = role === "owner" || role === "admin" || role === "finance";
   const isBranchPicDashboard = role === "branch_pic";
-  const [financeData, supplierOutstandingRows, fullBankingData, operationalData] = await Promise.all([
-    isFinanceDashboard ? getDashboardData() : Promise.resolve(null),
-    isFinanceDashboard ? getSupplierOutstanding() : Promise.resolve([]),
-    isFinanceDashboard ? getBankingData() : Promise.resolve(null),
+  const [financeBundle, supplierOutstandingRows, operationalData] = await Promise.all([
+    isFinanceDashboard ? getFinanceDashboardData(profile) : Promise.resolve(null),
+    isFinanceDashboard ? getSupplierOutstanding(profile) : Promise.resolve([]),
     isFinanceDashboard ? Promise.resolve(null) : getDashboardOperationalCashData()
   ]);
-  const data: DashboardData = financeData ?? {
+  const data: DashboardData = financeBundle?.dashboardData ?? {
     branches: operationalData?.branches ?? [],
     expenses: operationalData?.expenses ?? [],
     openingBalances: operationalData?.openingBalances ?? [],
@@ -210,7 +209,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         supplierPayments: []
       }
     : null;
-  const bankingData = fullBankingData ?? operationalBankingData;
+  const bankingData = financeBundle?.bankingData ?? operationalBankingData;
   const canSelectMultiple = canViewAllBranches(profile);
   const range = resolveDateRange(params);
   const requestedBranches = [...toParamArray(params.branch), ...toParamArray(params.branches)];

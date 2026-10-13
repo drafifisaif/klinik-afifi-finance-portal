@@ -43,7 +43,7 @@ export default async function ExpensesPage({ searchParams }: ExpensesPageProps) 
   });
   const canViewSupplierPayments = hasPermission(profile, "view_supplier_payments");
   const canSelectMultipleBranches = canViewAllBranches(profile);
-  const data = await getExpensesReportingData();
+  const data = await getExpensesReportingData({ startDate: reportRange.startDate, endDate: reportRange.endDate });
   const selectedBranchIds = resolveSelectedBranchIds({
     allowedBranches: data.branches,
     branchParam: params.branch,
@@ -55,12 +55,6 @@ export default async function ExpensesPage({ searchParams }: ExpensesPageProps) 
   const selectedBranchLabel = selectedBranches.length === data.branches.length
     ? "All Branches"
     : selectedBranches.map((branch) => branch.name).join(", ");
-  const expenseDocuments = await getTransactionDocuments("expenses", data.expenses.map((expense) => expense.id));
-  const supplierPaymentDocuments = canViewSupplierPayments
-    ? await getTransactionDocuments("supplier_payment_entries", data.supplierPayments.map((payment) => payment.id))
-    : new Map();
-  const visibleUsers = await getVisibleProfilesById(data.expenses.flatMap((expense) => [expense.entered_by, expense.voided_by]));
-  const userById = new Map(visibleUsers.map((user) => [user.id, user]));
   const canDeleteDocuments = role !== "branch_pic";
   const canViewSensitiveExpenseCategories = role === "owner" || role === "admin" || role === "finance";
   const visibleExpenseCategories = canViewSensitiveExpenseCategories
@@ -76,6 +70,14 @@ export default async function ExpensesPage({ searchParams }: ExpensesPageProps) 
       && payment.payment_date >= reportRange.startDate
       && payment.payment_date <= reportRange.endDate;
   });
+  const [expenseDocuments, supplierPaymentDocuments, visibleUsers] = await Promise.all([
+    getTransactionDocuments("expenses", filteredExpenses.map((expense) => expense.id)),
+    canViewSupplierPayments
+      ? getTransactionDocuments("supplier_payment_entries", filteredSupplierPayments.map((payment) => payment.id))
+      : Promise.resolve(new Map()),
+    getVisibleProfilesById(filteredExpenses.flatMap((expense) => [expense.entered_by, expense.voided_by]))
+  ]);
+  const userById = new Map(visibleUsers.map((user) => [user.id, user]));
   const activeExpenses = filteredExpenses.filter(isActiveFinancialRecord);
   const operatingTotal = totalBy(activeExpenses, (expense) => expense.amount);
   const salaryTotal = totalBy(

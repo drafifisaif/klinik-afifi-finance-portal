@@ -4,7 +4,7 @@ import { DocumentManager } from "@/components/documents/document-manager";
 import { MetricCard } from "@/components/metric-card";
 import { ModuleHeader } from "@/components/module-header";
 import { PanelPaymentForm } from "@/components/panel-payment-form";
-import { getDashboardData, getPanelCompanies, getPanelPaymentBankAccounts, totalBy } from "@/lib/data";
+import { getPanelCompanies, getPanelOutstandingPageData, getPanelPaymentBankAccounts, totalBy } from "@/lib/data";
 import { formatCurrency, formatDate, labelize } from "@/lib/format";
 import { outstandingOpeningBalanceTotal } from "@/lib/opening-balances";
 import { activePanelClaims, panelClaimDisplayStatus, panelClaimOutstandingAmount, panelPaymentsByClaimId, panelReceivingBankAccounts, panelReceivingBankError } from "@/lib/panel-accounting";
@@ -35,22 +35,26 @@ function panelClaimPriority(status: string, dueDate?: string | null, outstanding
 
 export default async function PanelsPage({ searchParams }: PanelsPageProps) {
   const profile = await requirePermission("view_panel_records");
-  const data = await getDashboardData();
   const params = searchParams ? await searchParams : {};
-  let panelPaymentBanking: Awaited<ReturnType<typeof getPanelPaymentBankAccounts>> = { bankAccounts: [], branchBankMappings: [] };
-  try {
-    panelPaymentBanking = await getPanelPaymentBankAccounts();
-  } catch (error) {
-    console.error("PanelsPage panel payment bank loading failed", {
-      action: "PanelsPage",
-      userId: profile.id,
-      role: profile.role,
-      currentUserBranchId: profile.branch_id ?? null,
-      requestedBranchQueryParam: searchValue(params.branch),
-      error: error instanceof Error ? error.message : String(error)
-    });
-  }
-  const panelCompanies = await getPanelCompanies();
+  const [data, panelCompanies, panelPaymentBanking] = await Promise.all([
+    getPanelOutstandingPageData(profile),
+    getPanelCompanies(),
+    (async () => {
+      try {
+        return await getPanelPaymentBankAccounts();
+      } catch (error) {
+        console.error("PanelsPage panel payment bank loading failed", {
+          action: "PanelsPage",
+          userId: profile.id,
+          role: profile.role,
+          currentUserBranchId: profile.branch_id ?? null,
+          requestedBranchQueryParam: searchValue(params.branch),
+          error: error instanceof Error ? error.message : String(error)
+        });
+        return { bankAccounts: [], branchBankMappings: [] };
+      }
+    })()
+  ]);
   const errorMessage = searchValue(params.error);
   const selectedBranchFilter = searchValue(params.branch);
   const visibleBranchIds = canViewAllBranches(profile)

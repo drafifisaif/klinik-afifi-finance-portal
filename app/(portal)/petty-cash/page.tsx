@@ -7,7 +7,7 @@ import { MetricCard } from "@/components/metric-card";
 import { ModuleHeader } from "@/components/module-header";
 import { bankAccountLabel, branchLabel, buildPettyCashBalanceRows, pettyCashAmount } from "@/lib/bank-reporting";
 import { pettyCashCategories, pettyCashTransactionTypes } from "@/lib/constants";
-import { getBankingData, totalBy } from "@/lib/data";
+import { getPettyCashPageData, totalBy } from "@/lib/data";
 import { userDisplayLabel } from "@/lib/display";
 import { formatCurrency, formatDate } from "@/lib/format";
 import { canViewAllBranches, hasPermission, normalizeRole, requirePermission } from "@/lib/permissions";
@@ -46,7 +46,7 @@ function searchValue(value: string | string[] | undefined) {
 export default async function PettyCashPage({ searchParams }: PettyCashPageProps) {
   const profile = await requirePermission("record_petty_cash");
   const params = searchParams ? await searchParams : {};
-  const data = await getBankingData();
+  const data = await getPettyCashPageData(profile);
   const role = normalizeRole(profile.role);
   const canSelectBranches = canViewAllBranches(profile);
   const selectedBranchFilter = searchValue(params.branch);
@@ -57,9 +57,11 @@ export default async function PettyCashPage({ searchParams }: PettyCashPageProps
       ? profile.branch_id ?? data.branches[0]?.id ?? null
       : null;
   const filteredTransactions = data.pettyCashTransactions.filter((transaction) => !effectiveBranchId || transaction.branch_id === effectiveBranchId);
-  const visibleUsers = await getVisibleProfilesById(data.pettyCashTransactions.flatMap((transaction) => [transaction.entered_by, transaction.voided_by]));
+  const [visibleUsers, pettyCashDocuments] = await Promise.all([
+    getVisibleProfilesById(filteredTransactions.flatMap((transaction) => [transaction.entered_by, transaction.voided_by])),
+    getTransactionDocuments("petty_cash_transactions", filteredTransactions.map((transaction) => transaction.id))
+  ]);
   const userById = new Map(visibleUsers.map((user) => [user.id, user]));
-  const pettyCashDocuments = await getTransactionDocuments("petty_cash_transactions", filteredTransactions.map((transaction) => transaction.id));
   const balanceRows = buildPettyCashBalanceRows(data).filter((row) => !effectiveBranchId || row.branch.id === effectiveBranchId);
   const typeOptions = role === "owner"
     ? pettyCashTransactionTypes

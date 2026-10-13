@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { cache } from "react";
 import { createClient, hasSupabaseEnv } from "@/lib/supabase-server";
 import {
   canManageTargetProfile,
@@ -172,7 +173,7 @@ export function normalizeProfileRow(row: unknown): Profile {
   };
 }
 
-export async function getCurrentProfile(): Promise<Profile | null> {
+export const getCurrentProfile = cache(async function getCurrentProfile(): Promise<Profile | null> {
   if (!hasSupabaseEnv()) return demoProfile;
 
   const supabase = await createClient();
@@ -190,7 +191,7 @@ export async function getCurrentProfile(): Promise<Profile | null> {
 
   if (error || !data) return null;
   return normalizeProfileRow(data);
-}
+});
 
 export async function requirePermission(permission: PermissionKey) {
   const profile = await getCurrentProfile();

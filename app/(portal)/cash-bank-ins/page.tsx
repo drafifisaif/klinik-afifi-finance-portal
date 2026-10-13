@@ -119,9 +119,11 @@ export default async function CashBankInsPage({ searchParams }: { searchParams: 
     }
     return cashBankInMatchesCashControlRange(bankIn, range) && (!effectiveBranchId || bankIn.branch_id === effectiveBranchId);
   });
-  const visibleUsers = await getVisibleProfilesById(selectedBankIns.flatMap((bankIn) => [bankIn.entered_by, bankIn.voided_by]));
+  const [visibleUsers, bankInDocuments] = await Promise.all([
+    getVisibleProfilesById(selectedBankIns.flatMap((bankIn) => [bankIn.entered_by, bankIn.voided_by])),
+    getTransactionDocuments("cash_bank_ins", selectedBankIns.map((bankIn) => bankIn.id))
+  ]);
   const userById = new Map(visibleUsers.map((user) => [user.id, user]));
-  const bankInDocuments = await getTransactionDocuments("cash_bank_ins", selectedBankIns.map((bankIn) => bankIn.id));
   const cashInHandRows = buildCashInHandRows(data, range).filter((row) => !effectiveBranchId || row.branch.id === effectiveBranchId);
   const totalCashSales = totalBy(cashInHandRows, (row) => row.cashSales);
   const totalBankedIn = totalBy(cashInHandRows, (row) => row.bankedIn);
