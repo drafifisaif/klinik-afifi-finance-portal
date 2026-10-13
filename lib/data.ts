@@ -2,6 +2,8 @@ import { createAdminClient } from "@/lib/supabase-admin";
 import { createClient, getSupabaseHost, hasSupabaseEnv } from "@/lib/supabase-server";
 import { branchPicHiddenExpenseCategories } from "@/lib/constants";
 import { canViewAllBranches, filterBranchesForProfile, filterDashboardDataForProfile, getCurrentProfile, normalizeRole } from "@/lib/permissions";
+import { monthlyOpeningBalanceStartMonth } from "@/lib/opening-balances";
+import type { DateRange } from "@/lib/bank-reporting";
 import type {
   BankAccount,
   BankAccountPermission,
@@ -386,6 +388,10 @@ async function fetchOrDemo<T>(query: PromiseLike<{ data: T | null; error: unknow
     return fallback;
   }
   return data;
+}
+
+async function fetchProjectedOrDemo<T>(query: PromiseLike<{ data: unknown | null; error: unknown }>, fallback: T, label?: string) {
+  return fetchOrDemo(query as PromiseLike<{ data: T | null; error: unknown }>, fallback, label);
 }
 
 export async function getDashboardData(): Promise<DashboardData> {
@@ -844,7 +850,7 @@ export async function getPettyCashPageData(profile: Profile): Promise<Pick<Banki
   };
 }
 
-export async function getDashboardOperationalCashData(): Promise<DashboardOperationalCashData> {
+export async function getDashboardOperationalCashData(range?: Pick<DateRange, "endDate" | "startDate">): Promise<DashboardOperationalCashData> {
   const profile = await getCurrentProfile();
   const fallbackBranches = filterBranchesForProfile(demoBankingData.branches, profile);
   const fallbackBranchIds = new Set(fallbackBranches.map((branch) => branch.id));
@@ -863,56 +869,66 @@ export async function getDashboardOperationalCashData(): Promise<DashboardOperat
 
   if (!hasSupabaseEnv()) return fallbackOperational;
 
+  const cashControlStartDate = range
+    ? range.startDate < monthlyOpeningBalanceStartMonth ? range.startDate : monthlyOpeningBalanceStartMonth
+    : null;
   const supabase = await createClient();
+  const openingBalancesQuery = supabase
+    .from("opening_balances")
+    .select("id, balance_date, balance_type, branch_id, bank_account_id, amount, verification_status")
+    .in("balance_type", ["cash_in_hand", "petty_cash"]);
+  const monthlyOpeningBalancesQuery = supabase.from("monthly_opening_balances")
+    .select("id, branch_id, balance_month, opening_cash, opening_petty_cash");
+  const salesQuery = supabase.from("daily_sales")
+    .select("id, branch_id, sale_date, cash_amount, bank_transfer_amount, card_amount, panel_amount, qr_amount, total_amount, is_void");
+  const locumExpensesQuery = supabase.from("expenses")
+    .select("id, branch_id, expense_date, category, payment_type, amount, is_void")
+    .eq("category", "locum_doctor");
+  const cashBankInsQuery = supabase.from("cash_bank_ins")
+    .select("id, branch_id, bank_account_id, cash_month, amount, is_void");
+  const pettyCashQuery = supabase.from("petty_cash_transactions")
+    .select("id, branch_id, bank_account_id, transaction_date, transaction_type, direction, amount, is_void");
+  const datedOpeningBalancesQuery = range ? openingBalancesQuery.lte("balance_date", range.endDate) : openingBalancesQuery;
+  const datedMonthlyOpeningBalancesQuery = range ? monthlyOpeningBalancesQuery.lte("balance_month", range.endDate) : monthlyOpeningBalancesQuery;
+  const rangedSalesQuery = range
+    ? salesQuery.gte("sale_date", cashControlStartDate!).lte("sale_date", range.endDate)
+    : salesQuery;
+  const rangedLocumExpensesQuery = range
+    ? locumExpensesQuery.gte("expense_date", cashControlStartDate!).lte("expense_date", range.endDate)
+    : locumExpensesQuery;
+  const rangedCashBankInsQuery = range
+    ? cashBankInsQuery.gte("cash_month", cashControlStartDate!).lte("cash_month", range.endDate)
+    : cashBankInsQuery;
+  const datedPettyCashQuery = range ? pettyCashQuery.lte("transaction_date", range.endDate) : pettyCashQuery;
   const [branchRows, openingBalanceRows, monthlyOpeningBalanceRows, salesRows, expenseRows, cashBankInRows, pettyCashRows] = await Promise.all([
     fetchOrDemo(supabase.from("branches").select("*").eq("is_active", true).order("name"), [], "dashboard_operational_branches"),
     fetchOrDemo(
-      supabase
-        .from("opening_balances")
-        .select("*, branches(name, code)")
-        .in("balance_type", ["cash_in_hand", "petty_cash"])
-        .order("balance_date", { ascending: false }),
+      datedOpeningBalancesQuery.order("balance_date", { ascending: false }),
       [],
       "dashboard_operational_opening_balances"
     ),
     fetchOrDemo(
-      supabase
-        .from("monthly_opening_balances")
-        .select("*, branches(name, code)")
-        .order("balance_month", { ascending: false }),
+      datedMonthlyOpeningBalancesQuery.order("balance_month", { ascending: false }),
       [],
       "dashboard_operational_monthly_opening_balances"
     ),
     fetchOrDemo(
-      supabase
-        .from("daily_sales")
-        .select("*, branches(name, code)")
-        .order("sale_date", { ascending: false }),
+      rangedSalesQuery.order("sale_date", { ascending: false }),
       [],
       "dashboard_operational_daily_sales"
     ),
     fetchOrDemo(
-      supabase
-        .from("expenses")
-        .select("*, branches(name, code)")
-        .eq("category", "locum_doctor")
-        .order("expense_date", { ascending: false }),
+      rangedLocumExpensesQuery.order("expense_date", { ascending: false }),
       [],
       "dashboard_operational_cash_locum_expenses"
     ),
     fetchOrDemo(
-      supabase
-        .from("cash_bank_ins")
-        .select("*, branches(name, code)")
-        .order("bank_in_date", { ascending: false }),
+      rangedCashBankInsQuery.order("cash_month", { ascending: false }),
       [],
       "dashboard_operational_cash_bank_ins"
     ),
     fetchOrDemo(
-      supabase
-        .from("petty_cash_transactions")
-        .select("*, branches(name, code)")
-        .order("transaction_date", { ascending: false }),
+      datedPettyCashQuery.order("transaction_date", { ascending: false }),
       [],
       "dashboard_operational_petty_cash_transactions"
     )
@@ -1200,7 +1216,10 @@ export async function getBankingDataForScope(options: BankingDataOptions = {}): 
   );
 }
 
-export async function getFinanceDashboardData(profile: Profile): Promise<{ dashboardData: DashboardData; bankingData: BankingData }> {
+export async function getFinanceDashboardData(
+  profile: Profile,
+  range: Pick<DateRange, "endDate" | "startDate">
+): Promise<{ dashboardData: DashboardData; bankingData: BankingData }> {
   if (!hasSupabaseEnv()) {
     return {
       dashboardData: filterDashboardDataForProfile(demoData, profile),
@@ -1210,59 +1229,86 @@ export async function getFinanceDashboardData(profile: Profile): Promise<{ dashb
 
   const supabase = await createClient();
   const adminSupabase = createAdminClient();
+  const cashControlStartDate = range.startDate < monthlyOpeningBalanceStartMonth
+    ? range.startDate
+    : monthlyOpeningBalanceStartMonth;
+  const openingBalancesQuery = supabase.from("opening_balances")
+    .select("id, balance_date, balance_type, branch_id, bank_account_id, amount, verification_status")
+    .lte("balance_date", range.endDate);
+  const salesQuery = supabase.from("daily_sales")
+    .select("id, branch_id, sale_date, cash_amount, bank_transfer_amount, card_amount, panel_amount, qr_amount, total_amount, is_void")
+    .gte("sale_date", cashControlStartDate).lte("sale_date", range.endDate);
+  const expensesQuery = supabase.from("expenses")
+    .select("id, branch_id, expense_date, category, payment_type, amount, is_void")
+    .gte("expense_date", cashControlStartDate).lte("expense_date", range.endDate);
+  const purchasesQuery = supabase.from("supplier_purchase_entries")
+    .select("id, branch_id, purchase_date, total_amount, is_void")
+    .gte("purchase_date", range.startDate).lte("purchase_date", range.endDate);
+  const supplierPaymentsQuery = (client: typeof supabase) => client.from("supplier_payment_entries")
+    .select("id, branch_id, bank_account_id, payment_date, amount, is_void")
+    .gte("payment_date", range.startDate).lte("payment_date", range.endDate);
+  const panelClaimsQuery = supabase.from("panel_claims").select("id, branch_id, claim_month, amount, is_void")
+    .lte("claim_month", range.endDate);
+  const panelPaymentsQuery = supabase.from("panel_payments")
+    .select("id, panel_claim_id, branch_id, bank_account_id, payment_date, amount, is_void, panel_claims(branch_id, panel_company_id)")
+    .lte("payment_date", range.endDate);
+  const monthlyOpeningBalancesQuery = supabase.from("monthly_opening_balances")
+    .select("id, branch_id, balance_month, opening_cash, opening_petty_cash")
+    .lte("balance_month", range.endDate);
+  const bankTransactionsQuery = supabase.from("bank_transactions")
+    .select("id, bank_account_id, related_bank_account_id, transfer_group_id, transaction_date, transaction_type, direction, category, amount, branch_id, is_void")
+    .gte("transaction_date", range.startDate).lte("transaction_date", range.endDate);
+  const cashBankInsQuery = supabase.from("cash_bank_ins")
+    .select("id, branch_id, bank_account_id, cash_month, amount, is_void")
+    .gte("cash_month", cashControlStartDate).lte("cash_month", range.endDate);
+  const pettyCashQuery = supabase.from("petty_cash_transactions")
+    .select("id, branch_id, bank_account_id, transaction_date, transaction_type, direction, amount, is_void")
+    .lte("transaction_date", range.endDate);
   const [branchRows, openingBalanceRows, salesRows, expenseRows, purchaseRows, paymentRows, bankSupplierPaymentRows, panelRows, panelPaymentRows,
     monthlyOpeningBalanceRows, permissionRows, transactionRows, mappingRows, cashBankInRows, pettyCashRows] = await Promise.all([
-    fetchOrDemo(supabase.from("branches").select("*").order("name"), demoData.branches, "dashboard_branches"),
-    fetchOrDemo(
-      supabase.from("opening_balances")
-        .select("*, branches(name, code), bank_accounts(name, bank_name, account_no), suppliers(name), panel_companies(name)")
-        .order("balance_date", { ascending: false }),
+    fetchProjectedOrDemo(supabase.from("branches").select("id, name, code, is_active").order("name"), demoData.branches, "dashboard_branches"),
+    fetchProjectedOrDemo(
+      openingBalancesQuery.order("balance_date", { ascending: false }),
       demoData.openingBalances,
       "dashboard_opening_balances"
     ),
-    fetchOrDemo(
-      supabase.from("daily_sales").select("*, branches(name, code)").order("sale_date", { ascending: false }),
+    fetchProjectedOrDemo(
+      salesQuery.order("sale_date", { ascending: false }),
       demoData.sales,
       "dashboard_daily_sales"
     ),
-    fetchOrDemo(
-      supabase.from("expenses").select("*, branches(name, code)").order("expense_date", { ascending: false }),
+    fetchProjectedOrDemo(
+      expensesQuery.order("expense_date", { ascending: false }),
       demoData.expenses,
       "dashboard_expenses"
     ),
-    fetchOrDemo(
-      supabase.from("supplier_purchase_entries").select("*, suppliers(name), branches(name, code)").order("purchase_date", { ascending: false }),
+    fetchProjectedOrDemo(
+      purchasesQuery.order("purchase_date", { ascending: false }),
       demoData.purchases,
       "dashboard_supplier_purchases"
     ),
-    fetchOrDemo(
-      adminSupabase.from("supplier_payment_entries")
-        .select("*, suppliers(name), branches(name, code), bank_accounts(name, bank_name, account_no), supplier_purchase_entries(id, invoice_no, branch_id, supplier_id, due_date, total_amount)")
-        .order("payment_date", { ascending: false }),
+    fetchProjectedOrDemo(
+      supplierPaymentsQuery(adminSupabase).order("payment_date", { ascending: false }),
       demoData.supplierPayments,
       "dashboard_supplier_payments"
     ),
-    fetchOrDemo(
-      supabase.from("supplier_payment_entries")
-        .select("*, suppliers(name), branches(name, code), bank_accounts(name, bank_name, account_no), supplier_purchase_entries(id, invoice_no, branch_id, supplier_id, due_date, total_amount)")
-        .order("payment_date", { ascending: false }),
+    fetchProjectedOrDemo(
+      supplierPaymentsQuery(supabase).order("payment_date", { ascending: false }),
       demoBankingData.supplierPayments,
       "dashboard_banking_supplier_payments"
     ),
-    fetchOrDemo(
-      supabase.from("panel_claims").select("*, panel_companies(name), branches(name, code)").order("claim_month", { ascending: false }),
+    fetchProjectedOrDemo(
+      panelClaimsQuery.order("claim_month", { ascending: false }),
       demoData.panels,
       "dashboard_panel_claims"
     ),
-    fetchOrDemo(
-      supabase.from("panel_payments")
-        .select("*, bank_accounts(name, bank_name, account_no), panel_claims(branch_id, claim_no, panel_company_id, branches(name, code), panel_companies(name))")
-        .order("payment_date", { ascending: false }),
+    fetchProjectedOrDemo(
+      panelPaymentsQuery.order("payment_date", { ascending: false }),
       demoData.panelPayments,
       "dashboard_panel_payments"
     ),
-    fetchOrDemo(
-      supabase.from("monthly_opening_balances").select("*, branches(name, code)").order("balance_month", { ascending: false }),
+    fetchProjectedOrDemo(
+      monthlyOpeningBalancesQuery.order("balance_month", { ascending: false }),
       demoBankingData.monthlyOpeningBalances,
       "dashboard_monthly_opening_balances"
     ),
@@ -1272,25 +1318,23 @@ export async function getFinanceDashboardData(profile: Profile): Promise<{ dashb
       demoBankingData.bankAccountPermissions,
       "dashboard_bank_account_permissions"
     ),
-    fetchOrDemo(
-      supabase.from("bank_transactions")
-        .select("*, branches(name, code), bank_accounts:bank_accounts!bank_transactions_bank_account_id_fkey(id, name, bank_name, account_no)")
-        .order("transaction_date", { ascending: false }),
+    fetchProjectedOrDemo(
+      bankTransactionsQuery.order("transaction_date", { ascending: false }),
       demoBankingData.bankTransactions,
       "dashboard_bank_transactions"
     ),
-    fetchOrDemo(
-      supabase.from("branch_bank_mappings").select("*, branches(name, code), bank_accounts(name, bank_name, account_no)").eq("is_active", true),
+    fetchProjectedOrDemo(
+      supabase.from("branch_bank_mappings").select("id, branch_id, bank_account_id, is_active").eq("is_active", true),
       demoBankingData.branchBankMappings,
       "dashboard_branch_bank_mappings"
     ),
-    fetchOrDemo(
-      supabase.from("cash_bank_ins").select("*, branches(name, code), bank_accounts(name, bank_name, account_no)").order("bank_in_date", { ascending: false }),
+    fetchProjectedOrDemo(
+      cashBankInsQuery.order("cash_month", { ascending: false }),
       demoBankingData.cashBankIns,
       "dashboard_cash_bank_ins"
     ),
-    fetchOrDemo(
-      supabase.from("petty_cash_transactions").select("*, branches(name, code), bank_accounts(name, bank_name, account_no)").order("transaction_date", { ascending: false }),
+    fetchProjectedOrDemo(
+      pettyCashQuery.order("transaction_date", { ascending: false }),
       demoBankingData.pettyCashTransactions,
       "dashboard_petty_cash_transactions"
     )
@@ -1306,13 +1350,13 @@ export async function getFinanceDashboardData(profile: Profile): Promise<{ dashb
   const bankRows: BankAccount[] = role === "admin" || role === "finance"
     ? allowedBankAccountIds.length
       ? await fetchOrDemo(
-          supabase.from("bank_accounts").select("id, name, bank_name, is_active").in("id", allowedBankAccountIds).eq("is_active", true).order("name"),
+          supabase.from("bank_accounts").select("id, name, bank_name, account_no, is_active").in("id", allowedBankAccountIds).eq("is_active", true).order("name"),
           [],
           "dashboard_permitted_bank_accounts"
         )
       : []
-    : await fetchOrDemo(
-        supabase.from("bank_accounts").select("*").eq("is_active", true).order("name"),
+    : await fetchProjectedOrDemo(
+        supabase.from("bank_accounts").select("id, name, bank_name, account_no, is_active").eq("is_active", true).order("name"),
         demoBankingData.bankAccounts,
         "dashboard_bank_accounts"
       );

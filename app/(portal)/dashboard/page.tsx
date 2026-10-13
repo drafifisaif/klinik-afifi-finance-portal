@@ -174,13 +174,14 @@ function BarChart({ rows, title, tone = "teal" }: { rows: ChartRow[]; title: str
 export default async function DashboardPage({ searchParams }: { searchParams: Promise<DashboardSearchParams> }) {
   const profile = await requirePermission("view_dashboard");
   const params = await searchParams;
+  const range = resolveDateRange(params);
   const role = normalizeRole(profile.role);
   const isFinanceDashboard = role === "owner" || role === "admin" || role === "finance";
   const isBranchPicDashboard = role === "branch_pic";
   const [financeBundle, supplierOutstandingRows, operationalData] = await Promise.all([
-    isFinanceDashboard ? getFinanceDashboardData(profile) : Promise.resolve(null),
+    isFinanceDashboard ? getFinanceDashboardData(profile, range) : Promise.resolve(null),
     isFinanceDashboard ? getSupplierOutstanding(profile) : Promise.resolve([]),
-    isFinanceDashboard ? Promise.resolve(null) : getDashboardOperationalCashData()
+    isFinanceDashboard ? Promise.resolve(null) : getDashboardOperationalCashData(range)
   ]);
   const data: DashboardData = financeBundle?.dashboardData ?? {
     branches: operationalData?.branches ?? [],
@@ -211,7 +212,6 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     : null;
   const bankingData = financeBundle?.bankingData ?? operationalBankingData;
   const canSelectMultiple = canViewAllBranches(profile);
-  const range = resolveDateRange(params);
   const requestedBranches = [...toParamArray(params.branch), ...toParamArray(params.branches)];
   const selectedGroup = getBranchGroup(params.group ?? (requestedBranches.length > 0 ? "custom" : "all"));
   const selectedBranchIds = resolveSelectedBranchIds({
