@@ -177,21 +177,22 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const role = normalizeRole(profile.role);
   const isFinanceDashboard = role === "owner" || role === "admin" || role === "finance";
   const isBranchPicDashboard = role === "branch_pic";
-  const operationalData = isFinanceDashboard ? null : await getDashboardOperationalCashData();
-  const data: DashboardData = isFinanceDashboard
-    ? await getDashboardData()
-    : {
-        branches: operationalData?.branches ?? [],
-        expenses: operationalData?.expenses ?? [],
-        openingBalances: operationalData?.openingBalances ?? [],
-        panelPayments: [],
-        panels: [],
-        purchases: [],
-        sales: operationalData?.sales ?? [],
-        supplierPayments: []
-      };
-  const supplierOutstandingRows = isFinanceDashboard ? await getSupplierOutstanding() : [];
-  const fullBankingData = isFinanceDashboard ? await getBankingData() : null;
+  const [financeData, supplierOutstandingRows, fullBankingData, operationalData] = await Promise.all([
+    isFinanceDashboard ? getDashboardData() : Promise.resolve(null),
+    isFinanceDashboard ? getSupplierOutstanding() : Promise.resolve([]),
+    isFinanceDashboard ? getBankingData() : Promise.resolve(null),
+    isFinanceDashboard ? Promise.resolve(null) : getDashboardOperationalCashData()
+  ]);
+  const data: DashboardData = financeData ?? {
+    branches: operationalData?.branches ?? [],
+    expenses: operationalData?.expenses ?? [],
+    openingBalances: operationalData?.openingBalances ?? [],
+    panelPayments: [],
+    panels: [],
+    purchases: [],
+    sales: operationalData?.sales ?? [],
+    supplierPayments: []
+  };
   const operationalBankingData: BankingData | null = operationalData
     ? {
         bankAccountPermissions: [],
