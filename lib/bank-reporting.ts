@@ -1,5 +1,5 @@
 import { addMonths, branchOpeningBalanceTotal, monthlyOpeningBalanceStartMonth, monthlyRowForBranch } from "@/lib/opening-balances";
-import type { BankAccount, BankTransaction, BankingData, Branch, CashBankIn, DailySale, Expense, PettyCashTransaction } from "@/lib/types";
+import type { BankAccount, BankTransaction, BankingData, Branch, BranchBankMapping, CashBankIn, DailySale, Expense, PettyCashTransaction } from "@/lib/types";
 
 export type DatePeriod = "today" | "this_month" | "last_month" | "custom";
 export type ReportRangeOption = "this_month" | "last_month" | "custom";
@@ -292,8 +292,32 @@ export function bankAccountLabel(account: Pick<BankAccount, "account_no" | "name
   return account.account_no ? `${account.name} (${account.account_no})` : account.name;
 }
 
-export function getMappingByBranch(data: Pick<BankingData, "branchBankMappings">) {
-  return new Map(data.branchBankMappings.map((mapping) => [mapping.branch_id, mapping]));
+export function getMappingByBranch(data: Pick<BankingData, "bankAccounts" | "branchBankMappings">) {
+  const bankAccountsById = new Map(data.bankAccounts.map((account) => [account.id, account]));
+  const mappingsByBranch = new Map<string, BranchBankMapping[]>();
+  const isPanelAccount = (account: BankAccount) => `${account.name} ${account.bank_name ?? ""}`.toLowerCase().includes("panel");
+
+  for (const mapping of data.branchBankMappings) {
+    if (!mapping.is_active) continue;
+    const account = bankAccountsById.get(mapping.bank_account_id);
+    if (!account?.is_active || isPanelAccount(account)) continue;
+
+    const mappings = mappingsByBranch.get(mapping.branch_id) ?? [];
+    mappings.push(mapping);
+    mappingsByBranch.set(mapping.branch_id, mappings);
+  }
+
+  const mappingByBranch = new Map<string, BranchBankMapping>();
+  for (const [branchId, mappings] of mappingsByBranch) {
+    const operationMappings = mappings.filter((mapping) => {
+      const account = bankAccountsById.get(mapping.bank_account_id);
+      return `${account?.name ?? ""} ${account?.bank_name ?? ""}`.toLowerCase().includes("operation");
+    });
+    const candidates = operationMappings.length === 1 ? operationMappings : mappings;
+    if (candidates.length === 1) mappingByBranch.set(branchId, candidates[0]);
+  }
+
+  return mappingByBranch;
 }
 
 export function getBankAccountById(data: Pick<BankingData, "bankAccounts">) {
