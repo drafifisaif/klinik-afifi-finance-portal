@@ -888,7 +888,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
             columns={["Date", "Branch", "Cash", "Transfer", "Card", "Panel", "QR", "Total"]}
             rows={sales.slice(0, 8).map((sale) => [
               formatDate(sale.sale_date),
-              sale.branches?.name ?? "-",
+              data.branches.find((branch) => branch.id === sale.branch_id)?.name ?? sale.branches?.name ?? "-",
               formatCurrency(sale.cash_amount),
               formatCurrency(sale.bank_transfer_amount),
               formatCurrency(sale.card_amount),
