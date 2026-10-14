@@ -1107,14 +1107,12 @@ export async function getBankingDataForScope(options: BankingDataOptions = {}): 
     const dateBounded = <T extends { lte: (column: string, value: string) => T }>(query: T, column: string) =>
       reportEndDate ? query.lte(column, reportEndDate) : query;
 
-    let cashBankInsQuery = supabase.from("cash_bank_ins").select(
-      "id, branch_id, bank_account_id, bank_in_date, cash_month, cash_sales_from, cash_sales_to, cash_source_date, amount, reference_no, notes, entered_by, created_at, is_void, voided_at, voided_by, void_reason"
+    const cashBankInSelect = "id, branch_id, bank_account_id, bank_in_date, cash_month, cash_sales_from, cash_sales_to, cash_source_date, amount, reference_no, notes, entered_by, created_at, is_void, voided_at, voided_by, void_reason";
+    const cashBankInsQuery = dateBounded(
+      supabase.from("cash_bank_ins").select(cashBankInSelect).gte("cash_month", cashControlStartDate),
+      "cash_month"
     );
-    if (reportEndDate) {
-      cashBankInsQuery = cashBankInsQuery.or(
-        `cash_month.is.null,and(cash_month.gte.${cashControlStartDate},cash_month.lte.${reportEndDate})`
-      );
-    }
+    const unassignedCashBankInsQuery = supabase.from("cash_bank_ins").select(cashBankInSelect).is("cash_month", null);
 
     const branchesQuery = supabase.from("branches").select("id, name, code, is_active").eq("is_active", true).order("name");
     if (role === "branch_pic" && profile?.branch_id) branchesQuery.eq("id", profile.branch_id);
@@ -1123,7 +1121,7 @@ export async function getBankingDataForScope(options: BankingDataOptions = {}): 
       .eq("is_active", true);
     if (role === "branch_pic" && profile?.branch_id) mappingsQuery.eq("branch_id", profile.branch_id);
 
-    const [branchRows, openingBalanceRows, monthlyOpeningBalanceRows, salesRows, expenseRows, permissionRows, mappingRows, cashBankInRows] = await Promise.all([
+    const [branchRows, openingBalanceRows, monthlyOpeningBalanceRows, salesRows, expenseRows, permissionRows, mappingRows, cashBankInRows, unassignedCashBankInRows] = await Promise.all([
       fetchProjectedOrDemo(
         branchesQuery,
         demoBankingData.branches,
@@ -1182,8 +1180,13 @@ export async function getBankingDataForScope(options: BankingDataOptions = {}): 
       ),
       fetchProjectedOrDemo(
         cashBankInsQuery.order("bank_in_date", { ascending: false }),
-        demoBankingData.cashBankIns,
-        "cash_bank_in_records"
+        demoBankingData.cashBankIns.filter((bankIn) => Boolean(bankIn.cash_month) && bankIn.cash_month! >= cashControlStartDate && (!reportEndDate || bankIn.cash_month! <= reportEndDate)),
+        "cash_bank_in_assigned_records"
+      ),
+      fetchProjectedOrDemo(
+        unassignedCashBankInsQuery.order("bank_in_date", { ascending: false }),
+        demoBankingData.cashBankIns.filter((bankIn) => !bankIn.cash_month),
+        "cash_bank_in_unassigned_records"
       )
     ]);
 
@@ -1231,7 +1234,7 @@ export async function getBankingDataForScope(options: BankingDataOptions = {}): 
       bankAccountPermissions: permissions,
       bankTransactions: [],
       branchBankMappings: mappings,
-      cashBankIns: cashBankInRows as CashBankIn[],
+      cashBankIns: [...cashBankInRows, ...unassignedCashBankInRows] as CashBankIn[],
       pettyCashTransactions: [],
       supplierPayments: [],
       panelPayments: []
