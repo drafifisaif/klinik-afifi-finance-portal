@@ -35,6 +35,20 @@ type SupplierPaymentRow = {
   amount: number;
   is_void?: boolean | null;
 };
+type SupplierOutstandingPurchaseRow = {
+  id: string;
+  branch_id: string;
+  invoice_date: string | null;
+  purchase_date: string;
+  total_amount: number;
+  is_void?: boolean | null;
+};
+type SupplierLinkedPaymentRow = {
+  supplier_purchase_entry_id: string | null;
+  payment_date: string;
+  amount: number;
+  is_void?: boolean | null;
+};
 type PanelClaimRow = {
   id: string;
   branch_id: string;
@@ -86,6 +100,13 @@ function amount(value: number | string | null | undefined) {
 
 function inRange(date: string | null | undefined, startDate: string, endDate: string) {
   return Boolean(date && date >= startDate && date <= endDate);
+}
+
+function completedDaysSinceLastSale(lastSaleDate: string | null, startDate: string, endDate: string) {
+  const yesterday = new Date(`${endDate}T00:00:00.000Z`);
+  yesterday.setUTCDate(yesterday.getUTCDate() - 1);
+  const baseline = lastSaleDate ?? new Date(Date.parse(`${startDate}T00:00:00.000Z`) - 86400000).toISOString().slice(0, 10);
+  return Math.max(0, Math.floor((yesterday.getTime() - Date.parse(`${baseline}T00:00:00.000Z`)) / 86400000));
 }
 
 function active(row: { is_void?: boolean | null }) {
@@ -147,8 +168,9 @@ export async function GET(request: Request) {
     }
 
     const cashHistoryStart = startDate! < monthlyOpeningBalanceStartMonth ? startDate! : monthlyOpeningBalanceStartMonth;
-    const [salesRows, expenseRows, purchaseRows, supplierPaymentRows, claimRows, cashBankHistoryRows, cashBankMovementRows,
-      unassignedCashBankRows, openingBalanceRows, monthlyOpeningRows, pettyCashRows] = await Promise.all([
+    const [salesRows, expenseRows, purchaseRows, supplierPaymentRows, outstandingPurchaseRows, linkedSupplierPaymentRows,
+      supplierOpeningRows, claimRows, cashBankHistoryRows, cashBankMovementRows,
+      unassignedCashBankRows, openingBalanceRows, monthlyOpeningRows, pettyCashRows, latestSalesByBranch] = await Promise.all([
       fetchAllRows<DailySale>("daily_sales", (from, to) => supabase.from("daily_sales")
         .select("id, branch_id, sale_date, cash_amount, bank_transfer_amount, card_amount, panel_amount, qr_amount, total_amount, is_void, entered_by, created_at, updated_at")
         .in("branch_id", branchIds).gte("sale_date", cashHistoryStart).lte("sale_date", endDate!).or("is_void.is.null,is_void.eq.false").range(from, to)),
@@ -161,6 +183,16 @@ export async function GET(request: Request) {
       fetchAllRows<SupplierPaymentRow>("supplier_payment_entries", (from, to) => supabase.from("supplier_payment_entries")
         .select("id, branch_id, payment_date, amount, is_void")
         .in("branch_id", branchIds).gte("payment_date", startDate!).lte("payment_date", endDate!).or("is_void.is.null,is_void.eq.false").range(from, to)),
+      fetchAllRows<SupplierOutstandingPurchaseRow>("supplier_purchase_entries.outstanding", (from, to) => supabase.from("supplier_purchase_entries")
+        .select("id, branch_id, invoice_date, purchase_date, total_amount, is_void")
+        .in("branch_id", branchIds).lte("purchase_date", endDate!).or("is_void.is.null,is_void.eq.false").range(from, to)),
+      fetchAllRows<SupplierLinkedPaymentRow>("supplier_payment_entries.outstanding", (from, to) => supabase.from("supplier_payment_entries")
+        .select("supplier_purchase_entry_id, payment_date, amount, is_void")
+        .in("branch_id", branchIds).lte("payment_date", endDate!).not("supplier_purchase_entry_id", "is", null)
+        .or("is_void.is.null,is_void.eq.false").range(from, to)),
+      fetchAllRows<OpeningBalanceRow>("opening_balances.supplier_outstanding", (from, to) => supabase.from("opening_balances")
+        .select("branch_id, balance_date, balance_type, amount")
+        .in("branch_id", branchIds).eq("balance_type", "supplier_outstanding").lte("balance_date", endDate!).range(from, to)),
       fetchAllRows<PanelClaimRow>("panel_claims", (from, to) => supabase.from("panel_claims")
         .select("id, branch_id, claim_month, amount, is_void")
         .in("branch_id", branchIds).lte("claim_month", endDate!).or("is_void.is.null,is_void.eq.false").range(from, to)),
@@ -181,13 +213,21 @@ export async function GET(request: Request) {
         .in("branch_id", branchIds).lte("balance_month", endDate!).range(from, to)),
       fetchAllRows<PettyCashTransaction>("petty_cash_transactions", (from, to) => supabase.from("petty_cash_transactions")
         .select("id, branch_id, bank_account_id, transaction_date, transaction_type, direction, amount, is_void")
-        .in("branch_id", branchIds).gte("transaction_date", cashHistoryStart).lte("transaction_date", endDate!).or("is_void.is.null,is_void.eq.false").range(from, to))
+        .in("branch_id", branchIds).gte("transaction_date", cashHistoryStart).lte("transaction_date", endDate!).or("is_void.is.null,is_void.eq.false").range(from, to)),
+      Promise.all(branchIds.map(async (branchId) => {
+        const { data, error } = await supabase.from("daily_sales")
+          .select("branch_id, sale_date, entered_by, created_at, updated_at")
+          .eq("branch_id", branchId).lte("sale_date", endDate!).or("is_void.is.null,is_void.eq.false")
+          .order("sale_date", { ascending: false }).order("updated_at", { ascending: false }).limit(1).maybeSingle();
+        if (error) throw new FinanceApiQueryError("daily_sales.latest", error.code ?? null, error.message);
+        return data;
+      }))
     ]);
 
     const claims = claimRows.filter(active);
-    const updaterIds = [...new Set(salesRows
-      .filter((sale) => active(sale) && inRange(sale.sale_date, startDate!, endDate!) && sale.entered_by)
-      .map((sale) => sale.entered_by as string))];
+    const updaterIds = [...new Set(latestSalesByBranch
+      .map((sale) => sale?.entered_by)
+      .filter((id): id is string => Boolean(id)))];
     const updaterLookup = updaterIds.length > 0
       ? await supabase.from("profiles").select("id, full_name").in("id", updaterIds)
       : { data: [], error: null };
@@ -223,14 +263,16 @@ export async function GET(request: Request) {
     for (const payment of paymentRows) {
       paidByClaimId.set(payment.panel_claim_id, (paidByClaimId.get(payment.panel_claim_id) ?? 0) + amount(payment.amount));
     }
+    const supplierPaidByPurchaseId = new Map<string, number>();
+    for (const payment of linkedSupplierPaymentRows.filter(active)) {
+      if (!payment.supplier_purchase_entry_id) continue;
+      supplierPaidByPurchaseId.set(payment.supplier_purchase_entry_id,
+        (supplierPaidByPurchaseId.get(payment.supplier_purchase_entry_id) ?? 0) + amount(payment.amount));
+    }
 
     const summaries = branches.map((branch) => {
       const branchSales = salesRows.filter((sale) => sale.branch_id === branch.id && active(sale) && inRange(sale.sale_date, startDate!, endDate!));
-      const latestSaleUpdate = branchSales.reduce<DailySale | null>((latest, sale) => {
-        const savedAt = sale.updated_at ?? sale.created_at ?? `${sale.sale_date}T00:00:00.000Z`;
-        const latestSavedAt = latest?.updated_at ?? latest?.created_at ?? (latest ? `${latest.sale_date}T00:00:00.000Z` : "");
-        return !latest || savedAt > latestSavedAt ? sale : latest;
-      }, null);
+      const latestSaleUpdate = latestSalesByBranch.find((sale) => sale?.branch_id === branch.id);
       const branchExpenses = expenseRows.filter((expense) => expense.branch_id === branch.id && active(expense) && inRange(expense.expense_date, startDate!, endDate!));
       const categoryTotals: Record<string, number> = {};
       for (const expense of branchExpenses) {
@@ -246,20 +288,36 @@ export async function GET(request: Request) {
       const cashRow = cashInHandRows.find((row) => row.branch.id === branch.id);
       const pettyCashRow = pettyCashBalanceRows.find((row) => row.branch.id === branch.id);
       const outstanding = branchClaims.reduce((sum, claim) => sum + Math.max(0, amount(claim.amount) - (paidByClaimId.get(claim.id) ?? 0)), 0);
+      const supplierMonths = new Map<string, { month: string; outstanding_amount: number; unpaid_invoice_count: number }>();
+      for (const purchase of outstandingPurchaseRows) {
+        if (purchase.branch_id !== branch.id || !active(purchase)) continue;
+        const balance = Math.max(0, amount(purchase.total_amount) - (supplierPaidByPurchaseId.get(purchase.id) ?? 0));
+        if (balance <= 0) continue;
+        const month = (purchase.invoice_date || purchase.purchase_date).slice(0, 7);
+        const current = supplierMonths.get(month) ?? { month, outstanding_amount: 0, unpaid_invoice_count: 0 };
+        current.outstanding_amount += balance;
+        current.unpaid_invoice_count += 1;
+        supplierMonths.set(month, current);
+      }
+      const supplierOutstandingByMonth = [...supplierMonths.values()].sort((a, b) => a.month.localeCompare(b.month))
+        .map((row) => ({ ...row, outstanding_amount: roundMoney(row.outstanding_amount) }));
+      const supplierOpeningWithoutInvoiceMonth = total(supplierOpeningRows.filter((row) => row.branch_id === branch.id), (row) => amount(row.amount));
 
       return {
         branch_id: branch.id,
         branch_name: branch.name,
         daily_sales_update: latestSaleUpdate ? {
-          status: "has_record",
+          status: branchSales.length > 0 ? "has_record" : "no_record_in_period",
           last_sale_date: latestSaleUpdate.sale_date,
           last_updated_at: latestSaleUpdate.updated_at ?? latestSaleUpdate.created_at ?? null,
-          updated_by: latestSaleUpdate.entered_by ? updaterNames.get(latestSaleUpdate.entered_by) ?? null : null
+          updated_by: latestSaleUpdate.entered_by ? updaterNames.get(latestSaleUpdate.entered_by) ?? null : null,
+          completed_days_without_closing: completedDaysSinceLastSale(latestSaleUpdate.sale_date, startDate!, endDate!)
         } : {
           status: "no_record_in_period",
           last_sale_date: null,
           last_updated_at: null,
-          updated_by: null
+          updated_by: null,
+          completed_days_without_closing: completedDaysSinceLastSale(null, startDate!, endDate!)
         },
         sales: {
           cash: total(branchSales, (row) => amount(row.cash_amount)),
@@ -277,7 +335,10 @@ export async function GET(request: Request) {
         },
         supplier: {
           purchases: total(purchaseRows.filter((row) => row.branch_id === branch.id && active(row)), (row) => amount(row.total_amount)),
-          payments: total(supplierPaymentRows.filter((row) => row.branch_id === branch.id && active(row)), (row) => amount(row.amount))
+          payments: total(supplierPaymentRows.filter((row) => row.branch_id === branch.id && active(row)), (row) => amount(row.amount)),
+          outstanding_as_of_end_date: roundMoney(supplierOutstandingByMonth.reduce((sum, row) => sum + row.outstanding_amount, supplierOpeningWithoutInvoiceMonth)),
+          outstanding_by_invoice_month: supplierOutstandingByMonth,
+          opening_balance_without_invoice_month: supplierOpeningWithoutInvoiceMonth
         },
         panel: {
           claims_issued: total(claimsIssued, (row) => amount(row.amount)),
@@ -345,7 +406,7 @@ export async function GET(request: Request) {
           direct_sales_excluding_panel: sumPath(["sales", "direct_sales_excluding_panel"])
         },
         expenses: { total: sumPath(["expenses", "total"]), by_category: Object.fromEntries(Object.entries(categoryTotals).map(([category, value]) => [category, roundMoney(value)])), cash_paid_locum_doctor: sumPath(["expenses", "cash_paid_locum_doctor"]) },
-        supplier: { purchases: sumPath(["supplier", "purchases"]), payments: sumPath(["supplier", "payments"]) },
+        supplier: { purchases: sumPath(["supplier", "purchases"]), payments: sumPath(["supplier", "payments"]), outstanding_as_of_end_date: sumPath(["supplier", "outstanding_as_of_end_date"]), opening_balance_without_invoice_month: sumPath(["supplier", "opening_balance_without_invoice_month"]) },
         panel: { claims_issued: sumPath(["panel", "claims_issued"]), payments_received: sumPath(["panel", "payments_received"]), claims_outstanding_as_of_end_date: sumPath(["panel", "claims_outstanding_as_of_end_date"]) },
         cash_bank_ins: {
           cash_month_attributed: sumPath(["cash_bank_ins", "cash_month_attributed"]),
