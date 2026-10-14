@@ -43,6 +43,7 @@ type PanelClaimRow = {
   amount: number;
   is_void?: boolean | null;
 };
+type DailySalesUpdater = { id: string; full_name: string | null };
 type CashBankInRow = Pick<CashBankIn, "branch_id" | "bank_in_date" | "cash_month" | "amount" | "is_void">;
 type OpeningBalanceRow = Pick<OpeningBalance, "branch_id" | "balance_date" | "balance_type" | "amount">;
 type MonthlyOpeningRow = Pick<MonthlyOpeningBalance, "branch_id" | "balance_month" | "opening_cash" | "opening_petty_cash">;
@@ -150,7 +151,7 @@ export async function GET(request: Request) {
     const [salesRows, expenseRows, purchaseRows, supplierPaymentRows, claimRows, cashBankHistoryRows, cashBankMovementRows,
       unassignedCashBankRows, openingBalanceRows, monthlyOpeningRows, pettyCashRows] = await Promise.all([
       fetchAllRows<DailySale>("daily_sales", (from, to) => supabase.from("daily_sales")
-        .select("id, branch_id, sale_date, cash_amount, bank_transfer_amount, card_amount, panel_amount, qr_amount, total_amount, is_void")
+        .select("id, branch_id, sale_date, cash_amount, bank_transfer_amount, card_amount, panel_amount, qr_amount, total_amount, is_void, entered_by, created_at, updated_at")
         .in("branch_id", branchIds).gte("sale_date", cashHistoryStart).lte("sale_date", endDate!).or("is_void.is.null,is_void.eq.false").range(from, to)),
       fetchAllRows<Expense>("expenses", (from, to) => supabase.from("expenses")
         .select("id, branch_id, expense_date, category, description, payment_type, amount, is_void")
@@ -185,6 +186,20 @@ export async function GET(request: Request) {
     ]);
 
     const claims = claimRows.filter(active);
+    const updaterIds = [...new Set(salesRows
+      .filter((sale) => active(sale) && inRange(sale.sale_date, startDate!, endDate!) && sale.entered_by)
+      .map((sale) => sale.entered_by as string))];
+    const updaterLookup = updaterIds.length > 0
+      ? await supabase.from("profiles").select("id, full_name").in("id", updaterIds)
+      : { data: [], error: null };
+    if (updaterLookup.error) {
+      console.warn("[finance-api] Daily Sales updater names could not be loaded.", {
+        code: updaterLookup.error.code,
+        message: updaterLookup.error.message
+      });
+    }
+    const updaterRows = (updaterLookup.data ?? []) as DailySalesUpdater[];
+    const updaterNames = new Map(updaterRows.map((profile) => [profile.id, profile.full_name]));
     const paymentRows = await fetchAllRows<PanelPaymentRow>("panel_payments", (from, to) => supabase.from("panel_payments")
       .select("panel_claim_id, payment_date, amount, is_void, panel_claims!inner(branch_id)")
       .in("panel_claims.branch_id", branchIds).lte("payment_date", endDate!).or("is_void.is.null,is_void.eq.false").range(from, to));
@@ -212,6 +227,11 @@ export async function GET(request: Request) {
 
     const summaries = branches.map((branch) => {
       const branchSales = salesRows.filter((sale) => sale.branch_id === branch.id && active(sale) && inRange(sale.sale_date, startDate!, endDate!));
+      const latestSaleUpdate = branchSales.reduce<DailySale | null>((latest, sale) => {
+        const savedAt = sale.updated_at ?? sale.created_at ?? `${sale.sale_date}T00:00:00.000Z`;
+        const latestSavedAt = latest?.updated_at ?? latest?.created_at ?? (latest ? `${latest.sale_date}T00:00:00.000Z` : "");
+        return !latest || savedAt > latestSavedAt ? sale : latest;
+      }, null);
       const branchExpenses = expenseRows.filter((expense) => expense.branch_id === branch.id && active(expense) && inRange(expense.expense_date, startDate!, endDate!));
       const categoryTotals: Record<string, number> = {};
       for (const expense of branchExpenses) {
@@ -231,6 +251,17 @@ export async function GET(request: Request) {
       return {
         branch_id: branch.id,
         branch_name: branch.name,
+        daily_sales_update: latestSaleUpdate ? {
+          status: "has_record",
+          last_sale_date: latestSaleUpdate.sale_date,
+          last_updated_at: latestSaleUpdate.updated_at ?? latestSaleUpdate.created_at ?? null,
+          updated_by: latestSaleUpdate.entered_by ? updaterNames.get(latestSaleUpdate.entered_by) ?? null : null
+        } : {
+          status: "no_record_in_period",
+          last_sale_date: null,
+          last_updated_at: null,
+          updated_by: null
+        },
         sales: {
           cash: total(branchSales, (row) => amount(row.cash_amount)),
           bank_transfer: total(branchSales, (row) => amount(row.bank_transfer_amount)),

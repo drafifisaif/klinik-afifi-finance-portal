@@ -8,3 +8,5 @@ out
 coverage
 dist
 *.tsbuildinfo
+.vercel
+.env*

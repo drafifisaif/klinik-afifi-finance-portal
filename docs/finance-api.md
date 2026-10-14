@@ -53,7 +53,7 @@ const summary = await response.json();
 
 ## Summary contents and accounting dates
 
-The response includes period totals and per-branch aggregates for daily sales, operating expenses by category, supplier purchases and payments, panel claims and linked panel payments, normal Cash Bank-In, unassigned cash-month bank-ins, cash position, and petty cash balances/transactions.
+The response includes period totals and per-branch aggregates for daily sales, operating expenses by category, supplier purchases and payments, panel claims and linked panel payments, normal Cash Bank-In, unassigned cash-month bank-ins, cash position, and petty cash balances/transactions. Each branch also includes a `daily_sales_update` indicator for the requested period: whether an active Daily Sales record exists, its sale date, its last saved timestamp, and the display name of the user who last saved that record. A missing record means no active Daily Sales record was found for that branch in the requested period; it does not prove that the branch was expected to report on every date.
 
 - Only non-void rows are included.
 - Daily Sales uses `sale_date`; expenses use `expense_date`; supplier purchases use `purchase_date`; supplier payments and panel payments use `payment_date`; panel claims use `claim_month`.
