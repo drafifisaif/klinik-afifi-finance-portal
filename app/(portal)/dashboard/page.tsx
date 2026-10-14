@@ -177,6 +177,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const range = resolveDateRange(params);
   const role = normalizeRole(profile.role);
   const isFinanceDashboard = role === "owner" || role === "admin" || role === "finance";
+  const isOwnerDashboard = role === "owner";
   const isBranchPicDashboard = role === "branch_pic";
   const [financeBundle, supplierOutstandingRows, operationalData] = await Promise.all([
     isFinanceDashboard ? getFinanceDashboardData(profile, range) : Promise.resolve(null),
@@ -520,14 +521,18 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       <ModuleHeader
         eyebrow="Finance overview"
         title={
-          !isFinanceDashboard
+          isOwnerDashboard
+            ? "Ringkasan kewangan klinik"
+            : !isFinanceDashboard
             ? "Branch dashboard"
             : selectedBranches.length === 1
               ? `${selectedBranches[0].name} finance command center`
               : "Owner Dashboard V2"
         }
         description={
-          !isFinanceDashboard
+          isOwnerDashboard
+            ? "Paparan ringkas untuk faham jualan, belanja, tunai dan perkara yang perlu diberi perhatian."
+            : !isFinanceDashboard
             ? "Operational cash visibility for your permitted branch."
             : "Review clinic sales, profit estimate, physical cash, payables, receivables, and bank movement in one practical owner view."
         }
@@ -618,10 +623,72 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
 
       {isFinanceDashboard && hasOpeningBalanceCaution ? (
         <p className="import-message opening-balance-warning">
-          Some opening balances are estimated or pending review. Reports still include these starting values, so interpret totals with caution.
+          {isOwnerDashboard
+            ? "Ada baki permulaan yang masih anggaran atau belum disemak. Jadi angka tunai mungkin belum tepat."
+            : "Some opening balances are estimated or pending review. Reports still include these starting values, so interpret totals with caution."}
         </p>
       ) : null}
 
+      {isOwnerDashboard ? (
+        <>
+          <section className="owner-overview" aria-label="Ringkasan kewangan mudah">
+            <article className="owner-summary-card owner-summary-sales">
+              <span>Jualan terus</span>
+              <strong>{formatCurrency(directSales)}</strong>
+              <p>Jualan klinik dalam tempoh ini, tidak termasuk tuntutan panel.</p>
+            </article>
+            <article className="owner-summary-card owner-summary-costs">
+              <span>Belanja direkodkan</span>
+              <strong>{formatCurrency(accrualExpenses)}</strong>
+              <p>Belanja operasi dan pembelian barang dalam tempoh ini.</p>
+            </article>
+            <article className={`owner-summary-card ${totalCashInHand < 0 ? "owner-summary-alert" : "owner-summary-cash"}`}>
+              <span>Tunai di tangan</span>
+              <strong>{formatCurrency(totalCashInHand)}</strong>
+              <p>Anggaran baki tunai selepas bank-in dan locum tunai.</p>
+            </article>
+            <article className={`owner-summary-card ${supplierOverdue > 0 ? "owner-summary-alert" : "owner-summary-costs"}`}>
+              <span>Bil supplier sudah lewat</span>
+              <strong>{formatCurrency(supplierOverdue)}</strong>
+              <p>Bil belum dibayar yang sudah melepasi tarikh akhir.</p>
+            </article>
+          </section>
+
+          <section className="owner-attention" aria-labelledby="owner-attention-title">
+            <div>
+              <p className="owner-section-kicker">UNTUK SEMAKAN</p>
+              <h2 id="owner-attention-title">Apa yang perlu diberi perhatian</h2>
+              <p className="owner-period-context">{selectedBranchLabel} · {range.label}: {formatDate(range.startDate)} hingga {formatDate(range.endDate)}</p>
+            </div>
+            <ul>
+              {totalCashInHand < 0 ? (
+                <li><strong>Tunai di tangan negatif.</strong> Semak rekod bank-in, bayaran locum tunai dan baki permulaan.</li>
+              ) : null}
+              {supplierOverdue > 0 ? (
+                <li><strong>{formatCurrency(supplierOverdue)} bil supplier sudah lewat.</strong> Daripada jumlah ini, {formatCurrency(supplierOver90)} sudah lebih 90 hari.</li>
+              ) : null}
+              {panelOutstanding > 0 ? (
+                <li><strong>{formatCurrency(panelOutstanding)} tuntutan panel masih belum diterima.</strong> Ini wang belum terima, bukan tunai di tangan.</li>
+              ) : null}
+              {hasOpeningBalanceCaution ? (
+                <li><strong>Baki permulaan masih anggaran atau belum disemak.</strong> Sahkan angka ini sebelum guna baki tunai sebagai keputusan akhir.</li>
+              ) : null}
+              {!hasOpeningBalanceCaution && totalCashInHand >= 0 && supplierOverdue === 0 && panelOutstanding === 0 ? (
+                <li>Tiada baki tunai negatif atau bil supplier lewat dikesan untuk pilihan ini.</li>
+              ) : null}
+            </ul>
+          </section>
+
+          <p className="owner-accounting-note">
+            <strong>Nota mudah:</strong> tuntutan panel dikira sebagai jualan apabila dikeluarkan, tetapi hanya menjadi tunai apabila bayaran diterima. Cash Bank-In ialah pindahan tunai ke bank, bukan jualan baru.
+          </p>
+        </>
+      ) : null}
+
+      {isFinanceDashboard ? (
+      <details className={`owner-detail-disclosure ${isOwnerDashboard ? "" : "owner-detail-expanded"}`} open={!isOwnerDashboard}>
+        <summary>{isOwnerDashboard ? "Lihat semua angka dan pecahan" : "Dashboard details and breakdown"}</summary>
+        <div className="owner-detail-content">
       <section className="dashboard-grid" aria-label="Finance metrics">
         {!isFinanceDashboard ? (
           <>
@@ -802,6 +869,18 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           />
         </section>
       ) : null}
+        </div>
+      </details>
+      ) : (
+      <section className="dashboard-grid" aria-label="Branch finance metrics">
+        <MetricCard icon={CreditCard} label="Direct Sales" value={formatCurrency(directSales)} detail="Sales for selected period" tone="blue" />
+        <MetricCard icon={Banknote} label="Cash in Hand" value={formatCurrency(totalCashInHand)} detail={cashInHandDetailLabel} tone={totalCashInHand >= 0 ? "teal" : "rose"} />
+        <MetricCard icon={Coins} label="Petty Cash" value={formatCurrency(totalPettyCash)} detail={pettyCashDetailLabel} tone={totalPettyCash >= 0 ? "teal" : "rose"} />
+        {isBranchPicDashboard ? (
+          <MetricCard icon={BadgeDollarSign} label="Total Physical Cash" value={formatCurrency(totalPhysicalCash)} detail="Cash in hand plus petty cash" tone={totalPhysicalCash >= 0 ? "teal" : "rose"} />
+        ) : null}
+      </section>
+      )}
     </>
   );
 }
