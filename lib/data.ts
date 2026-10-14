@@ -1409,7 +1409,7 @@ export async function getFinanceDashboardData(
     .select("id, balance_date, balance_type, branch_id, bank_account_id, amount, verification_status")
     .lte("balance_date", range.endDate);
   const salesQuery = supabase.from("daily_sales")
-    .select("id, branch_id, sale_date, cash_amount, bank_transfer_amount, card_amount, panel_amount, qr_amount, total_amount, is_void")
+    .select("id, branch_id, sale_date, cash_amount, bank_transfer_amount, card_amount, panel_amount, qr_amount, total_amount, is_void, entered_by, created_at, updated_at")
     .gte("sale_date", cashControlStartDate).lte("sale_date", range.endDate);
   const expensesQuery = supabase.from("expenses")
     .select("id, branch_id, expense_date, category, payment_type, amount, is_void")

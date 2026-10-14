@@ -383,6 +383,22 @@ textarea {
   padding: 14px 16px;
 }
 
+.owner-branch-updates {
+  margin-top: 22px;
+}
+
+.owner-branch-updates h2 {
+  font-size: 20px;
+  margin: 0;
+}
+
+.owner-branch-updates > p {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+  margin: 6px 0 12px;
+}
+
 .owner-detail-disclosure {
   margin-top: 22px;
 }
