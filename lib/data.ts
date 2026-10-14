@@ -1107,7 +1107,7 @@ export async function getBankingDataForScope(options: BankingDataOptions = {}): 
     const dateBounded = <T extends { lte: (column: string, value: string) => T }>(query: T, column: string) =>
       reportEndDate ? query.lte(column, reportEndDate) : query;
 
-    const cashBankInSelect = "id, branch_id, bank_account_id, bank_in_date, cash_month, cash_sales_from, cash_sales_to, cash_source_date, amount, reference_no, notes, entered_by, created_at, is_void, voided_at, voided_by, void_reason";
+    const cashBankInSelect = "id, branch_id, bank_account_id, bank_in_date, cash_month, cash_sales_from, cash_sales_to, amount, reference_no, notes, entered_by, created_at, is_void, voided_at, voided_by, void_reason";
     const cashBankInsQuery = dateBounded(
       supabase.from("cash_bank_ins").select(cashBankInSelect).gte("cash_month", cashControlStartDate),
       "cash_month"
