@@ -21,7 +21,6 @@ type PanelPaymentRow = {
   panel_claim_id: string;
   payment_date: string;
   amount: number;
-  is_void?: boolean | null;
   panel_claims?: { branch_id: string } | { branch_id: string }[] | null;
 };
 type SupplierPurchaseRow = {
@@ -201,8 +200,8 @@ export async function GET(request: Request) {
     const updaterRows = (updaterLookup.data ?? []) as DailySalesUpdater[];
     const updaterNames = new Map(updaterRows.map((profile) => [profile.id, profile.full_name]));
     const paymentRows = await fetchAllRows<PanelPaymentRow>("panel_payments", (from, to) => supabase.from("panel_payments")
-      .select("panel_claim_id, payment_date, amount, is_void, panel_claims!inner(branch_id)")
-      .in("panel_claims.branch_id", branchIds).lte("payment_date", endDate!).or("is_void.is.null,is_void.eq.false").range(from, to));
+      .select("panel_claim_id, payment_date, amount, panel_claims!inner(branch_id)")
+      .in("panel_claims.branch_id", branchIds).lte("payment_date", endDate!).range(from, to));
 
     const reportRange: DateRange = { startDate: startDate!, endDate: endDate!, label: "API custom range", period: "custom" };
     const cashInHandRows = buildCashInHandRows({
@@ -221,7 +220,7 @@ export async function GET(request: Request) {
     }, reportRange);
 
     const paidByClaimId = new Map<string, number>();
-    for (const payment of paymentRows.filter(active)) {
+    for (const payment of paymentRows) {
       paidByClaimId.set(payment.panel_claim_id, (paidByClaimId.get(payment.panel_claim_id) ?? 0) + amount(payment.amount));
     }
 
@@ -241,7 +240,7 @@ export async function GET(request: Request) {
 
       const branchClaims = claims.filter((claim) => claim.branch_id === branch.id);
       const claimsIssued = branchClaims.filter((claim) => inRange(claim.claim_month, startDate!, endDate!));
-      const branchPayments = paymentRows.filter((payment) => asRecordBranch(payment.panel_claims) === branch.id && active(payment));
+      const branchPayments = paymentRows.filter((payment) => asRecordBranch(payment.panel_claims) === branch.id);
       const cashBankInsByCashMonth = cashBankHistoryRows.filter((row) => row.branch_id === branch.id && active(row) && inRange(row.cash_month, startDate!, endDate!));
       const cashBankInsByBankDate = cashBankMovementRows.filter((row) => row.branch_id === branch.id && active(row) && inRange(row.bank_in_date, startDate!, endDate!));
       const cashRow = cashInHandRows.find((row) => row.branch.id === branch.id);
