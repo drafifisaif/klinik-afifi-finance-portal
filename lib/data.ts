@@ -1470,48 +1470,48 @@ export async function getFinanceDashboardData(
   const [branchRows, openingBalanceRows, salesRows, expenseRows, purchaseRows, paymentRows, bankSupplierPaymentRows, panelRows, panelPaymentRows,
     monthlyOpeningBalanceRows, permissionRows, transactionRows, mappingRows, cashBankInRows, pettyCashRows] = await Promise.all([
     fetchProjectedOrDemo(supabase.from("branches").select("id, name, code, is_active").order("name"), demoData.branches, "dashboard_branches"),
-    fetchProjectedOrDemo(
-      openingBalancesQuery.order("balance_date", { ascending: false }),
+    fetchAllPagesOrDemo(
+      (from, to) => openingBalancesQuery.order("balance_date", { ascending: false }).range(from, to),
       demoData.openingBalances,
       "dashboard_opening_balances"
     ),
-    fetchProjectedOrDemo(
-      salesQuery.order("sale_date", { ascending: false }),
+    fetchAllPagesOrDemo(
+      (from, to) => salesQuery.order("sale_date", { ascending: false }).range(from, to),
       demoData.sales,
       "dashboard_daily_sales"
     ),
-    fetchProjectedOrDemo(
-      expensesQuery.order("expense_date", { ascending: false }),
+    fetchAllPagesOrDemo(
+      (from, to) => expensesQuery.order("expense_date", { ascending: false }).range(from, to),
       demoData.expenses,
       "dashboard_expenses"
     ),
-    fetchProjectedOrDemo(
-      purchasesQuery.order("purchase_date", { ascending: false }),
+    fetchAllPagesOrDemo(
+      (from, to) => purchasesQuery.order("purchase_date", { ascending: false }).range(from, to),
       demoData.purchases,
       "dashboard_supplier_purchases"
     ),
-    fetchProjectedOrDemo(
-      supplierPaymentsQuery(adminSupabase).order("payment_date", { ascending: false }),
+    fetchAllPagesOrDemo(
+      (from, to) => supplierPaymentsQuery(adminSupabase).order("payment_date", { ascending: false }).range(from, to),
       demoData.supplierPayments,
       "dashboard_supplier_payments"
     ),
-    fetchProjectedOrDemo(
-      supplierPaymentsQuery(supabase).order("payment_date", { ascending: false }),
+    fetchAllPagesOrDemo(
+      (from, to) => supplierPaymentsQuery(supabase).order("payment_date", { ascending: false }).range(from, to),
       demoBankingData.supplierPayments,
       "dashboard_banking_supplier_payments"
     ),
-    fetchProjectedOrDemo(
-      panelClaimsQuery.order("claim_month", { ascending: false }),
+    fetchAllPagesOrDemo(
+      (from, to) => panelClaimsQuery.order("claim_month", { ascending: false }).range(from, to),
       demoData.panels,
       "dashboard_panel_claims"
     ),
-    fetchProjectedOrDemo(
-      panelPaymentsQuery.order("payment_date", { ascending: false }),
+    fetchAllPagesOrDemo(
+      (from, to) => panelPaymentsQuery.order("payment_date", { ascending: false }).range(from, to),
       demoData.panelPayments,
       "dashboard_panel_payments"
     ),
-    fetchProjectedOrDemo(
-      monthlyOpeningBalancesQuery.order("balance_month", { ascending: false }),
+    fetchAllPagesOrDemo(
+      (from, to) => monthlyOpeningBalancesQuery.order("balance_month", { ascending: false }).range(from, to),
       demoBankingData.monthlyOpeningBalances,
       "dashboard_monthly_opening_balances"
     ),
@@ -1521,8 +1521,8 @@ export async function getFinanceDashboardData(
       demoBankingData.bankAccountPermissions,
       "dashboard_bank_account_permissions"
     ),
-    fetchProjectedOrDemo(
-      bankTransactionsQuery.order("transaction_date", { ascending: false }),
+    fetchAllPagesOrDemo(
+      (from, to) => bankTransactionsQuery.order("transaction_date", { ascending: false }).range(from, to),
       demoBankingData.bankTransactions,
       "dashboard_bank_transactions"
     ),
@@ -1531,13 +1531,13 @@ export async function getFinanceDashboardData(
       demoBankingData.branchBankMappings,
       "dashboard_branch_bank_mappings"
     ),
-    fetchProjectedOrDemo(
-      cashBankInsQuery.order("cash_month", { ascending: false }),
+    fetchAllPagesOrDemo(
+      (from, to) => cashBankInsQuery.order("cash_month", { ascending: false }).range(from, to),
       demoBankingData.cashBankIns,
       "dashboard_cash_bank_ins"
     ),
-    fetchProjectedOrDemo(
-      pettyCashQuery.order("transaction_date", { ascending: false }),
+    fetchAllPagesOrDemo(
+      (from, to) => pettyCashQuery.order("transaction_date", { ascending: false }).range(from, to),
       demoBankingData.pettyCashTransactions,
       "dashboard_petty_cash_transactions"
     )
@@ -1865,20 +1865,22 @@ export async function getSupplierOutstanding(profileOverride?: Profile | null) {
 
   const supabase = createAdminClient();
   const [purchaseRows, paymentRows] = await Promise.all([
-    fetchOrDemo(
-      supabase
+    fetchAllPagesOrDemo(
+      (from, to) => supabase
         .from("supplier_purchase_entries")
         .select("id, supplier_id, branch_id, invoice_no, invoice_date, purchase_date, credit_term_days, due_date, category, medicine_cost, consumables_cost, other_cost, total_amount, notes, is_void, void_reason, voided_at, voided_by, created_at, updated_at, suppliers(name), branches(name, code)")
         .is("is_void", false)
-        .order("due_date", { ascending: true }),
+        .order("due_date", { ascending: true })
+        .range(from, to),
       [] as unknown[],
       "supplier_purchase_entries_outstanding"
     ),
-    fetchOrDemo(
-      supabase
+    fetchAllPagesOrDemo(
+      (from, to) => supabase
         .from("supplier_payment_entries")
         .select("id, supplier_purchase_entry_id, branch_id, amount, is_void")
-        .is("is_void", false),
+        .is("is_void", false)
+        .range(from, to),
       [] as unknown[],
       "supplier_payment_entries_outstanding"
     )
