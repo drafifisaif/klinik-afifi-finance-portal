@@ -396,9 +396,9 @@ async function fetchProjectedOrDemo<T>(query: PromiseLike<{ data: unknown | null
 
 async function fetchAllPagesOrDemo<T>(
   queryForPage: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: unknown }>,
-  fallback: T[],
+  fallback: unknown[],
   label: string
-) {
+): Promise<unknown[]> {
   const rows: T[] = [];
   const pageSize = 1000;
 
@@ -1154,43 +1154,43 @@ export async function getBankingDataForScope(options: BankingDataOptions = {}): 
         demoBankingData.branches,
         "cash_bank_in_branches"
       ),
-      fetchProjectedOrDemo(
-        dateBounded(
+      fetchAllPagesOrDemo(
+        (from, to) => dateBounded(
           supabase.from("opening_balances")
             .select("id, branch_id, balance_date, balance_type, amount, verification_status")
             .in("balance_type", ["cash_in_hand", "petty_cash"]),
           "balance_date"
-        ).order("balance_date", { ascending: false }),
+        ).order("balance_date", { ascending: false }).range(from, to),
         demoBankingData.openingBalances,
         "cash_bank_in_opening_balances"
       ),
-      fetchProjectedOrDemo(
-        dateBounded(
+      fetchAllPagesOrDemo(
+        (from, to) => dateBounded(
           supabase.from("monthly_opening_balances")
             .select("id, branch_id, balance_month, opening_cash, opening_petty_cash"),
           "balance_month"
-        ).order("balance_month", { ascending: false }),
+        ).order("balance_month", { ascending: false }).range(from, to),
         demoBankingData.monthlyOpeningBalances,
         "cash_bank_in_monthly_opening_balances"
       ),
-      fetchProjectedOrDemo(
-        dateBounded(
+      fetchAllPagesOrDemo(
+        (from, to) => dateBounded(
           supabase.from("daily_sales")
             .select("id, branch_id, sale_date, cash_amount, is_void")
             .gte("sale_date", cashControlStartDate),
           "sale_date"
-        ).order("sale_date", { ascending: false }),
+        ).order("sale_date", { ascending: false }).range(from, to),
         demoBankingData.sales,
         "cash_bank_in_sales"
       ),
-      fetchProjectedOrDemo(
-        dateBounded(
+      fetchAllPagesOrDemo(
+        (from, to) => dateBounded(
           supabase.from("expenses")
             .select("id, branch_id, expense_date, category, payment_type, amount, is_void")
             .eq("category", "locum_doctor")
             .gte("expense_date", cashControlStartDate),
           "expense_date"
-        ).order("expense_date", { ascending: false }),
+        ).order("expense_date", { ascending: false }).range(from, to),
         demoBankingData.expenses,
         "cash_bank_in_locum_expenses"
       ),
@@ -1205,13 +1205,13 @@ export async function getBankingDataForScope(options: BankingDataOptions = {}): 
         demoBankingData.branchBankMappings,
         "cash_bank_in_branch_bank_mappings"
       ),
-      fetchProjectedOrDemo(
-        cashBankInsQuery.order("bank_in_date", { ascending: false }),
+      fetchAllPagesOrDemo(
+        (from, to) => cashBankInsQuery.order("bank_in_date", { ascending: false }).range(from, to),
         demoBankingData.cashBankIns.filter((bankIn) => Boolean(bankIn.cash_month) && bankIn.cash_month! >= cashControlStartDate && (!reportEndDate || bankIn.cash_month! <= reportEndDate)),
         "cash_bank_in_assigned_records"
       ),
-      fetchProjectedOrDemo(
-        unassignedCashBankInsQuery.order("bank_in_date", { ascending: false }),
+      fetchAllPagesOrDemo(
+        (from, to) => unassignedCashBankInsQuery.order("bank_in_date", { ascending: false }).range(from, to),
         demoBankingData.cashBankIns.filter((bankIn) => !bankIn.cash_month),
         "cash_bank_in_unassigned_records"
       )
