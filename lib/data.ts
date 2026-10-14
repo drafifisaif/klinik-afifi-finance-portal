@@ -394,6 +394,33 @@ async function fetchProjectedOrDemo<T>(query: PromiseLike<{ data: unknown | null
   return fetchOrDemo(query as PromiseLike<{ data: T | null; error: unknown }>, fallback, label);
 }
 
+async function fetchAllPagesOrDemo<T>(
+  queryForPage: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: unknown }>,
+  fallback: T[],
+  label: string
+) {
+  const rows: T[] = [];
+  const pageSize = 1000;
+
+  for (let from = 0; ; from += pageSize) {
+    let result: { data: T[] | null; error: unknown };
+    try {
+      result = await queryForPage(from, from + pageSize - 1);
+    } catch (error) {
+      console.error(`fetchAllPagesOrDemo rejected for ${label}`, error);
+      return fallback;
+    }
+
+    if (result.error || !result.data) {
+      console.error(`fetchAllPagesOrDemo failed for ${label}`, result.error);
+      return fallback;
+    }
+
+    rows.push(...result.data);
+    if (result.data.length < pageSize) return rows;
+  }
+}
+
 export async function getDashboardData(): Promise<DashboardData> {
   const profile = await getCurrentProfile();
   if (!hasSupabaseEnv()) return filterDashboardDataForProfile(demoData, profile);
@@ -907,33 +934,33 @@ export async function getDashboardOperationalCashData(range?: Pick<DateRange, "e
   const datedPettyCashQuery = range ? pettyCashQuery.lte("transaction_date", range.endDate) : pettyCashQuery;
   const [branchRows, openingBalanceRows, monthlyOpeningBalanceRows, salesRows, expenseRows, cashBankInRows, pettyCashRows] = await Promise.all([
     fetchOrDemo(supabase.from("branches").select("*").eq("is_active", true).order("name"), [], "dashboard_operational_branches"),
-    fetchOrDemo(
-      datedOpeningBalancesQuery.order("balance_date", { ascending: false }),
+    fetchAllPagesOrDemo(
+      (from, to) => datedOpeningBalancesQuery.order("balance_date", { ascending: false }).range(from, to),
       [],
       "dashboard_operational_opening_balances"
     ),
-    fetchOrDemo(
-      datedMonthlyOpeningBalancesQuery.order("balance_month", { ascending: false }),
+    fetchAllPagesOrDemo(
+      (from, to) => datedMonthlyOpeningBalancesQuery.order("balance_month", { ascending: false }).range(from, to),
       [],
       "dashboard_operational_monthly_opening_balances"
     ),
-    fetchOrDemo(
-      rangedSalesQuery.order("sale_date", { ascending: false }),
+    fetchAllPagesOrDemo(
+      (from, to) => rangedSalesQuery.order("sale_date", { ascending: false }).range(from, to),
       [],
       "dashboard_operational_daily_sales"
     ),
-    fetchOrDemo(
-      rangedLocumExpensesQuery.order("expense_date", { ascending: false }),
+    fetchAllPagesOrDemo(
+      (from, to) => rangedLocumExpensesQuery.order("expense_date", { ascending: false }).range(from, to),
       [],
       "dashboard_operational_cash_locum_expenses"
     ),
-    fetchOrDemo(
-      rangedCashBankInsQuery.order("cash_month", { ascending: false }),
+    fetchAllPagesOrDemo(
+      (from, to) => rangedCashBankInsQuery.order("cash_month", { ascending: false }).range(from, to),
       [],
       "dashboard_operational_cash_bank_ins"
     ),
-    fetchOrDemo(
-      datedPettyCashQuery.order("transaction_date", { ascending: false }),
+    fetchAllPagesOrDemo(
+      (from, to) => datedPettyCashQuery.order("transaction_date", { ascending: false }).range(from, to),
       [],
       "dashboard_operational_petty_cash_transactions"
     )

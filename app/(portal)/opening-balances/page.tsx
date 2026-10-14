@@ -8,6 +8,7 @@ import {
   addMonths,
   getOpeningBalanceSetupReferences,
   monthlyRowForBranch,
+  monthlyOpeningBalanceStartMonth,
   needsOpeningBalanceCaution,
   openingBalanceSourceReferences,
   openingBalanceTypeLabel,
@@ -329,10 +330,14 @@ export default async function OpeningBalancesPage({ searchParams }: OpeningBalan
   const role = normalizeRole(profile?.role);
   const canManageOpeningBalances = role === "owner" || role === "finance";
   const params = await searchParams;
-  const [references, operationalCashData] = await Promise.all([getOpeningBalanceSetupReferences(), getDashboardOperationalCashData()]);
-  const hasUnverifiedBalances = references.balances.some(needsOpeningBalanceCaution);
   const requestedYear = Number(searchValue(params?.year) ?? 2026);
   const selectedYear = Number.isFinite(requestedYear) && requestedYear >= 2026 ? requestedYear : 2026;
+  const reportEndDate = `${selectedYear}-12-31`;
+  const [references, operationalCashData] = await Promise.all([
+    getOpeningBalanceSetupReferences(),
+    getDashboardOperationalCashData({ startDate: monthlyOpeningBalanceStartMonth, endDate: reportEndDate })
+  ]);
+  const hasUnverifiedBalances = references.balances.some(needsOpeningBalanceCaution);
   const selectedBranchId = searchValue(params?.branch) ?? "all";
   const selectedBranches = selectedBranchId === "all"
     ? references.branches
