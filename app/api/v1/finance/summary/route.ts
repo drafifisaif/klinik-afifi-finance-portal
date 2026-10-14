@@ -109,6 +109,11 @@ function completedDaysSinceLastSale(lastSaleDate: string | null, startDate: stri
   return Math.max(0, Math.floor((yesterday.getTime() - Date.parse(`${baseline}T00:00:00.000Z`)) / 86400000));
 }
 
+function validInvoiceMonth(value: string | null | undefined) {
+  if (!isIsoDate(value ?? null) || Number(value!.slice(0, 4)) < 2000) return null;
+  return value!.slice(0, 7);
+}
+
 function active(row: { is_void?: boolean | null }) {
   return row.is_void !== true;
 }
@@ -289,11 +294,14 @@ export async function GET(request: Request) {
       const pettyCashRow = pettyCashBalanceRows.find((row) => row.branch.id === branch.id);
       const outstanding = branchClaims.reduce((sum, claim) => sum + Math.max(0, amount(claim.amount) - (paidByClaimId.get(claim.id) ?? 0)), 0);
       const supplierMonths = new Map<string, { month: string; outstanding_amount: number; unpaid_invoice_count: number }>();
+      let supplierInvoiceDateIssueCount = 0;
       for (const purchase of outstandingPurchaseRows) {
         if (purchase.branch_id !== branch.id || !active(purchase)) continue;
         const balance = Math.max(0, amount(purchase.total_amount) - (supplierPaidByPurchaseId.get(purchase.id) ?? 0));
         if (balance <= 0) continue;
-        const month = (purchase.invoice_date || purchase.purchase_date).slice(0, 7);
+        const invoiceMonth = validInvoiceMonth(purchase.invoice_date);
+        if (purchase.invoice_date && !invoiceMonth) supplierInvoiceDateIssueCount += 1;
+        const month = invoiceMonth ?? validInvoiceMonth(purchase.purchase_date) ?? "unknown";
         const current = supplierMonths.get(month) ?? { month, outstanding_amount: 0, unpaid_invoice_count: 0 };
         current.outstanding_amount += balance;
         current.unpaid_invoice_count += 1;
@@ -338,6 +346,7 @@ export async function GET(request: Request) {
           payments: total(supplierPaymentRows.filter((row) => row.branch_id === branch.id && active(row)), (row) => amount(row.amount)),
           outstanding_as_of_end_date: roundMoney(supplierOutstandingByMonth.reduce((sum, row) => sum + row.outstanding_amount, supplierOpeningWithoutInvoiceMonth)),
           outstanding_by_invoice_month: supplierOutstandingByMonth,
+          invalid_invoice_date_count: supplierInvoiceDateIssueCount,
           opening_balance_without_invoice_month: supplierOpeningWithoutInvoiceMonth
         },
         panel: {
