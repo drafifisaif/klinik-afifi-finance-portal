@@ -292,7 +292,11 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
 
   const selectedBankBranches = bankingData?.branches.filter((branch) => selectedBranchIdSet.has(branch.id)) ?? [];
   const selectedBankBranchIds = new Set(selectedBankBranches.map((branch) => branch.id));
-  const hasOpeningBalanceCaution = isFinanceDashboard && [...data.openingBalances, ...(bankingData?.openingBalances ?? [])].some(needsOpeningBalanceCaution);
+  const hasOpeningBalanceCaution = isFinanceDashboard && [...data.openingBalances, ...(bankingData?.openingBalances ?? [])]
+    .some((balance) =>
+      (balance.balance_type === "cash_in_hand" || balance.balance_type === "petty_cash")
+      && needsOpeningBalanceCaution(balance)
+    );
   const selectedBankSales = bankingData?.sales.filter((sale) => {
     return isActiveFinancialRecord(sale) && selectedBankBranchIds.has(sale.branch_id) && isWithinDateRange(sale.sale_date, range);
   }) ?? [];
