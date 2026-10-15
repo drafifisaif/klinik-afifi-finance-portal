@@ -190,18 +190,14 @@ begin
   end if;
   if p_period_month <> date_trunc('month', p_period_month)::date
     or p_period_no not between 1 and 4
-    or p_period_start <> case p_period_no
-      when 1 then p_period_month
-      when 2 then p_period_month + 7
-      when 3 then p_period_month + 14
-      else p_period_month + 21
-    end
-    or p_period_end <> case p_period_no
-      when 1 then p_period_month + 6
-      when 2 then p_period_month + 13
-      when 3 then p_period_month + 20
-      else (p_period_month + interval '1 month' - interval '1 day')::date
-    end then
+    or (p_period_no = 1 and p_period_start <> p_period_month)
+    or (p_period_no = 2 and p_period_start <> p_period_month + 7)
+    or (p_period_no = 3 and p_period_start <> p_period_month + 14)
+    or (p_period_no = 4 and p_period_start <> p_period_month + 21)
+    or (p_period_no = 1 and p_period_end <> p_period_month + 6)
+    or (p_period_no = 2 and p_period_end <> p_period_month + 13)
+    or (p_period_no = 3 and p_period_end <> p_period_month + 20)
+    or (p_period_no = 4 and p_period_end <> (p_period_month + interval '1 month' - interval '1 day')::date) then
     raise exception using errcode = '22023', message = 'Invalid patient reporting period.';
   end if;
   if jsonb_typeof(p_encounters) <> 'array' or jsonb_array_length(p_encounters) = 0 then
