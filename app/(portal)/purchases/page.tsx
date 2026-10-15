@@ -5,7 +5,7 @@ import { ModuleHeader } from "@/components/module-header";
 import { SupplierPurchaseForm } from "@/components/supplier-purchase-form";
 import { purchaseCategories } from "@/lib/constants";
 import { getBranches, getSupplierOutstanding, getSupplierPurchaseEntries, getSuppliers, totalBy } from "@/lib/data";
-import { formatCurrency, formatDate, formatDateTime, labelize } from "@/lib/format";
+import { formatCurrency, formatDate, formatDateTime, labelize, monthKey } from "@/lib/format";
 import { canEditBranch, normalizeRole, requirePermission } from "@/lib/permissions";
 import { getTransactionDocuments } from "@/lib/transaction-documents";
 import { BadgeDollarSign, ClipboardList, Package2, Pill } from "lucide-react";
@@ -26,6 +26,10 @@ function statusClass(status: string) {
   return "status-unpaid";
 }
 
+function monthLabel(value: string) {
+  return monthKey(`${value}-01`);
+}
+
 export default async function PurchasesPage({ searchParams }: PurchasesPageProps) {
   const profile = await requirePermission("view_supplier_records");
   const [branches, suppliers, purchases] = await Promise.all([
@@ -34,15 +38,27 @@ export default async function PurchasesPage({ searchParams }: PurchasesPageProps
     getSupplierPurchaseEntries()
   ]);
   const outstandingRows = await getSupplierOutstanding();
-  const documentMap = await getTransactionDocuments("supplier_purchase_entries", purchases.map((purchase) => purchase.id));
   const canDeleteDocuments = normalizeRole(profile.role) !== "branch_pic";
-  const activePurchases = purchases.filter((purchase) => !purchase.is_void);
   const params = searchParams ? await searchParams : {};
   const errorMessage = searchValue(params.error);
+  const selectedBranch = searchValue(params.branch) ?? "all";
+  const selectedMonth = searchValue(params.month) ?? "all";
+  const selectedSupplier = searchValue(params.supplier) ?? "all";
+  const availableMonths = [...new Set(purchases
+    .filter((purchase) => selectedBranch === "all" || purchase.branch_id === selectedBranch)
+    .filter((purchase) => selectedSupplier === "all" || purchase.supplier_id === selectedSupplier)
+    .map((purchase) => (purchase.invoice_date ?? purchase.purchase_date).slice(0, 7)))]
+    .sort((first, second) => second.localeCompare(first));
+  const filteredPurchases = purchases
+    .filter((purchase) => selectedBranch === "all" || purchase.branch_id === selectedBranch)
+    .filter((purchase) => selectedMonth === "all" || (purchase.invoice_date ?? purchase.purchase_date).slice(0, 7) === selectedMonth)
+    .filter((purchase) => selectedSupplier === "all" || purchase.supplier_id === selectedSupplier);
+  const activePurchases = filteredPurchases.filter((purchase) => !purchase.is_void);
   const outstandingByPurchaseId = new Map(outstandingRows.map((row) => [row.id, row]));
+  const documentMap = await getTransactionDocuments("supplier_purchase_entries", filteredPurchases.map((purchase) => purchase.id));
   const today = new Date().toISOString().slice(0, 10);
   const groupedPurchases = Array.from(
-    purchases.reduce<Map<string, typeof purchases>>((groups, purchase) => {
+    filteredPurchases.reduce<Map<string, typeof purchases>>((groups, purchase) => {
       const key = purchase.supplier_id;
       const items = groups.get(key) ?? [];
       items.push(purchase);
@@ -116,6 +132,38 @@ export default async function PurchasesPage({ searchParams }: PurchasesPageProps
           tone="rose"
           value={formatCurrency(totalBy(activePurchases, (purchase) => purchase.other_cost))}
         />
+      </section>
+
+      <section className="table-section mt-section">
+        <form className="supplier-payment-filters" method="get">
+          <label>
+            Branch
+            <select defaultValue={selectedBranch} name="branch">
+              <option value="all">All branches</option>
+              {branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}
+            </select>
+          </label>
+          <label>
+            Purchase month
+            <select defaultValue={selectedMonth} name="month">
+              <option value="all">All months</option>
+              {availableMonths.map((month) => <option key={month} value={month}>{monthLabel(month)}</option>)}
+            </select>
+          </label>
+          <label>
+            Supplier company
+            <select defaultValue={selectedSupplier} name="supplier">
+              <option value="all">All suppliers</option>
+              {suppliers.map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.name}</option>)}
+            </select>
+          </label>
+          <button className="primary-button" type="submit">Apply filters</button>
+        </form>
+        <p className="supplier-filter-caption">
+          Showing {selectedBranch === "all" ? "all branches" : branches.find((branch) => branch.id === selectedBranch)?.name ?? "selected branch"}
+          {" · "}{selectedMonth === "all" ? "all purchase months" : monthLabel(selectedMonth)}
+          {" · "}{selectedSupplier === "all" ? "all suppliers" : suppliers.find((supplier) => supplier.id === selectedSupplier)?.name ?? "selected supplier"}
+        </p>
       </section>
 
       {errorMessage ? (
