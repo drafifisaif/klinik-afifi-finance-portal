@@ -2136,6 +2136,108 @@ textarea {
   padding: 6px 10px;
 }
 
+.panel-claim-list,
+.panel-payment-record-list {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.panel-claim-entry,
+.panel-payment-record {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  min-width: 0;
+  padding: 15px 16px;
+}
+
+.panel-claim-entry-main,
+.panel-payment-record-main {
+  align-items: flex-start;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+  min-width: 0;
+}
+
+.panel-claim-identity,
+.panel-claim-figures,
+.panel-payment-record-main > div {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.panel-claim-identity h4,
+.panel-payment-record h3 {
+  font-size: 16px;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.panel-claim-identity p,
+.panel-payment-record p,
+.panel-claim-month,
+.panel-claim-figures small,
+.panel-payment-record-main span {
+  color: var(--muted);
+  font-size: 13px;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.panel-claim-figures {
+  align-items: flex-end;
+  flex: 0 0 auto;
+  text-align: right;
+}
+
+.panel-claim-figures > strong,
+.panel-payment-record-main > div:last-child > strong {
+  font-size: 19px;
+}
+
+.panel-claim-actions {
+  align-items: flex-start;
+  border-top: 1px solid var(--line);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  margin-top: 13px;
+  padding-top: 12px;
+}
+
+.panel-claim-actions > details,
+.panel-payment-edit {
+  max-width: 100%;
+  min-width: 0;
+}
+
+.panel-quick-payment > summary {
+  font-size: 15px;
+  min-height: 48px;
+}
+
+.panel-quick-payment .manual-bank-edit-form {
+  min-width: min(360px, calc(100vw - 48px));
+}
+
+.panel-payment-record-main > div:last-child {
+  align-items: flex-end;
+  flex: 0 0 auto;
+  text-align: right;
+}
+
+.panel-payment-record > .supplier-payment-meta {
+  margin: 10px 0;
+}
+
+.panel-payment-edit {
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+}
+
 .import-workspace {
   display: grid;
   gap: 18px;
@@ -2410,6 +2512,17 @@ button:disabled {
   }
 
   .supplier-payment-amount {
+    align-items: flex-start;
+    text-align: left;
+  }
+
+  .panel-claim-entry-main,
+  .panel-payment-record-main {
+    flex-direction: column;
+  }
+
+  .panel-claim-figures,
+  .panel-payment-record-main > div:last-child {
     align-items: flex-start;
     text-align: left;
   }

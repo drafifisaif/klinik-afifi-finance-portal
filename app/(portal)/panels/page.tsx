@@ -1,9 +1,8 @@
 import { createPanelClaim, updatePanelClaim, updatePanelPayment, voidPanelClaim } from "@/app/actions";
-import { DataTable } from "@/components/data-table";
 import { DocumentManager } from "@/components/documents/document-manager";
 import { MetricCard } from "@/components/metric-card";
 import { ModuleHeader } from "@/components/module-header";
-import { PanelPaymentForm } from "@/components/panel-payment-form";
+import { PanelQuickPayment } from "@/components/panel-quick-payment";
 import { getPanelCompanies, getPanelOutstandingPageData, getPanelPaymentBankAccounts, totalBy } from "@/lib/data";
 import { formatCurrency, formatDate, labelize } from "@/lib/format";
 import { outstandingOpeningBalanceTotal } from "@/lib/opening-balances";
@@ -151,7 +150,7 @@ export default async function PanelsPage({ searchParams }: PanelsPageProps) {
       <ModuleHeader
         eyebrow="Receivables"
         title="Panel outstanding"
-        description="Track panel company claims, payment status, and a simple aging view for clinic finance follow-up."
+        description="Review claims by branch and panel company, record payments against the right claim, and track outstanding balances."
       />
 
       <section className="dashboard-grid">
@@ -227,123 +226,63 @@ export default async function PanelsPage({ searchParams }: PanelsPageProps) {
                       <span className="ledger-summary-chip">{group.voidedCount} voided</span>
                     </div>
                   </div>
-                  <DataTable
-                    columns={["Claim month", "Branch", "Claim no.", "Due", "Status", "Amount", "Paid", "Balance", "Edit", "Void / details", "Documents"]}
-                    rows={group.rows.map(({ claim, displayStatus, paidAmount, balanceAmount }) => [
-                      formatDate(claim.claim_month),
-                      claim.branches?.name ?? "-",
-                      claim.claim_no ?? "-",
-                      formatDate(claim.due_date),
-                      <StatusPill key={claim.id} status={displayStatus} />,
-                      formatCurrency(claim.amount),
-                      formatCurrency(paidAmount),
-                      formatCurrency(balanceAmount),
-                      !claim.is_void && canEditBranch(profile, claim.branch_id) ? (
-                        <details className="manual-bank-editor" key={`${claim.id}-edit`}>
-                          <summary>Edit</summary>
-                          <form action={updatePanelClaim} className="manual-bank-edit-form">
-                            <input name="claim_id" type="hidden" value={claim.id} />
-                            <input name="claim_no_debug" type="hidden" value={claim.claim_no ?? ""} />
-                            <input name="branch_name_debug" type="hidden" value={claim.branches?.name ?? ""} />
-                            <input name="panel_company_name_debug" type="hidden" value={claim.panel_companies?.name ?? ""} />
-                            <label>
-                              Panel company
-                              <select defaultValue={claim.panel_company_id} name="panel_company_id" required>
-                                {activePanelCompanies.map((company) => (
-                                  <option key={company.id} value={company.id}>
-                                    {company.name}
-                                  </option>
-                                ))}
-                              </select>
-                            </label>
-                            <label>
-                              Branch
-                              <select defaultValue={claim.branch_id} name="branch_id" required>
-                                {data.branches.map((branch) => (
-                                  <option key={branch.id} value={branch.id}>
-                                    {branch.name}
-                                  </option>
-                                ))}
-                              </select>
-                            </label>
-                            <label>
-                              Claim no.
-                              <input defaultValue={claim.claim_no ?? ""} name="claim_no" />
-                            </label>
-                            <label>
-                              Claim month
-                              <input defaultValue={claim.claim_month} name="claim_month" required type="date" />
-                            </label>
-                            <label>
-                              Submitted date
-                              <input defaultValue={claim.submitted_date ?? ""} name="submitted_date" type="date" />
-                            </label>
-                            <label>
-                              Due date
-                              <input defaultValue={claim.due_date ?? ""} name="due_date" type="date" />
-                            </label>
-                            <label>
-                              Amount
-                              <input defaultValue={claim.amount} min="0" name="amount" required step="0.01" type="number" />
-                            </label>
-                            <label>
-                              Status
-                              <select defaultValue={claim.status} name="status">
-                                <option value="unpaid">Unpaid</option>
-                                <option value="partial">Partial</option>
-                                <option value="paid">Paid</option>
-                                <option value="overdue">Overdue</option>
-                              </select>
-                            </label>
-                            <label>
-                              Notes
-                              <textarea defaultValue={claim.notes ?? ""} name="notes" />
-                            </label>
-                            <button className="primary-button compact-button" type="submit">
-                              Save
-                            </button>
-                          </form>
-                        </details>
-                      ) : (
-                        "-"
-                      ),
-                      !claim.is_void && canEditBranch(profile, claim.branch_id) ? (
-                        <details className="manual-bank-editor" key={`${claim.id}-void`}>
-                          <summary>Void</summary>
-                          <form action={voidPanelClaim} className="manual-bank-edit-form void-record-form">
-                            <input name="claim_id" type="hidden" value={claim.id} />
-                            <input name="claim_no_debug" type="hidden" value={claim.claim_no ?? ""} />
-                            <input name="branch_name_debug" type="hidden" value={claim.branches?.name ?? ""} />
-                            <input name="panel_company_name_debug" type="hidden" value={claim.panel_companies?.name ?? ""} />
-                            <p className="void-warning">Voided panel claims stay in history and are excluded from outstanding totals.</p>
-                            <label>
-                              Void reason
-                              <textarea name="void_reason" required />
-                            </label>
-                            <button className="primary-button compact-button" type="submit">
-                              Void this panel claim
-                            </button>
-                          </form>
-                        </details>
-                      ) : claim.is_void ? (
-                        <div key={`${claim.id}-voided-details`}>
-                          <strong>Voided</strong>
-                          <div>{claim.void_reason ?? "-"}</div>
-                          <small>{claim.voided_at ? formatDate(claim.voided_at) : "-"}</small>
+                  <div className="panel-claim-list">
+                    {group.rows.map(({ claim, displayStatus, paidAmount, balanceAmount }) => (
+                      <article className="panel-claim-entry" key={claim.id}>
+                        <div className="panel-claim-entry-main">
+                          <div className="panel-claim-identity">
+                            <span className="panel-claim-month">{formatDate(claim.claim_month)}{claim.due_date ? ` · Due ${formatDate(claim.due_date)}` : ""}</span>
+                            <h4>{claim.claim_no || "Panel claim"}</h4>
+                            <p>{claim.branches?.name ?? group.branchLabel}</p>
+                          </div>
+                          <div className="panel-claim-figures">
+                            <StatusPill status={displayStatus} />
+                            <strong>{formatCurrency(balanceAmount)}</strong>
+                            <small>Balance · Claim {formatCurrency(claim.amount)} · Paid {formatCurrency(paidAmount)}</small>
+                          </div>
                         </div>
-                      ) : (
-                        "-"
-                      ),
-                      <DocumentManager
-                        canDelete={canDeleteDocuments}
-                        documents={claimDocuments.get(claim.id) ?? []}
-                        entityId={claim.id}
-                        entityName="panel_claims"
-                        key={`${claim.id}-documents`}
-                      />
-                    ])}
-                    rowKeys={group.rows.map(({ claim }) => claim.id)}
-                  />
+                        {claim.is_void && claim.void_reason ? <p className="void-detail">Void reason: {claim.void_reason}</p> : null}
+                        <div className="panel-claim-actions">
+                          {!claim.is_void && canEditBranch(profile, claim.branch_id) ? (
+                            <details className="manual-bank-editor"><summary>Edit claim</summary>
+                              <form action={updatePanelClaim} className="manual-bank-edit-form">
+                                <input name="claim_id" type="hidden" value={claim.id} />
+                                <input name="claim_no_debug" type="hidden" value={claim.claim_no ?? ""} />
+                                <input name="branch_name_debug" type="hidden" value={claim.branches?.name ?? ""} />
+                                <input name="panel_company_name_debug" type="hidden" value={claim.panel_companies?.name ?? ""} />
+                                <label>Panel company<select defaultValue={claim.panel_company_id} name="panel_company_id" required>{activePanelCompanies.map((company) => <option key={company.id} value={company.id}>{company.name}</option>)}</select></label>
+                                <label>Branch<select defaultValue={claim.branch_id} name="branch_id" required>{data.branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select></label>
+                                <label>Claim no.<input defaultValue={claim.claim_no ?? ""} name="claim_no" /></label>
+                                <label>Claim month<input defaultValue={claim.claim_month} name="claim_month" required type="date" /></label>
+                                <label>Submitted date<input defaultValue={claim.submitted_date ?? ""} name="submitted_date" type="date" /></label>
+                                <label>Due date<input defaultValue={claim.due_date ?? ""} name="due_date" type="date" /></label>
+                                <label>Amount<input defaultValue={claim.amount} min="0" name="amount" required step="0.01" type="number" /></label>
+                                <label>Status<select defaultValue={claim.status} name="status"><option value="unpaid">Unpaid</option><option value="partial">Partial</option><option value="paid">Paid</option><option value="overdue">Overdue</option></select></label>
+                                <label>Notes<textarea defaultValue={claim.notes ?? ""} name="notes" /></label>
+                                <button className="primary-button compact-button" type="submit">Save claim</button>
+                              </form>
+                            </details>
+                          ) : null}
+                          {!claim.is_void && canEditBranch(profile, claim.branch_id) ? (
+                            <details className="manual-bank-editor"><summary>Void claim</summary>
+                              <form action={voidPanelClaim} className="manual-bank-edit-form void-record-form">
+                                <input name="claim_id" type="hidden" value={claim.id} />
+                                <input name="claim_no_debug" type="hidden" value={claim.claim_no ?? ""} />
+                                <input name="branch_name_debug" type="hidden" value={claim.branches?.name ?? ""} />
+                                <input name="panel_company_name_debug" type="hidden" value={claim.panel_companies?.name ?? ""} />
+                                <p className="void-warning">Voided claims remain in history and are excluded from outstanding totals.</p>
+                                <label>Void reason<textarea name="void_reason" required /></label>
+                                <button className="primary-button compact-button" type="submit">Confirm void</button>
+                              </form>
+                            </details>
+                          ) : null}
+                          <details className="manual-bank-editor"><summary>Documents</summary><DocumentManager canDelete={canDeleteDocuments} documents={claimDocuments.get(claim.id) ?? []} entityId={claim.id} entityName="panel_claims" /></details>
+                          {!claim.is_void && balanceAmount > 0 && canEditBranch(profile, claim.branch_id) ? <PanelQuickPayment claim={claim} outstanding={balanceAmount} bankAccounts={panelPaymentBanking.bankAccounts} /> : null}
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                  <footer className="supplier-balance-total">Outstanding for {group.panelLabel} <strong>{formatCurrency(group.balanceAmount)}</strong></footer>
                 </article>
               ))}
             </section>
@@ -355,92 +294,39 @@ export default async function PanelsPage({ searchParams }: PanelsPageProps) {
         <div className="report-toolbar">
           <h2>Panel payment records</h2>
         </div>
-        <DataTable
-          columns={["Date", "Panel Company", "Claim", "Branch", "Method", "Received Into", "Reference", "Amount", "Edit"]}
-          rows={data.panelPayments.map((payment) => {
-            const receivingAccounts = panelReceivingBankAccounts(
-              payment.branches ?? payment.panel_claims?.branches ?? null,
-              panelPaymentBanking.bankAccounts,
-              payment.bank_account_id ?? null
-            );
-            const defaultReceivingAccountId = payment.bank_account_id ?? (receivingAccounts.length === 1 ? receivingAccounts[0].id : "");
-
-            return [
-              formatDate(payment.payment_date),
-              payment.panel_companies?.name ?? "-",
-              payment.panel_claims?.claim_no ?? payment.panel_claim_id,
-              payment.branches?.name ?? "-",
-              labelize(payment.payment_type),
-              payment.bank_accounts?.name ?? "-",
-              payment.reference_no ?? "-",
-              formatCurrency(payment.amount),
-              canEditBranch(profile, payment.branch_id ?? payment.panel_claims?.branch_id ?? null) ? (
-              <details className="manual-bank-editor" key={`${payment.id}-edit`}>
-                <summary>Edit</summary>
-                <form action={updatePanelPayment} className="manual-bank-edit-form">
-                  <input name="panel_payment_id" type="hidden" value={payment.id} />
-                  <label>
-                    Panel claim
-                    <select defaultValue={payment.panel_claim_id} name="panel_claim_id" required>
-                      {data.panels.map((claim) => (
-                        <option key={claim.id} value={claim.id}>
-                          {(claim.claim_no ?? claim.id)} · {claim.panel_companies?.name ?? "Panel company"}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label>
-                    Payment date
-                    <input defaultValue={payment.payment_date} name="payment_date" required type="date" />
-                  </label>
-                  <label>
-                    Payment method
-                    <select defaultValue={payment.payment_type} name="payment_type" required>
-                      <option value="cash">Cash</option>
-                      <option value="bank_transfer">Bank transfer</option>
-                      <option value="card">Card</option>
-                      <option value="qr">QR</option>
-                      <option value="panel">Panel</option>
-                    </select>
-                  </label>
-                  <label>
-                    Received into bank account
-                    <select defaultValue={defaultReceivingAccountId} name="bank_account_id">
-                      <option value="">Select bank account</option>
-                      {receivingAccounts.map((account) => (
-                        <option key={account.id} value={account.id}>
-                          {account.name}
-                        </option>
-                      ))}
-                    </select>
-                    {!receivingAccounts.length ? (
-                      <small className="void-warning">
-                        {panelReceivingBankError(payment.branches ?? payment.panel_claims?.branches ?? null)}
-                      </small>
-                    ) : null}
-                  </label>
-                  <label>
-                    Amount
-                    <input defaultValue={payment.amount} min="0.01" name="amount" required step="0.01" type="number" />
-                  </label>
-                  <label>
-                    Reference
-                    <input defaultValue={payment.reference_no ?? ""} name="reference_no" />
-                  </label>
-                  <label>
-                    Notes
-                    <textarea defaultValue={payment.notes ?? ""} name="notes" />
-                  </label>
-                  <button className="primary-button compact-button" type="submit">
-                    Save
-                  </button>
-                </form>
-              </details>
-              ) : "-",
-            ];
-          })}
-          rowKeys={data.panelPayments.map((payment) => payment.id)}
-        />
+        {filteredPayments.length ? (
+          <div className="panel-payment-record-list">
+            {filteredPayments.map((payment) => {
+              const receivingAccounts = panelReceivingBankAccounts(payment.branches ?? payment.panel_claims?.branches ?? null, panelPaymentBanking.bankAccounts, payment.bank_account_id ?? null);
+              const defaultReceivingAccountId = payment.bank_account_id ?? (receivingAccounts.length === 1 ? receivingAccounts[0].id : "");
+              const paymentBranchId = payment.branch_id ?? payment.panel_claims?.branch_id ?? null;
+              return (
+                <article className="panel-payment-record" key={payment.id}>
+                  <div className="panel-payment-record-main">
+                    <div><span>{formatDate(payment.payment_date)} · {payment.branches?.name ?? "-"}</span><h3>{payment.panel_companies?.name ?? "Panel company"}</h3><p>Claim {payment.panel_claims?.claim_no ?? payment.panel_claim_id}</p></div>
+                    <div><strong>{formatCurrency(payment.amount)}</strong><span>{labelize(payment.payment_type)}</span></div>
+                  </div>
+                  <div className="supplier-payment-meta"><span>Received into {payment.bank_accounts?.name ?? "-"}</span>{payment.reference_no ? <span>Ref: {payment.reference_no}</span> : null}</div>
+                  {canEditBranch(profile, paymentBranchId) ? (
+                    <details className="manual-bank-editor panel-payment-edit"><summary>Edit payment</summary>
+                      <form action={updatePanelPayment} className="manual-bank-edit-form">
+                        <input name="panel_payment_id" type="hidden" value={payment.id} />
+                        <label>Panel claim<select defaultValue={payment.panel_claim_id} name="panel_claim_id" required>{filteredClaims.map((claim) => <option key={claim.id} value={claim.id}>{claim.claim_no ?? claim.id} · {claim.panel_companies?.name ?? "Panel company"}</option>)}</select></label>
+                        <label>Payment date<input defaultValue={payment.payment_date} name="payment_date" required type="date" /></label>
+                        <label>Payment method<select defaultValue={payment.payment_type} name="payment_type" required><option value="cash">Cash</option><option value="bank_transfer">Bank transfer</option><option value="card">Card</option><option value="qr">QR</option><option value="panel">Panel</option></select></label>
+                        <label>Received into bank account<select defaultValue={defaultReceivingAccountId} name="bank_account_id"><option value="">Select bank account</option>{receivingAccounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}</select>{!receivingAccounts.length ? <small className="void-warning">{panelReceivingBankError(payment.branches ?? payment.panel_claims?.branches ?? null)}</small> : null}</label>
+                        <label>Amount<input defaultValue={payment.amount} min="0.01" name="amount" required step="0.01" type="number" /></label>
+                        <label>Reference<input defaultValue={payment.reference_no ?? ""} name="reference_no" /></label>
+                        <label>Notes<textarea defaultValue={payment.notes ?? ""} name="notes" /></label>
+                        <button className="primary-button compact-button" type="submit">Save changes</button>
+                      </form>
+                    </details>
+                  ) : null}
+                </article>
+              );
+            })}
+          </div>
+        ) : <p className="empty-state">No panel payment records yet.</p>}
       </section>
       <section className="panel-outstanding-entry-layout mt-section">
         <div className="panel-outstanding-entry-stack">
@@ -507,15 +393,6 @@ export default async function PanelsPage({ searchParams }: PanelsPageProps) {
               </button>
             </div>
           </form>
-
-          <PanelPaymentForm
-            claims={filteredClaims.filter((claim) => !claim.is_void)}
-            panelCompanies={panelCompanies}
-            panelPayments={filteredPayments}
-            bankAccounts={panelPaymentBanking.bankAccounts}
-            profileBranchId={profile.branch_id ?? null}
-            role={role}
-          />
         </div>
       </section>
     </>
