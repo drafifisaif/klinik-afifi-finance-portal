@@ -2143,6 +2143,23 @@ textarea {
   min-width: 0;
 }
 
+.panel-payment-history-disclosure > summary {
+  align-items: center;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--teal-700, #087f77);
+  cursor: pointer;
+  display: inline-flex;
+  font-weight: 700;
+  min-height: 44px;
+  padding: 10px 16px;
+}
+
+.panel-payment-history-disclosure[open] > summary {
+  margin-bottom: 14px;
+}
+
 .panel-claim-entry,
 .panel-payment-record {
   background: #fff;

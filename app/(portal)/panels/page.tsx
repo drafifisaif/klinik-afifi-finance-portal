@@ -295,7 +295,9 @@ export default async function PanelsPage({ searchParams }: PanelsPageProps) {
           <h2>Panel payment records</h2>
         </div>
         {filteredPayments.length ? (
-          <div className="panel-payment-record-list">
+          <details className="panel-payment-history-disclosure">
+            <summary>Show payment records ({filteredPayments.length})</summary>
+            <div className="panel-payment-record-list">
             {filteredPayments.map((payment) => {
               const receivingAccounts = panelReceivingBankAccounts(payment.branches ?? payment.panel_claims?.branches ?? null, panelPaymentBanking.bankAccounts, payment.bank_account_id ?? null);
               const defaultReceivingAccountId = payment.bank_account_id ?? (receivingAccounts.length === 1 ? receivingAccounts[0].id : "");
@@ -325,7 +327,8 @@ export default async function PanelsPage({ searchParams }: PanelsPageProps) {
                 </article>
               );
             })}
-          </div>
+            </div>
+          </details>
         ) : <p className="empty-state">No panel payment records yet.</p>}
       </section>
       <section className="panel-outstanding-entry-layout mt-section">
