@@ -65,6 +65,8 @@ export async function discardPatientBaselineUpload(path: string): Promise<void> 
 export async function importPatientBaseline(path: string): Promise<BaselineUploadResult> {
   let profileId = "";
   let admin: ReturnType<typeof createAdminClient> | null = null;
+  let userClient: Awaited<ReturnType<typeof createClient>> | null = null;
+  let stagedBatchId: string | null = null;
   try {
     const profile = await requirePatientImportProfile();
     profileId = profile.id;
@@ -82,26 +84,43 @@ export async function importPatientBaseline(path: string): Promise<BaselineUploa
     if (parsed.invalidRows > 0) throw new Error(`${parsed.invalidRows.toLocaleString()} baris tiada PID atau tarikh Last Encounter tidak sah. Tiada data disimpan.`);
     if (parsed.patients.length > 100000) throw new Error("Senarai pesakit melebihi had 100,000 PID.");
     const supabase = await createClient();
-    const { data, error } = await supabase.rpc("import_patient_historical_baseline", {
-      p_patients: parsed.patients.map((patient) => ({
-        patient_key: patient.patientKey,
-        last_encounter_date: patient.lastEncounterDate
-      }))
+    userClient = supabase;
+    const { data: batchData, error: batchError } = await supabase.rpc("start_patient_baseline_import", {
+      p_patient_count: parsed.patients.length,
+      p_first_date: parsed.firstDate,
+      p_last_date: parsed.lastDate
     });
-    if (error) {
-      console.error("importPatientBaseline failed", {
-        userId: profile.id,
-        role: profile.role,
-        rowCount: parsed.patients.length,
-        code: error.code,
-        message: error.message,
-        details: error.details,
-        hint: error.hint
-      });
-      if (error.code === "42501") throw new Error("Only Owner or Finance can import the historical patient list.");
-      throw new Error("The historical patient list could not be saved. No patient identifiers were included in the error log.");
+    if (batchError || !batchData) {
+      console.error("importPatientBaseline start failed", { userId: profile.id, role: profile.role, rowCount: parsed.patients.length, code: batchError?.code, message: batchError?.message });
+      if (batchError?.code === "42501") throw new Error("Only Owner or Finance can import the historical patient list.");
+      throw new Error("Baseline import could not be started. No existing baseline was changed.");
     }
-    const result = Array.isArray(data) ? data[0] : data;
+    stagedBatchId = String(batchData);
+
+    const chunkSize = 2500;
+    for (let offset = 0; offset < parsed.patients.length; offset += chunkSize) {
+      const { error: chunkError } = await supabase.rpc("append_patient_baseline_import", {
+        p_batch_id: stagedBatchId,
+        p_patients: parsed.patients.slice(offset, offset + chunkSize).map((patient) => ({
+          patient_key: patient.patientKey,
+          last_encounter_date: patient.lastEncounterDate
+        }))
+      });
+      if (chunkError) {
+        console.error("importPatientBaseline chunk failed", { userId: profile.id, role: profile.role, rowOffset: offset, chunkSize: Math.min(chunkSize, parsed.patients.length - offset), code: chunkError.code, message: chunkError.message });
+        if (chunkError.code === "42501") throw new Error("Only Owner or Finance can import the historical patient list.");
+        throw new Error("A patient baseline batch could not be saved. The existing baseline remains active.");
+      }
+    }
+
+    const { data: finalData, error: finalError } = await supabase.rpc("finalize_patient_baseline_import", { p_batch_id: stagedBatchId });
+    if (finalError || !finalData) {
+      console.error("importPatientBaseline finalize failed", { userId: profile.id, role: profile.role, rowCount: parsed.patients.length, code: finalError?.code, message: finalError?.message });
+      if (finalError?.code === "42501") throw new Error("Only Owner or Finance can import the historical patient list.");
+      throw new Error("The baseline could not be finalized. The existing baseline remains active.");
+    }
+    const result = Array.isArray(finalData) ? finalData[0] : finalData;
+    stagedBatchId = null;
     revalidatePath("/patients");
     revalidatePath("/dashboard");
     return {
@@ -111,6 +130,16 @@ export async function importPatientBaseline(path: string): Promise<BaselineUploa
   } catch (error) {
     return { ok: false, message: error instanceof Error ? error.message : "Could not save the historical patient list." };
   } finally {
+    if (stagedBatchId) {
+      try {
+        if (userClient) {
+          const { error } = await userClient.rpc("discard_patient_baseline_import", { p_batch_id: stagedBatchId });
+          if (error) console.error("importPatientBaseline staged cleanup failed", { userId: profileId, code: error.code, message: error.message });
+        }
+      } catch (error) {
+        console.error("importPatientBaseline staged cleanup failed", { userId: profileId, message: error instanceof Error ? error.message : "unknown error" });
+      }
+    }
     if (admin && path.startsWith(`${profileId}/`)) {
       const { error } = await admin.storage.from(PATIENT_BASELINE_BUCKET).remove([path]);
       if (error) console.error("importPatientBaseline cleanup failed", { userId: profileId, code: error.name, message: error.message });
