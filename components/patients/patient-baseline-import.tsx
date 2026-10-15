@@ -1,7 +1,8 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { importPatientBaseline } from "@/app/(portal)/patients/actions";
+import { createPatientBaselineUpload, discardPatientBaselineUpload, importPatientBaseline } from "@/app/(portal)/patients/actions";
+import { createClient } from "@/lib/supabase-client";
 import type { PatientBaselineBatch } from "@/lib/patient-analytics";
 
 export function PatientBaselineImport({ currentBaseline }: { currentBaseline: PatientBaselineBatch | null }) {
@@ -14,12 +15,33 @@ export function PatientBaselineImport({ currentBaseline }: { currentBaseline: Pa
     if (!window.confirm("Portal akan menyemak dan menyimpan senarai ini. Baseline aktif hanya diganti jika semua rekod sah. Teruskan?")) return;
     setBusy(true);
     setMessage("");
+    let uploadPath: string | undefined;
     try {
-      const result = await importPatientBaseline(new FormData(formRef.current));
+      const input = formRef.current.elements.namedItem("baseline");
+      const file = input instanceof HTMLInputElement ? input.files?.[0] : undefined;
+      if (!file) throw new Error("Pilih fail CSV senarai pesakit dahulu.");
+      if (!file.name.toLowerCase().endsWith(".csv")) throw new Error("Sila pilih fail CSV.");
+      if (file.size === 0 || file.size > 10 * 1024 * 1024) throw new Error("Fail CSV kosong atau melebihi had 10 MB.");
+
+      setMessage("Menyediakan ruang upload selamat...");
+      const upload = await createPatientBaselineUpload();
+      if (!upload.ok || !upload.path || !upload.token) throw new Error(upload.message);
+      uploadPath = upload.path;
+
+      setMessage("Menghantar fail terus ke storan private...");
+      const supabase = createClient();
+      const { error: uploadError } = await supabase.storage
+        .from("patient-import-staging")
+        .uploadToSignedUrl(upload.path, upload.token, file, { contentType: "text/csv" });
+      if (uploadError) throw new Error("Upload fail gagal. Sila cuba semula.");
+
+      setMessage("Menyemak dan menyimpan rekod pesakit...");
+      const result = await importPatientBaseline(upload.path);
       setMessage(result.message);
       if (result.ok) formRef.current.reset();
-    } catch {
-      setMessage("Import tidak berjaya. Sila cuba semula; baseline sedia ada tidak diubah.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Import tidak berjaya. Baseline sedia ada tidak diubah.");
+      if (uploadPath) await discardPatientBaselineUpload(uploadPath);
     } finally {
       setBusy(false);
     }

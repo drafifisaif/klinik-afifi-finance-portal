@@ -1,7 +1,9 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { randomUUID } from "node:crypto";
 import { createClient } from "@/lib/supabase-server";
+import { createAdminClient } from "@/lib/supabase-admin";
 import { getCurrentProfile, hasPermission } from "@/lib/permissions";
 import { getPatientImportPeriod, parsePatientBaselineCsv, parsePatientEncounterWorkbook } from "@/lib/patient-import";
 
@@ -23,23 +25,62 @@ type BaselineUploadResult = {
   message: string;
 };
 
-async function parseBaselineUpload(formData: FormData) {
+const PATIENT_BASELINE_BUCKET = "patient-import-staging";
+
+async function requirePatientImportProfile() {
   const profile = await getCurrentProfile();
   if (!profile || !hasPermission(profile, "manage_patient_imports")) {
     throw new Error("Only Owner or Finance can import the historical patient list.");
   }
-  const file = formData.get("baseline");
-  if (!(file instanceof File) || file.size === 0) throw new Error("Choose the original patient CSV first.");
-  if (!file.name.toLowerCase().endsWith(".csv")) throw new Error("Please upload the patient list as CSV.");
-  const parsed = parsePatientBaselineCsv(Buffer.from(await file.arrayBuffer()));
-  if (parsed.patients.length > 100000) throw new Error("The patient list exceeds the 100,000 PID limit.");
-  return { parsed, profile };
+  return profile;
 }
 
-export async function importPatientBaseline(formData: FormData): Promise<BaselineUploadResult> {
+export async function createPatientBaselineUpload(): Promise<{ ok: boolean; message: string; path?: string; token?: string }> {
   try {
-    const { parsed, profile } = await parseBaselineUpload(formData);
-    if (parsed.invalidRows > 0) throw new Error(`${parsed.invalidRows} rows have a missing PID or invalid Last Encounter date. No data was saved.`);
+    const supabase = await createClient();
+    const profile = await requirePatientImportProfile();
+    const path = `${profile.id}/${randomUUID()}.csv`;
+    const { data, error } = await supabase.storage.from(PATIENT_BASELINE_BUCKET).createSignedUploadUrl(path);
+    if (error || !data) {
+      console.error("createPatientBaselineUpload failed", { userId: profile.id, code: error?.name, message: error?.message });
+      throw new Error("Ruang upload private belum siap. Sila hubungi admin portal.");
+    }
+    return { ok: true, message: "Upload selamat disediakan.", path, token: data.token };
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : "Could not prepare a secure patient upload." };
+  }
+}
+
+export async function discardPatientBaselineUpload(path: string): Promise<void> {
+  try {
+    const profile = await requirePatientImportProfile();
+    if (!path.startsWith(`${profile.id}/`) || !/^[0-9a-f-]{36}\.csv$/i.test(path.slice(profile.id.length + 1))) return;
+    const admin = createAdminClient();
+    await admin.storage.from(PATIENT_BASELINE_BUCKET).remove([path]);
+  } catch (error) {
+    console.error("discardPatientBaselineUpload failed", error instanceof Error ? error.message : "unknown error");
+  }
+}
+
+export async function importPatientBaseline(path: string): Promise<BaselineUploadResult> {
+  let profileId = "";
+  let admin: ReturnType<typeof createAdminClient> | null = null;
+  try {
+    const profile = await requirePatientImportProfile();
+    profileId = profile.id;
+    if (!path.startsWith(`${profile.id}/`) || !/^[0-9a-f-]{36}\.csv$/i.test(path.slice(profile.id.length + 1))) {
+      throw new Error("Fail import tidak sah atau bukan milik akaun ini.");
+    }
+    admin = createAdminClient();
+    const { data: file, error: downloadError } = await admin.storage.from(PATIENT_BASELINE_BUCKET).download(path);
+    if (downloadError || !file) {
+      console.error("importPatientBaseline download failed", { userId: profile.id, code: downloadError?.name, message: downloadError?.message });
+      throw new Error("Fail sementara tidak dapat dibaca. Sila upload semula.");
+    }
+    if (file.size === 0 || file.size > 10 * 1024 * 1024) throw new Error("Fail CSV kosong atau melebihi had 10 MB.");
+    const parsed = parsePatientBaselineCsv(Buffer.from(await file.arrayBuffer()));
+    if (parsed.invalidRows > 0) throw new Error(`${parsed.invalidRows.toLocaleString()} baris tiada PID atau tarikh Last Encounter tidak sah. Tiada data disimpan.`);
+    if (parsed.patients.length > 100000) throw new Error("Senarai pesakit melebihi had 100,000 PID.");
     const supabase = await createClient();
     const { data, error } = await supabase.rpc("import_patient_historical_baseline", {
       p_patients: parsed.patients.map((patient) => ({
@@ -69,6 +110,11 @@ export async function importPatientBaseline(formData: FormData): Promise<Baselin
     };
   } catch (error) {
     return { ok: false, message: error instanceof Error ? error.message : "Could not save the historical patient list." };
+  } finally {
+    if (admin && path.startsWith(`${profileId}/`)) {
+      const { error } = await admin.storage.from(PATIENT_BASELINE_BUCKET).remove([path]);
+      if (error) console.error("importPatientBaseline cleanup failed", { userId: profileId, code: error.name, message: error.message });
+    }
   }
 }
 

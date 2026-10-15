@@ -7,6 +7,8 @@ import { formatDateTime } from "@/lib/format";
 import { hasPermission, requirePermission } from "@/lib/permissions";
 import { Activity, CalendarDays, UserRoundPlus, UsersRound } from "lucide-react";
 
+export const maxDuration = 60;
+
 export default async function PatientsPage() {
   const profile = await requirePermission("view_patient_analytics");
   const { summaries, batches, baseline, error } = await getPatientAnalytics();
