@@ -21,7 +21,6 @@ type PatientUploadResult = {
 type BaselineUploadResult = {
   ok: boolean;
   message: string;
-  preview?: { patients: number; duplicateRows: number; invalidRows: number; firstDate: string; lastDate: string };
 };
 
 async function parseBaselineUpload(formData: FormData) {
@@ -35,25 +34,6 @@ async function parseBaselineUpload(formData: FormData) {
   const parsed = parsePatientBaselineCsv(Buffer.from(await file.arrayBuffer()));
   if (parsed.patients.length > 100000) throw new Error("The patient list exceeds the 100,000 PID limit.");
   return { parsed, profile };
-}
-
-export async function previewPatientBaseline(formData: FormData): Promise<BaselineUploadResult> {
-  try {
-    const { parsed } = await parseBaselineUpload(formData);
-    return {
-      ok: true,
-      message: "Baseline preview ready. Names, addresses, and phone numbers are ignored.",
-      preview: {
-        patients: parsed.patients.length,
-        duplicateRows: parsed.duplicateRows,
-        invalidRows: parsed.invalidRows,
-        firstDate: parsed.firstDate,
-        lastDate: parsed.lastDate
-      }
-    };
-  } catch (error) {
-    return { ok: false, message: error instanceof Error ? error.message : "Could not read the patient list." };
-  }
 }
 
 export async function importPatientBaseline(formData: FormData): Promise<BaselineUploadResult> {
