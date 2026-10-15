@@ -75,7 +75,7 @@ export async function GET(request: Request) {
     const branches = (branchData ?? []) as BranchRow[];
     const branchIds = branches.map((branch) => branch.id);
     if (branchIds.length === 0) {
-      return json({ api_version: "v1", period: { start_date: startDate, end_date: endDate }, branches: [], weekly: [], monthly: null });
+      return json({ api_version: "v1", period: { start_date: startDate, end_date: endDate }, branches: [], weekly: [], monthly: [] });
     }
 
     const { data, error } = await supabase
