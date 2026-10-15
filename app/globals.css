@@ -198,6 +198,17 @@ textarea {
   font-weight: 700;
 }
 
+.patient-baseline-notice {
+  background: #fff8e8;
+  border: 1px solid #f1d79a;
+  border-radius: 8px;
+  color: #775514;
+  font-size: 13px;
+  line-height: 1.55;
+  margin: 0 0 16px;
+  padding: 12px 14px;
+}
+
 .patient-section,
 .patient-import-panel,
 .patient-chart-panel {

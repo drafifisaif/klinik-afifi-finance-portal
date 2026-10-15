@@ -19,6 +19,16 @@ export type PatientReportParseResult = {
   dates: string[];
 };
 
+export type PatientBaselineRecord = { patientKey: string; lastEncounterDate: string };
+
+export type PatientBaselineParseResult = {
+  patients: PatientBaselineRecord[];
+  duplicateRows: number;
+  invalidRows: number;
+  firstDate: string;
+  lastDate: string;
+};
+
 export function getPatientImportPeriod(month: string, periodNo: number) {
   if (!/^\d{4}-\d{2}$/.test(month) || periodNo < 1 || periodNo > 4 || !Number.isInteger(periodNo)) {
     throw new Error("Choose a valid reporting month and period.");
@@ -129,6 +139,81 @@ function excelDate(value: string) {
 
 function normalizeHeader(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, "").trim();
+}
+
+export function parsePatientBaselineCsv(buffer: Buffer): PatientBaselineParseResult {
+  if (buffer.byteLength > 10 * 1024 * 1024) throw new Error("The patient list is too large. Maximum file size is 10 MB.");
+  const text = buffer.toString("utf8").replace(/^\uFEFF/, "");
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let field = "";
+  let quoted = false;
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    if (quoted && char === '"') {
+      if (text[index + 1] === '"') {
+        field += '"';
+        index += 1;
+      } else if ([",", "\r", "\n", undefined].includes(text[index + 1])) {
+        quoted = false;
+      } else {
+        field += char;
+      }
+    } else if (quoted) {
+      field += char;
+    } else if (char === '"' && field.length === 0) {
+      quoted = true;
+    } else if (char === ",") {
+      row.push(field.trim());
+      field = "";
+    } else if (char === "\r" || char === "\n") {
+      row.push(field.trim());
+      if (row.some((value) => value)) rows.push(row);
+      row = [];
+      field = "";
+      if (char === "\r" && text[index + 1] === "\n") index += 1;
+    } else {
+      field += char;
+    }
+  }
+  row.push(field.trim());
+  if (row.some((value) => value)) rows.push(row);
+
+  const headers = rows[0] ?? [];
+  const pidColumn = headers.findIndex((header) => normalizeHeader(header) === "pid");
+  const lastEncounterColumn = headers.findIndex((header) => normalizeHeader(header) === "lastencounter");
+  if (pidColumn < 0 || lastEncounterColumn < 0) throw new Error("The patient list must include PID and Last Encounter columns.");
+
+  const byPatient = new Map<string, string>();
+  const dates: string[] = [];
+  let invalidRows = 0;
+  let duplicateRows = 0;
+  for (const values of rows.slice(1)) {
+    const pid = String(values[pidColumn] ?? "").trim();
+    const lastEncounterDate = excelDate(String(values[lastEncounterColumn] ?? ""));
+    if (!pid || !lastEncounterDate) {
+      invalidRows += 1;
+      continue;
+    }
+    const patientKey = keyedPatientId(pid);
+    const previousDate = byPatient.get(patientKey);
+    if (previousDate) {
+      duplicateRows += 1;
+      if (lastEncounterDate > previousDate) byPatient.set(patientKey, lastEncounterDate);
+    } else {
+      byPatient.set(patientKey, lastEncounterDate);
+    }
+    dates.push(lastEncounterDate);
+  }
+
+  if (!byPatient.size) throw new Error("No valid PID and Last Encounter rows were found.");
+  return {
+    patients: [...byPatient].map(([patientKey, lastEncounterDate]) => ({ patientKey, lastEncounterDate })),
+    duplicateRows,
+    invalidRows,
+    firstDate: dates.sort()[0],
+    lastDate: dates.at(-1) ?? ""
+  };
 }
 
 function normalizeBranchName(value: string) {

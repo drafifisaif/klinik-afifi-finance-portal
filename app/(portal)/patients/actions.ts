@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase-server";
 import { getCurrentProfile, hasPermission } from "@/lib/permissions";
-import { getPatientImportPeriod, parsePatientEncounterWorkbook } from "@/lib/patient-import";
+import { getPatientImportPeriod, parsePatientBaselineCsv, parsePatientEncounterWorkbook } from "@/lib/patient-import";
 
 type PatientUploadResult = {
   ok: boolean;
@@ -17,6 +17,80 @@ type PatientUploadResult = {
     endDate: string;
   };
 };
+
+type BaselineUploadResult = {
+  ok: boolean;
+  message: string;
+  preview?: { patients: number; duplicateRows: number; invalidRows: number; firstDate: string; lastDate: string };
+};
+
+async function parseBaselineUpload(formData: FormData) {
+  const profile = await getCurrentProfile();
+  if (!profile || !hasPermission(profile, "manage_patient_imports")) {
+    throw new Error("Only Owner or Finance can import the historical patient list.");
+  }
+  const file = formData.get("baseline");
+  if (!(file instanceof File) || file.size === 0) throw new Error("Choose the original patient CSV first.");
+  if (!file.name.toLowerCase().endsWith(".csv")) throw new Error("Please upload the patient list as CSV.");
+  const parsed = parsePatientBaselineCsv(Buffer.from(await file.arrayBuffer()));
+  if (parsed.patients.length > 100000) throw new Error("The patient list exceeds the 100,000 PID limit.");
+  return { parsed, profile };
+}
+
+export async function previewPatientBaseline(formData: FormData): Promise<BaselineUploadResult> {
+  try {
+    const { parsed } = await parseBaselineUpload(formData);
+    return {
+      ok: true,
+      message: "Baseline preview ready. Names, addresses, and phone numbers are ignored.",
+      preview: {
+        patients: parsed.patients.length,
+        duplicateRows: parsed.duplicateRows,
+        invalidRows: parsed.invalidRows,
+        firstDate: parsed.firstDate,
+        lastDate: parsed.lastDate
+      }
+    };
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : "Could not read the patient list." };
+  }
+}
+
+export async function importPatientBaseline(formData: FormData): Promise<BaselineUploadResult> {
+  try {
+    const { parsed, profile } = await parseBaselineUpload(formData);
+    if (parsed.invalidRows > 0) throw new Error(`${parsed.invalidRows} rows have a missing PID or invalid Last Encounter date. No data was saved.`);
+    const supabase = await createClient();
+    const { data, error } = await supabase.rpc("import_patient_historical_baseline", {
+      p_patients: parsed.patients.map((patient) => ({
+        patient_key: patient.patientKey,
+        last_encounter_date: patient.lastEncounterDate
+      }))
+    });
+    if (error) {
+      console.error("importPatientBaseline failed", {
+        userId: profile.id,
+        role: profile.role,
+        rowCount: parsed.patients.length,
+        code: error.code,
+        message: error.message,
+        details: error.details,
+        hint: error.hint
+      });
+      if (error.code === "42501") throw new Error("Only Owner or Finance can import the historical patient list.");
+      throw new Error("The historical patient list could not be saved. No patient identifiers were included in the error log.");
+    }
+    const result = Array.isArray(data) ? data[0] : data;
+    revalidatePath("/patients");
+    revalidatePath("/dashboard");
+    return {
+      ok: true,
+      message: `Historical baseline saved: ${Number(result?.patient_count ?? parsed.patients.length).toLocaleString()} existing patient IDs. Branch is not assigned; names, addresses, and phone numbers were not stored.`
+    };
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : "Could not save the historical patient list." };
+  }
+}
 
 async function parseUpload(formData: FormData) {
   const profile = await getCurrentProfile();
@@ -54,23 +128,16 @@ export async function previewPatientReport(formData: FormData): Promise<PatientU
   try {
     const { parsed, period, supabase } = await parseUpload(formData);
     const patientKeys = [...new Set(parsed.encounters.map((encounter) => encounter.patientKey))];
-    const known = new Set<string>();
+    let knownCount = 0;
 
-    for (let offset = 0; offset < patientKeys.length; offset += 500) {
-      const { data, error } = await supabase
-        .from("patient_registry")
-        .select("patient_key")
-        .in("patient_key", patientKeys.slice(offset, offset + 500));
+    for (let offset = 0; offset < patientKeys.length; offset += 5000) {
+      const { data, error } = await supabase.rpc("count_known_patient_ids", {
+        p_patient_keys: patientKeys.slice(offset, offset + 5000)
+      });
       if (error) throw new Error("Could not check this report against the patient history.");
-      for (const row of data ?? []) known.add(row.patient_key);
+      knownCount += Number(data ?? 0);
     }
-
-    const seenInFile = new Set<string>();
-    const candidateNewIds = patientKeys.filter((key) => {
-      if (known.has(key) || seenInFile.has(key)) return false;
-      seenInFile.add(key);
-      return true;
-    }).length;
+    const candidateNewIds = Math.max(patientKeys.length - knownCount, 0);
 
     return {
       ok: true,

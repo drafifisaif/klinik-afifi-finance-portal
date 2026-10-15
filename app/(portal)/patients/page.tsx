@@ -1,5 +1,6 @@
 import { ModuleHeader } from "@/components/module-header";
 import { PatientReportImport } from "@/components/patients/patient-report-import";
+import { PatientBaselineImport } from "@/components/patients/patient-baseline-import";
 import { PatientTrendChart } from "@/components/patients/patient-trend-chart";
 import { getPatientAnalytics } from "@/lib/patient-analytics";
 import { formatDateTime } from "@/lib/format";
@@ -8,7 +9,7 @@ import { Activity, CalendarDays, UserRoundPlus, UsersRound } from "lucide-react"
 
 export default async function PatientsPage() {
   const profile = await requirePermission("view_patient_analytics");
-  const { summaries, batches, error } = await getPatientAnalytics();
+  const { summaries, batches, baseline, error } = await getPatientAnalytics();
   const canImport = hasPermission(profile, "manage_patient_imports");
   const latest = summaries.filter((row) => row.is_complete).sort((a, b) =>
     b.period_month.localeCompare(a.period_month) || b.period_no - a.period_no
@@ -83,6 +84,7 @@ export default async function PatientsPage() {
       </section>
 
       {canImport ? <PatientReportImport /> : null}
+      {canImport ? <PatientBaselineImport currentBaseline={baseline} /> : null}
 
       {canImport ? (
         <section className="patient-section" aria-labelledby="patient-import-history-title">
