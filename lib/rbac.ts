@@ -17,7 +17,9 @@ export type PermissionKey =
   | "record_cash_bank_in"
   | "record_petty_cash"
   | "view_audit_trail"
-  | "view_settings";
+  | "view_settings"
+  | "view_patient_analytics"
+  | "manage_patient_imports";
 
 export const rolePermissions: Record<UserRole, PermissionKey[]> = {
   owner: [
@@ -37,7 +39,9 @@ export const rolePermissions: Record<UserRole, PermissionKey[]> = {
     "record_cash_bank_in",
     "record_petty_cash",
     "view_audit_trail",
-    "view_settings"
+    "view_settings",
+    "view_patient_analytics",
+    "manage_patient_imports"
   ],
   admin: [
     "view_dashboard",
@@ -53,7 +57,8 @@ export const rolePermissions: Record<UserRole, PermissionKey[]> = {
     "import_data",
     "view_bank_position",
     "record_cash_bank_in",
-    "record_petty_cash"
+    "record_petty_cash",
+    "view_patient_analytics"
   ],
   finance: [
     "view_dashboard",
@@ -67,7 +72,9 @@ export const rolePermissions: Record<UserRole, PermissionKey[]> = {
     "import_data",
     "view_bank_position",
     "record_cash_bank_in",
-    "record_petty_cash"
+    "record_petty_cash",
+    "view_patient_analytics",
+    "manage_patient_imports"
   ],
   branch_pic: [
     "view_dashboard",
@@ -77,7 +84,8 @@ export const rolePermissions: Record<UserRole, PermissionKey[]> = {
     "view_panel_records",
     "view_bank_position",
     "record_cash_bank_in",
-    "record_petty_cash"
+    "record_petty_cash",
+    "view_patient_analytics"
   ],
   staff: ["view_dashboard"]
 };

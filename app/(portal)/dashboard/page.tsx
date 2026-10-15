@@ -21,7 +21,8 @@ import { getDashboardOperationalCashData, getFinanceDashboardData, getSupplierOu
 import { formatCurrency, formatDate, formatDateTime, monthKey } from "@/lib/format";
 import { bankOpeningBalanceTotal, needsOpeningBalanceCaution, outstandingOpeningBalanceTotal } from "@/lib/opening-balances";
 import { activePanelPayments, activePanelClaims, panelClaimOutstandingAmount } from "@/lib/panel-accounting";
-import { canViewAllBranches, normalizeRole, requirePermission } from "@/lib/permissions";
+import { canViewAllBranches, hasPermission, normalizeRole, requirePermission } from "@/lib/permissions";
+import { getPatientAnalytics } from "@/lib/patient-analytics";
 import { userDisplayLabel } from "@/lib/display";
 import { getVisibleProfilesById } from "@/lib/users";
 import type { BankAccount, BankingData, BankTransaction, DashboardData, PettyCashTransaction } from "@/lib/types";
@@ -181,10 +182,11 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const isFinanceDashboard = role === "owner" || role === "admin" || role === "finance";
   const isOwnerDashboard = role === "owner";
   const isBranchPicDashboard = role === "branch_pic";
-  const [financeBundle, supplierOutstandingRows, operationalData] = await Promise.all([
+  const [financeBundle, supplierOutstandingRows, operationalData, patientAnalytics] = await Promise.all([
     isFinanceDashboard ? getFinanceDashboardData(profile, range) : Promise.resolve(null),
     isFinanceDashboard ? getSupplierOutstanding(profile) : Promise.resolve([]),
-    isFinanceDashboard ? Promise.resolve(null) : getDashboardOperationalCashData(range)
+    isFinanceDashboard ? Promise.resolve(null) : getDashboardOperationalCashData(range),
+    hasPermission(profile, "view_patient_analytics") ? getPatientAnalytics() : Promise.resolve(null)
   ]);
   const data: DashboardData = financeBundle?.dashboardData ?? {
     branches: operationalData?.branches ?? [],
@@ -444,6 +446,16 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     ? await getVisibleProfilesById(branchMetrics.map((metric) => metric.latestSale?.entered_by))
     : [];
   const updaterById = new Map(updaterProfiles.map((user) => [user.id, user]));
+  const patientSummaries = patientAnalytics?.summaries ?? [];
+  const latestPatientPeriod = [...patientSummaries].sort((a, b) =>
+    b.period_month.localeCompare(a.period_month) || b.period_no - a.period_no
+  )[0];
+  const latestPatientRows = latestPatientPeriod
+    ? patientSummaries.filter((row) => row.period_month === latestPatientPeriod.period_month && row.period_no === latestPatientPeriod.period_no)
+    : [];
+  const patientVisits = totalBy(latestPatientRows.filter((row) => row.is_complete), (row) => row.visit_count);
+  const patientNewIds = totalBy(latestPatientRows.filter((row) => row.is_complete), (row) => row.new_patient_count);
+  const patientMissingBranches = latestPatientRows.filter((row) => !row.is_complete).map((row) => row.branches?.name ?? "Cawangan");
 
   const monthlySales = new Map<string, number>();
   const monthlyCosts = new Map<string, number>();
@@ -713,6 +725,30 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
             />
           </section>
         </>
+      ) : null}
+
+      {patientAnalytics ? (
+        <section className="dashboard-patient-summary" aria-labelledby="dashboard-patient-title">
+          <div>
+            <p className="owner-section-kicker">LAWATAN PESAKIT</p>
+            <h2 id="dashboard-patient-title">Ringkasan laporan cawangan</h2>
+            <p>{latestPatientPeriod ? `${formatDate(latestPatientPeriod.period_start)} hingga ${formatDate(latestPatientPeriod.period_end)}` : "Belum ada laporan pesakit diimport."}</p>
+          </div>
+          {latestPatientPeriod ? (
+            <>
+              <div className="dashboard-patient-metrics">
+                <span><strong>{patientVisits.toLocaleString()}</strong> lawatan</span>
+                <span><strong>{patientNewIds.toLocaleString()}</strong> PID pertama kali direkod</span>
+              </div>
+              {patientMissingBranches.length ? (
+                <p className="dashboard-patient-alert">Belum dikemaskini: {patientMissingBranches.join(", ")}</p>
+              ) : <p className="dashboard-patient-ok">Semua cawangan sudah hantar laporan untuk tempoh ini.</p>}
+            </>
+          ) : null}
+          <a className="secondary-button compact-button" href="/patients">Buka analisis pesakit</a>
+          {patientAnalytics.error ? <small role="status">{patientAnalytics.error}</small> : null}
+          {latestPatientPeriod ? <small>PID pertama kali direkod berdasarkan sejarah import portal yang tersedia.</small> : null}
+        </section>
       ) : null}
 
       {isFinanceDashboard ? (

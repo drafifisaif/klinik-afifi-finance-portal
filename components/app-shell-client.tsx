@@ -27,6 +27,7 @@ import {
   Stethoscope,
   Truck,
   Users,
+  UsersRound,
   WalletCards
 } from "lucide-react";
 
@@ -55,6 +56,7 @@ const iconMap: Record<string, LucideIcon> = {
   ShieldCheck,
   Truck,
   Users,
+  UsersRound,
   WalletCards
 };
 
