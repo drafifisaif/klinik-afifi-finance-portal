@@ -20,13 +20,11 @@ import {
 } from "@/lib/bank-reporting";
 import { branchGroups, getBranchGroup, resolveSelectedBranchIds, toParamArray } from "@/lib/branch-reporting";
 import { getDashboardOperationalCashData, getFinanceDashboardData, getSupplierOutstanding, totalBy } from "@/lib/data";
-import { formatCurrency, formatDate, formatDateTime, monthKey } from "@/lib/format";
+import { formatCurrency, formatDate, monthKey } from "@/lib/format";
 import { bankOpeningBalanceTotal, needsOpeningBalanceCaution, outstandingOpeningBalanceTotal } from "@/lib/opening-balances";
 import { activePanelPayments, activePanelClaims, panelClaimOutstandingAmount } from "@/lib/panel-accounting";
 import { canViewAllBranches, hasPermission, normalizeRole, requirePermission } from "@/lib/permissions";
 import { getPatientAnalytics } from "@/lib/patient-analytics";
-import { userDisplayLabel } from "@/lib/display";
-import { getVisibleProfilesById } from "@/lib/users";
 import type { BankAccount, BankingData, BankTransaction, DashboardData, PettyCashTransaction } from "@/lib/types";
 import {
   BadgeDollarSign,
@@ -431,27 +429,16 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     const branchCashInHand = cashInHandByBranchId.get(branch.id)?.remaining ?? 0;
     const branchPettyCash = pettyCashByBranchId.get(branch.id)?.balance ?? 0;
     const branchAccrualIncome = branchDirectSales + branchPanelClaims;
-    const latestSale = branchSalesRows.reduce<typeof branchSalesRows[number] | null>((latest, sale) => {
-      const saleUpdatedAt = sale.updated_at ?? sale.created_at ?? `${sale.sale_date}T00:00:00`;
-      const latestUpdatedAt = latest?.updated_at ?? latest?.created_at ?? (latest ? `${latest.sale_date}T00:00:00` : "");
-      return !latest || saleUpdatedAt > latestUpdatedAt ? sale : latest;
-    }, null);
-
     return {
       branch,
       accrualIncome: branchAccrualIncome,
       cashInHand: branchCashInHand,
       expenses: branchOperatingExpenses + branchPurchases,
-      latestSale,
       netPosition: branchAccrualIncome - branchOperatingExpenses - branchPurchases,
       pettyCash: branchPettyCash,
       sales: branchSales
     };
   });
-  const updaterProfiles = isOwnerDashboard
-    ? await getVisibleProfilesById(branchMetrics.map((metric) => metric.latestSale?.entered_by))
-    : [];
-  const updaterById = new Map(updaterProfiles.map((user) => [user.id, user]));
   const patientSummaries = (patientAnalytics?.summaries ?? []).filter((row) => selectedBranchIdSet.has(row.branch_id));
   const latestPatientPeriod = [...patientSummaries].filter((row) => row.is_complete).sort((a, b) =>
     b.period_month.localeCompare(a.period_month) || b.period_no - a.period_no
@@ -715,23 +702,6 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
             <strong>Nota mudah:</strong> tuntutan panel dikira sebagai jualan apabila dikeluarkan, tetapi hanya menjadi tunai apabila bayaran diterima. Cash Bank-In ialah pindahan tunai ke bank, bukan jualan baru.
           </p>
 
-          <section className="owner-branch-updates" aria-labelledby="owner-branch-updates-title">
-            <h2 id="owner-branch-updates-title">Update Daily Sales mengikut cawangan</h2>
-            <p>Status ini berdasarkan rekod Daily Sales aktif dalam tempoh pilihan di atas.</p>
-            <DataTable
-              columns={["Cawangan", "Status tempoh ini", "Tarikh jualan terakhir", "Terakhir dikemaskini", "Dikemaskini oleh"]}
-              rows={branchMetrics.map((metric) => {
-                const sale = metric.latestSale;
-                return [
-                  metric.branch.name,
-                  sale ? "Ada rekod" : "Belum ada rekod dalam tempoh ini",
-                  sale ? formatDate(sale.sale_date) : "-",
-                  sale ? formatDateTime(sale.updated_at ?? sale.created_at) : "-",
-                  sale ? userDisplayLabel(updaterById.get(sale.entered_by ?? ""), sale.entered_by) : "-"
-                ];
-              })}
-            />
-          </section>
         </>
       ) : null}
 
