@@ -1322,7 +1322,7 @@ export async function getBankingDataForScope(options: BankingDataOptions = {}): 
     fetchOrDemo(
       supabase
         .from("branch_bank_mappings")
-        .select("*, branches(name, code), bank_accounts(name, bank_name, account_no)")
+        .select("id, branch_id, bank_account_id, is_active")
         .eq("is_active", true),
       demoBankingData.branchBankMappings,
       "branch_bank_mappings"
@@ -1398,6 +1398,20 @@ export async function getBankingDataForScope(options: BankingDataOptions = {}): 
     panel_claims: payment.panel_claims ?? null
   }));
 
+  const branchById = new Map((branchRows as Branch[]).map((branch) => [branch.id, branch]));
+  const bankAccountById = new Map(bankRows.map((account) => [account.id, account]));
+  const mappedBankRows = (mappingRows as BranchBankMapping[]).map((mapping) => {
+    const branch = branchById.get(mapping.branch_id);
+    const account = bankAccountById.get(mapping.bank_account_id);
+    return {
+      ...mapping,
+      branches: branch ? { name: branch.name, code: branch.code } : null,
+      bank_accounts: account
+        ? { name: account.name, bank_name: account.bank_name, account_no: account.account_no }
+        : null
+    };
+  });
+
   return filterBankingDataForProfile(
     {
       branches: branchRows as Branch[],
@@ -1408,7 +1422,7 @@ export async function getBankingDataForScope(options: BankingDataOptions = {}): 
       bankAccounts: bankRows as BankAccount[],
       bankAccountPermissions: permissionRowsTyped,
       bankTransactions: transactionRows as BankTransaction[],
-      branchBankMappings: mappingRows as BranchBankMapping[],
+      branchBankMappings: mappedBankRows,
       cashBankIns: cashBankInRows as CashBankIn[],
       pettyCashTransactions: pettyCashRows as PettyCashTransaction[],
       supplierPayments: supplierPaymentRows as SupplierPaymentEntry[],
