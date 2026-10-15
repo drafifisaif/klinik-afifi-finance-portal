@@ -34,7 +34,13 @@ create policy "Branch scoped expenses write"
 on public.expenses for insert
 to authenticated
 with check (
-  public.can_access_branch(branch_id)
+  (
+    (public.current_user_role() = 'branch_pic' and branch_id = public.current_user_branch_id())
+    or (
+      public.current_user_role() in ('finance', 'admin', 'owner')
+      and public.can_access_branch(branch_id)
+    )
+  )
   and (
     category::text not in ('salary', 'kwsp', 'socso', 'eis', 'other_payroll')
     or public.current_user_role() in ('owner', 'finance')
@@ -48,7 +54,6 @@ to authenticated
 using (
   public.can_access_branch(branch_id)
   and public.current_user_role() in ('owner', 'admin', 'finance', 'branch_pic')
-  and (public.current_user_role() = 'owner' or not is_void)
   and (
     category::text not in ('salary', 'kwsp', 'socso', 'eis', 'other_payroll')
     or public.current_user_role() in ('owner', 'finance')
