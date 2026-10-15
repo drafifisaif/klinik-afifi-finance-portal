@@ -1272,35 +1272,39 @@ export async function getBankingDataForScope(options: BankingDataOptions = {}): 
   const role = normalizeRole(profile?.role);
   const [branchRows, openingBalanceRows, monthlyOpeningBalanceRows, salesRows, expenseRows, permissionRows, transactionRows, mappingRows, cashBankInRows, pettyCashRows, supplierPaymentRows, panelPaymentRows] = await Promise.all([
     fetchOrDemo(supabase.from("branches").select("*").eq("is_active", true).order("name"), demoBankingData.branches, "branches"),
-    fetchOrDemo(
-      supabase
+    fetchAllPagesOrDemo(
+      (from, to) => supabase
         .from("opening_balances")
         .select("*, branches(name, code), bank_accounts(name, bank_name, account_no), suppliers(name), panel_companies(name)")
-        .order("balance_date", { ascending: false }),
+        .order("balance_date", { ascending: false })
+        .range(from, to),
       demoBankingData.openingBalances,
       "opening_balances"
     ),
-    fetchOrDemo(
-      supabase
+    fetchAllPagesOrDemo(
+      (from, to) => supabase
         .from("monthly_opening_balances")
         .select("*, branches(name, code)")
-        .order("balance_month", { ascending: false }),
+        .order("balance_month", { ascending: false })
+        .range(from, to),
       demoBankingData.monthlyOpeningBalances,
       "monthly_opening_balances"
     ),
-    fetchOrDemo(
-      supabase
+    fetchAllPagesOrDemo(
+      (from, to) => supabase
         .from("daily_sales")
         .select("*, branches(name, code)")
-        .order("sale_date", { ascending: false }),
+        .order("sale_date", { ascending: false })
+        .range(from, to),
       demoBankingData.sales,
       "daily_sales"
     ),
-    fetchOrDemo(
-      supabase
+    fetchAllPagesOrDemo(
+      (from, to) => supabase
         .from("expenses")
         .select("*, branches(name, code)")
-        .order("expense_date", { ascending: false }),
+        .order("expense_date", { ascending: false })
+        .range(from, to),
       demoBankingData.expenses,
       "expenses_banking"
     ),
@@ -1327,11 +1331,12 @@ export async function getBankingDataForScope(options: BankingDataOptions = {}): 
       demoBankingData.branchBankMappings,
       "branch_bank_mappings"
     ),
-    fetchOrDemo(
-      supabase
+    fetchAllPagesOrDemo(
+      (from, to) => supabase
         .from("cash_bank_ins")
         .select("*, branches(name, code), bank_accounts(name, bank_name, account_no)")
-        .order("bank_in_date", { ascending: false }),
+        .order("bank_in_date", { ascending: false })
+        .range(from, to),
       demoBankingData.cashBankIns,
       "cash_bank_ins"
     ),
