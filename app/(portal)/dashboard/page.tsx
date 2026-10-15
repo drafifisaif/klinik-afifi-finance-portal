@@ -181,6 +181,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const role = normalizeRole(profile.role);
   const isFinanceDashboard = role === "owner" || role === "admin" || role === "finance";
   const isOwnerDashboard = role === "owner";
+  const isOwnerExperience = isOwnerDashboard || role === "finance";
   const isBranchPicDashboard = role === "branch_pic";
   const [financeBundle, supplierOutstandingRows, operationalData, patientAnalytics] = await Promise.all([
     isFinanceDashboard ? getFinanceDashboardData(profile, range) : Promise.resolve(null),
@@ -540,7 +541,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       <ModuleHeader
         eyebrow="Finance overview"
         title={
-          isOwnerDashboard
+          isOwnerExperience
             ? "Ringkasan kewangan klinik"
             : !isFinanceDashboard
             ? "Branch dashboard"
@@ -549,7 +550,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
               : "Owner Dashboard V2"
         }
         description={
-          isOwnerDashboard
+          isOwnerExperience
             ? "Paparan ringkas untuk faham jualan, belanja, tunai dan perkara yang perlu diberi perhatian."
             : !isFinanceDashboard
             ? "Operational cash visibility for your permitted branch."
@@ -642,13 +643,13 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
 
       {isFinanceDashboard && hasOpeningBalanceCaution ? (
         <p className="import-message opening-balance-warning">
-          {isOwnerDashboard
+          {isOwnerExperience
             ? "Ada baki permulaan yang masih anggaran atau belum disemak. Jadi angka tunai mungkin belum tepat."
             : "Some opening balances are estimated or pending review. Reports still include these starting values, so interpret totals with caution."}
         </p>
       ) : null}
 
-      {isOwnerDashboard ? (
+      {isOwnerExperience ? (
         <>
           <section className="owner-overview" aria-label="Ringkasan kewangan mudah">
             <article className="owner-summary-card owner-summary-sales">
@@ -753,8 +754,8 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       ) : null}
 
       {isFinanceDashboard ? (
-      <details className={`owner-detail-disclosure ${isOwnerDashboard ? "" : "owner-detail-expanded"}`} open={!isOwnerDashboard}>
-        <summary>{isOwnerDashboard ? "Lihat semua angka dan pecahan" : "Dashboard details and breakdown"}</summary>
+      <details className={`owner-detail-disclosure ${isOwnerExperience ? "" : "owner-detail-expanded"}`} open={!isOwnerExperience}>
+        <summary>{isOwnerExperience ? "Lihat semua angka dan pecahan" : "Dashboard details and breakdown"}</summary>
         <div className="owner-detail-content">
       <section className="dashboard-grid" aria-label="Finance metrics">
         {!isFinanceDashboard ? (
