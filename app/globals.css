@@ -701,6 +701,42 @@ textarea {
   margin: 6px 0 12px;
 }
 
+.dashboard-patient-analytics {
+  display: grid;
+  gap: 18px;
+  margin: 24px 0;
+  min-width: 0;
+}
+
+.dashboard-patient-heading {
+  align-items: end;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.dashboard-patient-heading h2 {
+  margin: 0;
+}
+
+.dashboard-patient-heading p,
+.dashboard-patient-analytics small {
+  color: var(--muted);
+  display: block;
+  margin: 4px 0 0;
+}
+
+.dashboard-patient-analytics .dashboard-patient-alert {
+  color: #a54f26;
+  font-weight: 700;
+}
+
+.dashboard-patient-analytics .dashboard-patient-ok {
+  color: var(--teal-deep);
+  font-weight: 700;
+}
+
 .dashboard-patient-summary {
   align-items: center;
   background: #fff;

@@ -2,10 +2,10 @@ import { ModuleHeader } from "@/components/module-header";
 import { PatientReportImport } from "@/components/patients/patient-report-import";
 import { PatientBaselineImport } from "@/components/patients/patient-baseline-import";
 import { PatientTrendChart } from "@/components/patients/patient-trend-chart";
+import { PatientSummaryCards } from "@/components/patients/patient-summary-cards";
 import { getPatientAnalytics } from "@/lib/patient-analytics";
 import { formatDateTime } from "@/lib/format";
 import { hasPermission, requirePermission } from "@/lib/permissions";
-import { Activity, CalendarDays, UserRoundPlus, UsersRound } from "lucide-react";
 
 export const maxDuration = 60;
 
@@ -40,24 +40,13 @@ export default async function PatientsPage() {
         </div>
       ) : null}
 
-      <div className="patient-summary-grid">
-        <article className="patient-summary-card">
-          <span className="patient-summary-icon tone-blue"><Activity size={20} /></span>
-          <div><p>Jumlah lawatan</p><strong>{totals.visits.toLocaleString()}</strong><small>{latest ? `Tempoh ${latest.period_no}` : "Belum ada import"}</small></div>
-        </article>
-        <article className="patient-summary-card">
-          <span className="patient-summary-icon tone-teal"><UsersRound size={20} /></span>
-          <div><p>Pesakit unik</p><strong>{totals.unique.toLocaleString()}</strong><small>PID unik dalam tempoh</small></div>
-        </article>
-        <article className="patient-summary-card">
-          <span className="patient-summary-icon tone-amber"><UserRoundPlus size={20} /></span>
-          <div><p>PID pertama kali direkod</p><strong>{totals.newPatients.toLocaleString()}</strong><small>Dalam sejarah import portal</small></div>
-        </article>
-        <article className="patient-summary-card">
-          <span className="patient-summary-icon tone-rose"><CalendarDays size={20} /></span>
-          <div><p>Tempoh lengkap</p><strong>{summaries.filter((row) => row.is_complete).length}</strong><small>Tempoh/cawangan telah diimport</small></div>
-        </article>
-      </div>
+      <PatientSummaryCards
+        completedPeriods={summaries.filter((row) => row.is_complete).length}
+        newPatients={totals.newPatients}
+        periodNo={latest?.period_no}
+        uniquePatients={totals.unique}
+        visits={totals.visits}
+      />
 
       <PatientTrendChart summaries={summaries} branchScoped={profile.role === "branch_pic"} />
 

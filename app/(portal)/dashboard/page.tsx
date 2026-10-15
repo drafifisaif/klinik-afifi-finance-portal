@@ -2,6 +2,8 @@ import { DataTable } from "@/components/data-table";
 import { ExportCsvLink } from "@/components/export-csv-link";
 import { MetricCard } from "@/components/metric-card";
 import { ModuleHeader } from "@/components/module-header";
+import { PatientSummaryCards } from "@/components/patients/patient-summary-cards";
+import { PatientTrendChart } from "@/components/patients/patient-trend-chart";
 import {
   bankAccountLabel,
   bankInAmount,
@@ -450,15 +452,17 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     ? await getVisibleProfilesById(branchMetrics.map((metric) => metric.latestSale?.entered_by))
     : [];
   const updaterById = new Map(updaterProfiles.map((user) => [user.id, user]));
-  const patientSummaries = patientAnalytics?.summaries ?? [];
-  const latestPatientPeriod = [...patientSummaries].sort((a, b) =>
+  const patientSummaries = (patientAnalytics?.summaries ?? []).filter((row) => selectedBranchIdSet.has(row.branch_id));
+  const latestPatientPeriod = [...patientSummaries].filter((row) => row.is_complete).sort((a, b) =>
     b.period_month.localeCompare(a.period_month) || b.period_no - a.period_no
   )[0];
   const latestPatientRows = latestPatientPeriod
     ? patientSummaries.filter((row) => row.period_month === latestPatientPeriod.period_month && row.period_no === latestPatientPeriod.period_no)
     : [];
   const patientVisits = totalBy(latestPatientRows.filter((row) => row.is_complete), (row) => row.visit_count);
+  const patientUnique = totalBy(latestPatientRows.filter((row) => row.is_complete), (row) => row.unique_patient_count);
   const patientNewIds = totalBy(latestPatientRows.filter((row) => row.is_complete), (row) => row.new_patient_count);
+  const patientCompletedPeriods = patientSummaries.filter((row) => row.is_complete).length;
   const patientMissingBranches = latestPatientRows.filter((row) => !row.is_complete).map((row) => row.branches?.name ?? "Cawangan");
 
   const monthlySales = new Map<string, number>();
@@ -731,7 +735,30 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         </>
       ) : null}
 
-      {patientAnalytics ? (
+      {patientAnalytics && (isOwnerDashboard || role === "finance") ? (
+        <section className="dashboard-patient-analytics" aria-labelledby="dashboard-patient-title">
+          <div className="dashboard-patient-heading">
+            <div>
+              <p className="owner-section-kicker">LAWATAN PESAKIT</p>
+              <h2 id="dashboard-patient-title">Ringkasan laporan cawangan</h2>
+              <p>{latestPatientPeriod ? `${formatDate(latestPatientPeriod.period_start)} hingga ${formatDate(latestPatientPeriod.period_end)}` : "Belum ada laporan pesakit diimport."}</p>
+            </div>
+            <a className="secondary-button compact-button" href="/patients">Buka analisis pesakit</a>
+          </div>
+          <PatientSummaryCards
+            completedPeriods={patientCompletedPeriods}
+            newPatients={patientNewIds}
+            periodNo={latestPatientPeriod?.period_no}
+            uniquePatients={patientUnique}
+            visits={patientVisits}
+          />
+          {patientMissingBranches.length ? (
+            <p className="dashboard-patient-alert">Belum dikemaskini: {patientMissingBranches.join(", ")}</p>
+          ) : latestPatientPeriod ? <p className="dashboard-patient-ok">Semua cawangan terpilih sudah hantar laporan untuk tempoh ini.</p> : null}
+          {patientAnalytics.error ? <small role="status">{patientAnalytics.error}</small> : null}
+          <PatientTrendChart summaries={patientSummaries} />
+        </section>
+      ) : patientAnalytics ? (
         <section className="dashboard-patient-summary" aria-labelledby="dashboard-patient-title">
           <div>
             <p className="owner-section-kicker">LAWATAN PESAKIT</p>
