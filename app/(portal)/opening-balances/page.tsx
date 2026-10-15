@@ -1,5 +1,4 @@
 import { createOpeningBalance, updateOpeningBalance, upsertMonthlyOpeningBalance } from "@/app/actions";
-import { DataTable } from "@/components/data-table";
 import { ModuleHeader } from "@/components/module-header";
 import { bankAccountLabel, bankInAmount, branchLabel, buildCashInHandRows, buildPettyCashBalanceRows, isActiveFinancialRecord, type DateRange } from "@/lib/bank-reporting";
 import { getDashboardOperationalCashData } from "@/lib/data";
@@ -704,21 +703,34 @@ export default async function OpeningBalancesPage({ searchParams }: OpeningBalan
         return (
           <section className="table-section mt-section" key={group.type}>
             <h2>{group.label}</h2>
-            <DataTable
-              columns={["Date", "Type", "Target", "Branch allocation", "Amount", "Verification", "Source", "Notes", "Updated", "Edit"]}
-              rows={rows.map((balance) => [
-                formatDate(balance.balance_date),
-                openingBalanceTypeLabel(balance.balance_type),
-                targetLabel(balance),
-                branchAllocationLabel(balance),
-                formatCurrency(balance.amount),
-                <VerificationStatus balance={balance} key={`${balance.id}-verification`} />,
-                <span key={`${balance.id}-source`}>{sourceLabel(balance)}</span>,
-                balance.notes ?? "-",
-                formatDate(balance.updated_at),
-                canManageOpeningBalances ? <OpeningBalanceEdit balance={balance} key={`${balance.id}-edit`} references={references} /> : "-"
-              ])}
-            />
+            {rows.length ? (
+              <div className="opening-balance-record-list">
+                {rows.map((balance) => (
+                  <article className="opening-balance-record" key={balance.id}>
+                    <header className="opening-balance-record-header">
+                      <div className="opening-balance-record-target">
+                        <span>{formatDate(balance.balance_date)} · {openingBalanceTypeLabel(balance.balance_type)}</span>
+                        <strong>{targetLabel(balance)}</strong>
+                      </div>
+                      <strong className="opening-balance-record-amount">{formatCurrency(balance.amount)}</strong>
+                      <div className="opening-balance-record-actions">
+                        <VerificationStatus balance={balance} />
+                        {canManageOpeningBalances ? <OpeningBalanceEdit balance={balance} references={references} /> : null}
+                      </div>
+                    </header>
+                    <details className="opening-balance-record-details">
+                      <summary>Butiran rekod</summary>
+                      <dl>
+                        <div><dt>Branch allocation</dt><dd>{branchAllocationLabel(balance)}</dd></div>
+                        <div><dt>Source</dt><dd>{sourceLabel(balance)}</dd></div>
+                        <div><dt>Notes</dt><dd>{balance.notes || "-"}</dd></div>
+                        <div><dt>Last updated</dt><dd>{formatDate(balance.updated_at)}</dd></div>
+                      </dl>
+                    </details>
+                  </article>
+                ))}
+              </div>
+            ) : <p className="empty-state">No opening balances recorded.</p>}
           </section>
         );
       })}
