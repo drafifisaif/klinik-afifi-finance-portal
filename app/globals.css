@@ -1427,18 +1427,71 @@ tr:last-child td {
 .supplier-balance-row {
   align-items: center;
   border-top: 1px solid var(--line);
-  display: flex;
-  gap: 16px;
-  justify-content: space-between;
+  display: grid;
+  gap: 12px 18px;
+  grid-template-columns: minmax(180px, 1fr) minmax(150px, auto) auto auto;
   min-width: 0;
   padding: 12px 18px;
 }
 
-.supplier-balance-row > div:last-child {
+.supplier-balance-figures {
   display: grid;
   gap: 4px;
   justify-items: end;
   text-align: right;
+}
+
+.supplier-balance-total {
+  align-items: center;
+  background: #f0f8f7;
+  border-top: 1px solid var(--line);
+  color: #274445;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: space-between;
+  padding: 13px 18px;
+}
+
+.supplier-balance-total strong {
+  font-size: 17px;
+}
+
+.supplier-quick-payment {
+  min-width: 0;
+  position: relative;
+}
+
+.supplier-quick-payment > summary {
+  align-items: center;
+  background: var(--teal);
+  border-radius: 8px;
+  color: white;
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 14px;
+  font-weight: 750;
+  justify-content: center;
+  list-style: none;
+  min-height: 46px;
+  padding: 0 18px;
+  white-space: nowrap;
+}
+
+.supplier-quick-payment > summary::-webkit-details-marker {
+  display: none;
+}
+
+.supplier-quick-payment[open] > summary {
+  background: var(--teal-deep);
+}
+
+.supplier-quick-payment .manual-bank-edit-form {
+  min-width: min(340px, calc(100vw - 48px));
+}
+
+.supplier-payment-actions .manual-bank-editor {
+  min-width: 0;
 }
 
 .supplier-payment-entry {
@@ -2331,13 +2384,25 @@ button:disabled {
   }
 
   .supplier-balance-row {
-    align-items: flex-start;
-    flex-direction: column;
+    align-items: start;
+    grid-template-columns: minmax(0, 1fr) auto;
   }
 
-  .supplier-balance-row > div:last-child {
+  .supplier-balance-description {
+    grid-column: 1 / -1;
+  }
+
+  .supplier-balance-figures {
     justify-items: start;
     text-align: left;
+  }
+
+  .supplier-balance-row > .status-pill {
+    justify-self: start;
+  }
+
+  .supplier-quick-payment {
+    justify-self: end;
   }
 
   .supplier-payment-entry-main {

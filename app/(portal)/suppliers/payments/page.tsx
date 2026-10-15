@@ -3,6 +3,7 @@ import { DocumentManager } from "@/components/documents/document-manager";
 import { MetricCard } from "@/components/metric-card";
 import { ModuleHeader } from "@/components/module-header";
 import { SupplierPaymentForm } from "@/components/supplier-payment-form";
+import { SupplierQuickPayment } from "@/components/supplier-quick-payment";
 import { getBankingDataForScope, getSupplierOutstanding, getSupplierPaymentEntries, getSuppliers, totalBy } from "@/lib/data";
 import { formatCurrency, formatDate, formatDateTime, labelize, monthKey } from "@/lib/format";
 import { canEditBranch, normalizeRole, requirePermission } from "@/lib/permissions";
@@ -60,13 +61,15 @@ export default async function SupplierPaymentsPage({ searchParams }: SupplierPay
   const visiblePayments = branchFilteredPayments.filter((payment) => payment.payment_date.slice(0, 7) === selectedMonth);
   const visibleActivePayments = visiblePayments.filter((payment) => !payment.is_void);
   const visibleVoidedPayments = visiblePayments.filter((payment) => payment.is_void);
-  const allOutstanding = outstandingRows.filter((row) => row.outstanding_amount > 0 && !row.is_void);
-  const branchOutstanding = allOutstanding.filter((row) => selectedBranch === "all" || row.branch_id === selectedBranch);
+  const activePurchases = outstandingRows.filter((row) => !row.is_void);
+  const branchPurchases = activePurchases.filter((row) => selectedBranch === "all" || row.branch_id === selectedBranch);
+  const branchOutstanding = branchPurchases.filter((row) => row.outstanding_amount > 0);
   const availablePurchaseMonths = [...new Set(branchOutstanding.map((row) => (row.invoice_date ?? row.purchase_date).slice(0, 7)))].sort().reverse();
-  const visibleOutstanding = branchOutstanding.filter((row) => selectedPurchaseMonth === "all" || (row.invoice_date ?? row.purchase_date).slice(0, 7) === selectedPurchaseMonth);
+  const visiblePurchases = branchPurchases.filter((row) => selectedPurchaseMonth === "all" || (row.invoice_date ?? row.purchase_date).slice(0, 7) === selectedPurchaseMonth);
+  const visibleOutstanding = visiblePurchases.filter((row) => row.outstanding_amount > 0);
   const outstandingTotal = totalBy(visibleOutstanding, (row) => row.outstanding_amount);
-  const outstandingGroups = new Map<string, typeof visibleOutstanding>();
-  visibleOutstanding.forEach((row) => {
+  const outstandingGroups = new Map<string, typeof visiblePurchases>();
+  visiblePurchases.forEach((row) => {
     const key = `${row.branch_id}|${(row.invoice_date ?? row.purchase_date).slice(0, 7)}`;
     outstandingGroups.set(key, [...(outstandingGroups.get(key) ?? []), row]);
   });
@@ -130,19 +133,24 @@ export default async function SupplierPaymentsPage({ searchParams }: SupplierPay
               const [branchId, month] = key.split("|");
               const groupTotal = totalBy(rows, (row) => row.outstanding_amount);
               return (
-                <details className="supplier-balance-group" key={key} open>
+                <details className="supplier-balance-group" key={key} open={selectedPurchaseMonth !== "all"}>
                   <summary>
-                    <span><strong>{branchById.get(branchId) ?? rows[0]?.branch_name ?? "Branch"}</strong><small>{monthLabel(month)} · {rows.length} unpaid bills</small></span>
+                    <span><strong>{branchById.get(branchId) ?? rows[0]?.branch_name ?? "Branch"}</strong><small>{monthLabel(month)} · {rows.filter((row) => row.outstanding_amount > 0).length} unpaid bills</small></span>
                     <strong>{formatCurrency(groupTotal)}</strong>
                   </summary>
                   <div className="supplier-balance-list">
                     {rows.map((row) => (
                       <div className="supplier-balance-row" key={row.id}>
-                        <div><strong>{row.supplier_name ?? row.suppliers?.name ?? "Supplier"}</strong><span>{row.invoice_no ? `Invoice ${row.invoice_no}` : "Invoice not numbered"} · {formatDate(row.invoice_date ?? row.purchase_date)}</span></div>
-                        <div><small>Original {formatCurrency(row.total_amount)} · Paid {formatCurrency(row.paid_amount)}</small><strong>{formatCurrency(row.outstanding_amount)}</strong></div>
+                        <div className="supplier-balance-description"><strong>{row.supplier_name ?? row.suppliers?.name ?? "Supplier"}</strong><span>{row.invoice_no ? `Invoice ${row.invoice_no}` : "Invoice not numbered"} · {formatDate(row.invoice_date ?? row.purchase_date)}</span></div>
+                        <div className="supplier-balance-figures"><small>Original {formatCurrency(row.total_amount)} · Paid {formatCurrency(row.paid_amount)}</small><strong>{formatCurrency(row.outstanding_amount)}</strong></div>
+                        <span className={`status-pill ${row.outstanding_amount <= 0 ? "status-paid" : row.paid_amount > 0 ? "status-partial" : "status-unpaid"}`}>
+                          {row.outstanding_amount <= 0 ? "Paid" : row.paid_amount > 0 ? "Partial" : "Unpaid"}
+                        </span>
+                        {row.outstanding_amount > 0 ? <SupplierQuickPayment amount={row.outstanding_amount} bankAccounts={bankingData.bankAccounts} branchId={row.branch_id} purchaseId={row.id} supplierId={row.supplier_id} /> : null}
                       </div>
                     ))}
                   </div>
+                  <footer className="supplier-balance-total">Outstanding for {monthLabel(month)} <strong>{formatCurrency(totalBy(rows, (row) => row.outstanding_amount))}</strong></footer>
                 </details>
               );
             })}
@@ -156,7 +164,7 @@ export default async function SupplierPaymentsPage({ searchParams }: SupplierPay
           bankAccounts={bankingData.bankAccounts}
           initialBranchId={selectedBranch}
           initialPurchaseMonth={selectedPurchaseMonth}
-          purchases={allOutstanding}
+          purchases={branchOutstanding}
           suppliers={suppliers}
         />
       </section>
