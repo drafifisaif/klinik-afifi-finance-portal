@@ -16,6 +16,10 @@ export type PaymentType = "cash" | "bank_transfer" | "card" | "panel" | "qr";
 
 export type ExpenseCategory =
   | "salary"
+  | "kwsp"
+  | "socso"
+  | "eis"
+  | "other_payroll"
   | "locum_doctor"
   | "rental"
   | "utilities"
@@ -77,6 +81,7 @@ export type Expense = {
   id: string;
   branch_id: string;
   expense_date: string;
+  payroll_month?: string | null;
   category: ExpenseCategory;
   vendor_name?: string | null;
   description: string;

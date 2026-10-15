@@ -229,6 +229,10 @@ export const validPaymentTypes: PaymentType[] = ["cash", "bank_transfer", "card"
 
 export const validExpenseCategories: ExpenseCategory[] = [
   "salary",
+  "kwsp",
+  "socso",
+  "eis",
+  "other_payroll",
   "locum_doctor",
   "rental",
   "utilities",

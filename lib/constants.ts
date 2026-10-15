@@ -21,7 +21,11 @@ export const paymentTypes: { value: PaymentType; label: string }[] = [
 ];
 
 export const expenseCategories: { value: ExpenseCategory; label: string }[] = [
-  { value: "salary", label: "Salary" },
+  { value: "salary", label: "Staff salary" },
+  { value: "kwsp", label: "Employer KWSP" },
+  { value: "socso", label: "Employer SOCSO" },
+  { value: "eis", label: "Employer EIS" },
+  { value: "other_payroll", label: "Other staff cost" },
   { value: "locum_doctor", label: "Locum Doctor" },
   { value: "rental", label: "Rental" },
   { value: "utilities", label: "Utilities" },
@@ -36,6 +40,10 @@ export const expenseCategories: { value: ExpenseCategory; label: string }[] = [
 
 export const branchPicHiddenExpenseCategories = new Set([
   "salary",
+  "kwsp",
+  "socso",
+  "eis",
+  "other_payroll",
   "staff_salary",
   "payroll",
   "rental",

@@ -19,7 +19,8 @@ export type PermissionKey =
   | "view_audit_trail"
   | "view_settings"
   | "view_patient_analytics"
-  | "manage_patient_imports";
+  | "manage_patient_imports"
+  | "view_payroll";
 
 export const rolePermissions: Record<UserRole, PermissionKey[]> = {
   owner: [
@@ -41,7 +42,8 @@ export const rolePermissions: Record<UserRole, PermissionKey[]> = {
     "view_audit_trail",
     "view_settings",
     "view_patient_analytics",
-    "manage_patient_imports"
+    "manage_patient_imports",
+    "view_payroll"
   ],
   admin: [
     "view_dashboard",
@@ -74,7 +76,8 @@ export const rolePermissions: Record<UserRole, PermissionKey[]> = {
     "record_cash_bank_in",
     "record_petty_cash",
     "view_patient_analytics",
-    "manage_patient_imports"
+    "manage_patient_imports",
+    "view_payroll"
   ],
   branch_pic: [
     "view_dashboard",

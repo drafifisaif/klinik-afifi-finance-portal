@@ -612,7 +612,7 @@ export async function getExpensesReportingData(dateRange?: { startDate: string; 
   const adminSupabase = createAdminClient();
   let expensesQuery = supabase
     .from("expenses")
-    .select("id, branch_id, expense_date, category, vendor_name, description, payment_type, amount, receipt_path, entered_by, created_at, is_void, voided_at, voided_by, void_reason, branches(name, code)")
+    .select("id, branch_id, expense_date, payroll_month, category, vendor_name, description, payment_type, amount, receipt_path, entered_by, created_at, is_void, voided_at, voided_by, void_reason, branches(name, code)")
     .order("expense_date", { ascending: false })
     .order("created_at", { ascending: false });
   let supplierPaymentsQuery = adminSupabase

@@ -551,6 +551,7 @@ type ExpenseAuditRow = {
   category: string;
   description: string;
   expense_date: string;
+  payroll_month?: string | null;
   payment_type: string;
   receipt_path: string | null;
   vendor_name: string | null;
@@ -1106,6 +1107,15 @@ async function requireOpeningBalanceManager() {
   return profile;
 }
 
+async function requirePayrollManager() {
+  const profile = await requirePermission("view_payroll");
+  const role = normalizeRole(profile.role);
+  if (role !== "owner" && role !== "finance") {
+    throw new Error("Only Owner or Finance can manage payroll records.");
+  }
+  return profile;
+}
+
 function monthStartDate(value: string | null) {
   if (!value) throw new Error("Balance month is required.");
   const normalized = /^\d{4}-\d{2}$/.test(value) ? `${value}-01` : value;
@@ -1302,7 +1312,7 @@ function monthlyOpeningBalanceTableError(error: {
 }
 
 function revalidateExpenseReports() {
-  ["/expenses", "/dashboard", "/reports/profit-loss", "/reports/cashflow"].forEach((path) => revalidatePath(path));
+  ["/expenses", "/payroll", "/dashboard", "/reports/profit-loss", "/reports/cashflow"].forEach((path) => revalidatePath(path));
 }
 
 async function requireMasterDataManager() {
@@ -2907,6 +2917,60 @@ export async function voidPettyCashTransaction(formData: FormData) {
   revalidatePath("/petty-cash");
   revalidatePath("/bank");
   revalidatePath("/dashboard");
+}
+
+export async function createPayrollExpense(formData: FormData) {
+  if (!hasSupabaseEnv()) return;
+
+  const profile = await requirePayrollManager();
+  const branchId = text(formData, "branch_id");
+  if (!canEditBranch(profile, branchId)) throw new Error("Select a branch you can manage.");
+
+  const category = text(formData, "category");
+  const payrollCategories = new Set(["salary", "kwsp", "socso", "eis", "other_payroll"]);
+  if (!category || !payrollCategories.has(category)) throw new Error("Select a valid payroll category.");
+
+  const payrollMonthValue = text(formData, "payroll_month");
+  if (!payrollMonthValue || !/^\d{4}-\d{2}$/.test(payrollMonthValue)) throw new Error("Select a valid payroll month.");
+  const payrollMonth = monthStartDate(payrollMonthValue);
+  const expenseDate = text(formData, "expense_date");
+  const parsedExpenseDate = expenseDate && /^\d{4}-\d{2}-\d{2}$/.test(expenseDate)
+    ? new Date(`${expenseDate}T00:00:00Z`)
+    : null;
+  if (!expenseDate || !parsedExpenseDate || Number.isNaN(parsedExpenseDate.getTime()) || parsedExpenseDate.toISOString().slice(0, 10) !== expenseDate) {
+    throw new Error("Enter a valid payment date.");
+  }
+  const amount = number(formData, "amount");
+  if (amount <= 0) throw new Error("Payment amount must be greater than zero.");
+  const paymentType = text(formData, "payment_type");
+  if (!paymentType || !["cash", "bank_transfer", "card", "panel", "qr"].includes(paymentType)) {
+    throw new Error("Select a valid payment method.");
+  }
+
+  const supabase = await createClient();
+  const { data: expense, error } = await supabase.from("expenses").insert({
+    branch_id: branchId,
+    expense_date: expenseDate,
+    payroll_month: payrollMonth,
+    category,
+    vendor_name: text(formData, "vendor_name"),
+    description: text(formData, "description") ?? "Payroll payment",
+    payment_type: paymentType as PaymentType,
+    amount,
+    entered_by: await getUserId()
+  }).select("id, branch_id, expense_date, payroll_month, category, vendor_name, description, payment_type, amount, receipt_path, is_void, void_reason, voided_at, voided_by").single();
+
+  if (error || !expense) throw error ?? new Error("Payroll expense could not be loaded after creation.");
+
+  await logAuditEvent({
+    action: "create",
+    afterData: expenseAuditData(expense),
+    branchId: expense.branch_id,
+    description: "Created payroll expense.",
+    entityId: expense.id,
+    entityName: "expenses"
+  });
+  revalidateExpenseReports();
 }
 
 export async function createExpense(formData: FormData) {
