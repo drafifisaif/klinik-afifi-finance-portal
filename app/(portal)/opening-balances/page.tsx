@@ -527,46 +527,50 @@ export default async function OpeningBalancesPage({ searchParams }: OpeningBalan
           </button>
         </form>
 
-        <DataTable
-          columns={[
-            "Month",
-            "Branch",
-            "Historical Opening Cash",
-            "System Carry-Forward Opening",
-            "Opening Variance",
-            "Cash Sales",
-            "Cash Bank-In",
-            "Cash Locum",
-            "System Closing Cash",
-            "Next Historical Opening",
-            "Carry-Forward Variance",
-            "Historical Opening Petty",
-            "System Petty Opening",
-            "Status",
-            "Source",
-            "Notes",
-            "Review / Edit"
-          ]}
-          rows={reconciliationRows.map((row) => [
-            formatDate(row.balanceMonth),
-            row.branch.name,
-            row.historical ? formatCurrency(row.historicalCash) : "-",
-            formatCurrency(row.systemOpeningCash),
-            row.cashVariance === null ? "-" : varianceText(row.cashVariance),
-            formatCurrency(row.cashSales),
-            formatCurrency(row.cashBankIn),
-            formatCurrency(row.cashLocum),
-            formatCurrency(row.systemClosingCash),
-            row.nextHistorical ? formatCurrency(row.nextHistorical.opening_cash) : "-",
-            row.nextCashVariance === null ? "-" : varianceText(row.nextCashVariance),
-            row.historical ? formatCurrency(row.historicalPetty) : "-",
-            formatCurrency(row.systemOpeningPetty),
-            row.historical ? labelize(row.historical.review_status ?? (row.historical.reviewed_at ? "reviewed" : "pending_review")) : "-",
-            row.historical ? labelize(row.historical.source ?? "manual_verified") : "-",
-            row.historical?.notes ?? "-",
-            canManageOpeningBalances && row.historical ? <MonthlyOpeningEdit balance={row.historical} branches={references.branches} key={`${row.historical.id}-monthly-edit`} /> : "-"
-          ])}
-        />
+        <div className="opening-reconciliation-list">
+          {reconciliationRows.map((row) => (
+            <article className="opening-reconciliation-item" key={`${row.branch.id}-${row.balanceMonth}`}>
+              <header className="opening-reconciliation-header">
+                <div>
+                  <p className="opening-reconciliation-month">{formatDate(row.balanceMonth)}</p>
+                  <h3>{row.branch.name}</h3>
+                </div>
+                <div className="opening-reconciliation-primary">
+                  <span>System closing cash</span>
+                  <strong>{formatCurrency(row.systemClosingCash)}</strong>
+                </div>
+                <div className="opening-reconciliation-primary">
+                  <span>Opening variance</span>
+                  <strong>{row.cashVariance === null ? "-" : varianceText(row.cashVariance)}</strong>
+                </div>
+                <div className="opening-reconciliation-actions">
+                  <span className={`status-pill ${!row.historical ? "status-unpaid" : ["reviewed", "reconciled"].includes(row.historical.review_status ?? (row.historical.reviewed_at ? "reviewed" : "pending_review")) ? "status-paid" : "status-partial"}`}>
+                    {row.historical ? labelize(row.historical.review_status ?? (row.historical.reviewed_at ? "reviewed" : "pending_review")) : "No historical balance"}
+                  </span>
+                  {canManageOpeningBalances && row.historical
+                    ? <MonthlyOpeningEdit balance={row.historical} branches={references.branches} key={`${row.historical.id}-monthly-edit`} />
+                    : null}
+                </div>
+              </header>
+              <details className="opening-reconciliation-details">
+                <summary>View full reconciliation</summary>
+                <dl>
+                  <div><dt>Historical opening cash</dt><dd>{row.historical ? formatCurrency(row.historicalCash) : "-"}</dd></div>
+                  <div><dt>System carry-forward opening</dt><dd>{formatCurrency(row.systemOpeningCash)}</dd></div>
+                  <div><dt>Cash sales</dt><dd>{formatCurrency(row.cashSales)}</dd></div>
+                  <div><dt>Cash bank-in</dt><dd>{formatCurrency(row.cashBankIn)}</dd></div>
+                  <div><dt>Cash locum</dt><dd>{formatCurrency(row.cashLocum)}</dd></div>
+                  <div><dt>Next historical opening</dt><dd>{row.nextHistorical ? formatCurrency(row.nextHistorical.opening_cash) : "-"}</dd></div>
+                  <div><dt>Carry-forward variance</dt><dd>{row.nextCashVariance === null ? "-" : varianceText(row.nextCashVariance)}</dd></div>
+                  <div><dt>Historical opening petty cash</dt><dd>{row.historical ? formatCurrency(row.historicalPetty) : "-"}</dd></div>
+                  <div><dt>System petty cash opening</dt><dd>{formatCurrency(row.systemOpeningPetty)}</dd></div>
+                  <div><dt>Source</dt><dd>{row.historical ? labelize(row.historical.source ?? "manual_verified") : "-"}</dd></div>
+                  <div className="opening-reconciliation-note"><dt>Notes</dt><dd>{row.historical?.notes || "-"}</dd></div>
+                </dl>
+              </details>
+            </article>
+          ))}
+        </div>
       </section>
 
       <datalist id="opening-balance-sources">
