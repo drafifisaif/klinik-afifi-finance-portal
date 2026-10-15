@@ -1,13 +1,16 @@
-import { upsertMonthlyOpeningBalance } from "@/app/actions";
+import { createOpeningBalance, upsertMonthlyOpeningBalance } from "@/app/actions";
 import { ModuleHeader } from "@/components/module-header";
-import { bankInAmount, buildCashInHandRows, buildPettyCashBalanceRows, isActiveFinancialRecord, type DateRange } from "@/lib/bank-reporting";
+import { bankAccountLabel, bankInAmount, buildCashInHandRows, buildPettyCashBalanceRows, isActiveFinancialRecord, type DateRange } from "@/lib/bank-reporting";
 import { getDashboardOperationalCashData } from "@/lib/data";
 import { formatCurrency, formatDate, labelize } from "@/lib/format";
 import {
   addMonths,
   getOpeningBalanceSetupReferences,
   monthlyRowForBranch,
-  monthlyOpeningBalanceStartMonth
+  monthlyOpeningBalanceStartMonth,
+  openingBalanceSourceReferences,
+  openingBalanceTypes,
+  openingBalanceVerificationStatuses
 } from "@/lib/opening-balances";
 import { requirePermission } from "@/lib/permissions";
 import { getCurrentProfile, normalizeRole } from "@/lib/permissions";
@@ -363,6 +366,81 @@ export default async function OpeningBalancesPage({ searchParams }: OpeningBalan
           ))}
         </div>
       </section>
+
+      {canManageOpeningBalances ? (
+        <details className="form-card opening-balance-add-form">
+          <summary>Add opening balance</summary>
+          <p className="muted-copy">Opening balances seed positions only. They do not create sales, expenses, income, or bank transactions.</p>
+          <form action={createOpeningBalance}>
+            <div className="form-grid">
+              <label>
+                Balance date
+                <input name="balance_date" type="date" defaultValue="2026-01-01" required />
+              </label>
+              <label>
+                Balance type
+                <select name="balance_type" required>
+                  {openingBalanceTypes.map((type) => <option key={type.value} value={type.value}>{type.label}</option>)}
+                </select>
+              </label>
+              <label>
+                Branch
+                <select name="branch_id" defaultValue="">
+                  <option value="">No branch allocation</option>
+                  {references.branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}
+                </select>
+              </label>
+              <label>
+                Bank account
+                <select name="bank_account_id" defaultValue="">
+                  <option value="">Not a bank balance</option>
+                  {references.bankAccounts.map((account) => <option key={account.id} value={account.id}>{bankAccountLabel(account)}</option>)}
+                </select>
+              </label>
+              <label>
+                Supplier
+                <select name="supplier_id" defaultValue="">
+                  <option value="">Not supplier outstanding</option>
+                  {references.suppliers.map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.name}</option>)}
+                </select>
+              </label>
+              <label>
+                Panel company
+                <select name="panel_company_id" defaultValue="">
+                  <option value="">Not panel outstanding</option>
+                  {references.panelCompanies.map((company) => <option key={company.id} value={company.id}>{company.name}</option>)}
+                </select>
+              </label>
+              <label>
+                Amount
+                <input min="0" name="amount" step="0.01" type="number" required />
+              </label>
+              <label>
+                Verification status
+                <select name="verification_status" defaultValue="pending_review">
+                  {openingBalanceVerificationStatuses.map((status) => <option key={status.value} value={status.value}>{status.label}</option>)}
+                </select>
+              </label>
+              <label>
+                Source reference
+                <input name="source_reference" list="opening-balance-sources" placeholder="bank_statement or other source" />
+              </label>
+              <label className="full-span">
+                Source notes
+                <textarea name="source_notes" placeholder="Statement date, estimate owner, or follow-up note" />
+              </label>
+              <label className="full-span">
+                Notes
+                <textarea name="notes" />
+              </label>
+            </div>
+            <button className="primary-button" type="submit">Save opening balance</button>
+          </form>
+          <datalist id="opening-balance-sources">
+            {openingBalanceSourceReferences.map((source) => <option key={source} value={source} />)}
+          </datalist>
+        </details>
+      ) : null}
 
     </>
   );
