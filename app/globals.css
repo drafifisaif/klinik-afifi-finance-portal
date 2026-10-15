@@ -629,6 +629,26 @@ textarea {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
+.bank-summary-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: 18px;
+}
+
+.bank-breakdown-content .summary-list {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.bank-breakdown-content .summary-list div {
+  gap: 12px;
+  min-width: 0;
+}
+
+.bank-breakdown-content .summary-list dd {
+  font-weight: 700;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
 .owner-overview {
   display: grid;
   gap: 16px;
@@ -2959,6 +2979,11 @@ button:disabled {
   }
 
   .dashboard-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .bank-summary-grid,
+  .bank-breakdown-content .summary-list {
     grid-template-columns: 1fr;
   }
 

@@ -26,7 +26,6 @@ import {
   getMappingByBranch,
   isActiveFinancialRecord,
   isWithinDateRange,
-  panelSalesAmount,
   pettyCashAmount,
   resolveDateRange,
   signedBankTransactionAmount
@@ -34,12 +33,11 @@ import {
 import { getBankingDataForScope, totalBy } from "@/lib/data";
 import { userDisplayLabel } from "@/lib/display";
 import { formatCurrency, formatDate } from "@/lib/format";
-import { bankOpeningBalanceTotal } from "@/lib/opening-balances";
 import { canManageBankPermissions, hasBankAccountPermission, normalizeRole, requireBankPositionAccess } from "@/lib/permissions";
 import { getTransactionDocuments } from "@/lib/transaction-documents";
 import { getUserManagementData, getVisibleProfilesById } from "@/lib/users";
 import type { BankTransaction, BankTransactionType, PettyCashTransaction } from "@/lib/types";
-import { Banknote, CreditCard, Landmark, ReceiptText, WalletCards } from "lucide-react";
+import { Landmark, ReceiptText, WalletCards } from "lucide-react";
 
 type BankPageSearchParams = {
   bank_account_id?: string;
@@ -124,8 +122,6 @@ export default async function BankPage({ searchParams }: { searchParams: Promise
   const showPettyCashManagement = ["owner", "admin", "finance"].includes(normalizeRole(profile.role));
   const params = await searchParams;
   const range = resolveDateRange(params);
-  const todayRange = resolveDateRange({ period: "today" });
-  const monthRange = resolveDateRange({ period: "this_month" });
   const data = await getBankingDataForScope({ bankAccessOnly: true });
   const accessManagementData = canManageBankAccounts ? await getUserManagementData() : null;
   const bankAccessUsers = accessManagementData?.users.filter((user) => user.is_active && ["admin", "finance", "branch_pic"].includes(user.role)) ?? [];
@@ -135,6 +131,7 @@ export default async function BankPage({ searchParams }: { searchParams: Promise
   const accessAccountById = new Map(bankAccessAccounts.map((account) => [account.id, account]));
   const mappingByBranch = getMappingByBranch(data);
   const bankAccountById = getBankAccountById(data);
+  const visibleBankAccountIds = new Set(data.bankAccounts.map((account) => account.id));
   const branchById = getBranchById(data);
   const selectedBankAccountId = params.bank_account_id ?? "all";
   const selectedBranchId = params.branch_id ?? "all";
@@ -144,11 +141,13 @@ export default async function BankPage({ searchParams }: { searchParams: Promise
     : "all";
   const saleMatchesScope = (sale: (typeof data.sales)[number]) => {
     const mapping = mappingByBranch.get(sale.branch_id);
-    return (selectedBranchId === "all" || sale.branch_id === selectedBranchId)
+    return Boolean(mapping && visibleBankAccountIds.has(mapping.bank_account_id))
+      && (selectedBranchId === "all" || sale.branch_id === selectedBranchId)
       && (selectedBankAccountId === "all" || mapping?.bank_account_id === selectedBankAccountId);
   };
   const bankInMatchesScope = (bankIn: (typeof data.cashBankIns)[number]) => {
-    return (selectedBranchId === "all" || bankIn.branch_id === selectedBranchId)
+    return visibleBankAccountIds.has(bankIn.bank_account_id)
+      && (selectedBranchId === "all" || bankIn.branch_id === selectedBranchId)
       && (selectedBankAccountId === "all" || bankIn.bank_account_id === selectedBankAccountId);
   };
   const transactionMatchesScope = (transaction: BankTransaction) => {
@@ -164,17 +163,21 @@ export default async function BankPage({ searchParams }: { searchParams: Promise
     return isActiveFinancialRecord(bankIn) && isWithinDateRange(bankIn.bank_in_date, range) && bankInMatchesScope(bankIn);
   });
   const selectedSupplierPayments = data.supplierPayments.filter((payment) => {
-    return isWithinDateRange(payment.payment_date, range)
+    return Boolean(payment.bank_account_id && visibleBankAccountIds.has(payment.bank_account_id))
+      && isWithinDateRange(payment.payment_date, range)
       && (selectedBankAccountId === "all" || payment.bank_account_id === selectedBankAccountId)
       && (selectedBranchId === "all" || payment.branch_id === selectedBranchId);
   });
   const selectedPanelPayments = data.panelPayments.filter((payment) => {
-    return isWithinDateRange(payment.payment_date, range)
+    return Boolean(payment.bank_account_id && visibleBankAccountIds.has(payment.bank_account_id))
+      && isWithinDateRange(payment.payment_date, range)
       && (selectedBankAccountId === "all" || payment.bank_account_id === selectedBankAccountId)
       && (selectedBranchId === "all" || payment.branch_id === selectedBranchId);
   });
   const bankTransactionHistory = data.bankTransactions.filter((transaction) => {
-    return isWithinDateRange(transaction.transaction_date, range) && transactionMatchesScope(transaction);
+    return visibleBankAccountIds.has(transaction.bank_account_id)
+      && isWithinDateRange(transaction.transaction_date, range)
+      && transactionMatchesScope(transaction);
   });
   const visibleUsers = await getVisibleProfilesById(bankTransactionHistory.flatMap((transaction) => [transaction.entered_by, transaction.voided_by]));
   const userById = new Map(visibleUsers.map((user) => [user.id, user]));
@@ -187,25 +190,13 @@ export default async function BankPage({ searchParams }: { searchParams: Promise
   const selectedBankLinkedPettyCash = data.pettyCashTransactions.filter((transaction) => {
     return isActiveFinancialRecord(transaction)
       && transaction.bank_account_id
+      && visibleBankAccountIds.has(transaction.bank_account_id)
       && (transaction.transaction_type === "petty_cash_issued" || transaction.transaction_type === "petty_cash_returned")
       && isWithinDateRange(transaction.transaction_date, range)
       && pettyCashMatchesScope(transaction);
   });
-  const todaySales = data.sales.filter((sale) => isActiveFinancialRecord(sale) && isWithinDateRange(sale.sale_date, todayRange));
-  const monthSales = data.sales.filter((sale) => isActiveFinancialRecord(sale) && isWithinDateRange(sale.sale_date, monthRange));
-  const todayCashBankIns = data.cashBankIns.filter((bankIn) => isActiveFinancialRecord(bankIn) && isWithinDateRange(bankIn.bank_in_date, todayRange));
-  const monthCashBankIns = data.cashBankIns.filter((bankIn) => isActiveFinancialRecord(bankIn) && isWithinDateRange(bankIn.bank_in_date, monthRange));
-  const monthBankLinkedPettyCash = data.pettyCashTransactions.filter((transaction) => {
-    return isActiveFinancialRecord(transaction)
-      && transaction.bank_account_id
-      && (transaction.transaction_type === "petty_cash_issued" || transaction.transaction_type === "petty_cash_returned")
-      && isWithinDateRange(transaction.transaction_date, monthRange);
-  });
-
   const selectedDirectBankInflow = totalBy(selectedSales, directBankInflow);
   const selectedCashBankIn = totalBy(selectedCashBankIns, bankInAmount);
-  const selectedCashSales = totalBy(selectedSales, (sale) => Number(sale.cash_amount ?? 0));
-  const selectedPanelSales = totalBy(selectedSales, panelSalesAmount);
   const selectedManualMoneyIn = totalBy(selectedBankTransactions, (transaction) => {
     return transaction.transaction_type === "money_in" ? bankTransactionAmount(transaction) : 0;
   });
@@ -229,15 +220,11 @@ export default async function BankPage({ searchParams }: { searchParams: Promise
   const selectedPettyCashReturned = totalBy(selectedBankLinkedPettyCash, (transaction) => {
     return transaction.transaction_type === "petty_cash_returned" ? pettyCashAmount(transaction) : 0;
   });
-  const monthPettyCashIssued = totalBy(monthBankLinkedPettyCash, (transaction) => {
-    return transaction.transaction_type === "petty_cash_issued" ? pettyCashAmount(transaction) : 0;
-  });
-  const monthPettyCashReturned = totalBy(monthBankLinkedPettyCash, (transaction) => {
-    return transaction.transaction_type === "petty_cash_returned" ? pettyCashAmount(transaction) : 0;
-  });
-  const selectedNetBankMovement = selectedDirectBankInflow + selectedCashBankIn + selectedManualMoneyIn + selectedPanelPaymentIn
-    - selectedMoneyOut - selectedSupplierPaymentOut - selectedOwnerDrawing + selectedTransferIn - selectedTransferOut
-    - selectedPettyCashIssued + selectedPettyCashReturned;
+  const selectedBankInflow = selectedDirectBankInflow + selectedCashBankIn + selectedManualMoneyIn
+    + selectedPanelPaymentIn + selectedTransferIn + selectedPettyCashReturned;
+  const selectedBankOutflow = selectedMoneyOut + selectedSupplierPaymentOut + selectedOwnerDrawing
+    + selectedTransferOut + selectedPettyCashIssued;
+  const selectedNetBankMovement = selectedBankInflow - selectedBankOutflow;
   const cashInHandRows = buildCashInHandRows(data, range);
   const pettyCashBalanceRows = buildPettyCashBalanceRows(data);
   const cashInHandByBranchId = new Map(cashInHandRows.map((row) => [row.branch.id, row]));
@@ -247,10 +234,6 @@ export default async function BankPage({ searchParams }: { searchParams: Promise
   });
 
   const bankMovements = new Map(data.bankAccounts.map((account) => [account.id, 0]));
-  const bankOpeningBalances = new Map(data.bankAccounts.map((account) => [
-    account.id,
-    bankOpeningBalanceTotal(data.openingBalances, account.id, range.endDate)
-  ]));
   const branchMovements = new Map(data.branches.map((branch) => [branch.id, 0]));
   const statementRows: StatementRow[] = [];
 
@@ -510,28 +493,41 @@ export default async function BankPage({ searchParams }: { searchParams: Promise
         </p>
       </form>
 
-      <section className="dashboard-grid" aria-label="Bank position metrics">
-        <MetricCard icon={CreditCard} label="Direct bank inflow today" value={formatCurrency(totalBy(todaySales, directBankInflow))} detail="Card, QR, transfer" />
-        <MetricCard icon={Landmark} label="Direct bank inflow this month" value={formatCurrency(totalBy(monthSales, directBankInflow))} detail="Existing daily sales" tone="blue" />
-        <MetricCard icon={Banknote} label="Cash bank-in today" value={formatCurrency(totalBy(todayCashBankIns, bankInAmount))} detail="Cash moved to bank" tone="amber" />
-        <MetricCard icon={WalletCards} label="Cash bank-in this month" value={formatCurrency(totalBy(monthCashBankIns, bankInAmount))} detail="Not new sales" tone="teal" />
-        <MetricCard icon={Landmark} label="Manual money in" value={formatCurrency(selectedManualMoneyIn)} detail={range.label} tone="teal" />
-        <MetricCard icon={ReceiptText} label="Money out" value={formatCurrency(selectedMoneyOut)} detail="Manual outgoing payment" tone="rose" />
-        <MetricCard icon={ReceiptText} label="Supplier payments" value={formatCurrency(selectedSupplierPaymentOut)} detail="Bank settlement outflow" tone="rose" />
-        <MetricCard icon={Landmark} label="Panel payments" value={formatCurrency(selectedPanelPaymentIn)} detail="Panel collection inflow" tone="blue" />
-        <MetricCard icon={WalletCards} label="Owner drawing" value={formatCurrency(selectedOwnerDrawing)} detail="Not clinic operating expense" tone="amber" />
-        <MetricCard icon={Landmark} label="Interbank transfer in" value={formatCurrency(selectedTransferIn)} detail="Transfer movement only" tone="blue" />
-        <MetricCard icon={Landmark} label="Interbank transfer out" value={formatCurrency(selectedTransferOut)} detail="Transfer movement only" tone="blue" />
-        {showPettyCashManagement ? (
-          <>
-            <MetricCard icon={WalletCards} label="Petty cash issued this month" value={formatCurrency(monthPettyCashIssued)} detail="Bank to branch cash float" tone="amber" />
-            <MetricCard icon={Banknote} label="Petty cash returned this month" value={formatCurrency(monthPettyCashReturned)} detail="Float returned to bank" tone="teal" />
-          </>
-        ) : null}
-        <MetricCard icon={Landmark} label="Net bank movement" value={formatCurrency(selectedNetBankMovement)} detail="Transfers are not income or expense" tone="blue" />
-        <MetricCard icon={ReceiptText} label="Cash sales" value={formatCurrency(selectedCashSales)} detail="Held by branch until banked in" tone="amber" />
-        <MetricCard icon={WalletCards} label="Panel sales" value={formatCurrency(selectedPanelSales)} detail="Outstanding, not bank inflow" tone="rose" />
+      <section className="dashboard-grid bank-summary-grid" aria-label="Bank position metrics">
+        <MetricCard icon={Landmark} label="Money in" value={formatCurrency(selectedBankInflow)} detail={range.label} tone="teal" />
+        <MetricCard icon={ReceiptText} label="Money out" value={formatCurrency(selectedBankOutflow)} detail={range.label} tone="rose" />
+        <MetricCard icon={WalletCards} label="Net movement" value={formatCurrency(selectedNetBankMovement)} detail="Change during selected period" tone={selectedNetBankMovement >= 0 ? "blue" : "rose"} />
       </section>
+
+      <section className="table-section mt-section">
+        <h2>Movement by bank account</h2>
+        <p className="muted-copy">Recorded movement for the selected period. This is not a statement bank balance.</p>
+        <DataTable
+          columns={["Bank account", "Net movement"]}
+          rows={data.bankAccounts
+            .filter((account) => selectedBankAccountId === "all" || account.id === selectedBankAccountId)
+            .map((account) => [bankAccountLabel(account), formatCurrency(bankMovements.get(account.id) ?? 0)])}
+        />
+      </section>
+
+      <details className="owner-detail-disclosure bank-breakdown mt-section">
+        <summary>View movement breakdown</summary>
+        <div className="owner-detail-content bank-breakdown-content">
+          <dl className="summary-list">
+            <div><dt>Card, QR and direct transfers</dt><dd>{formatCurrency(selectedDirectBankInflow)}</dd></div>
+            <div><dt>Cash bank-ins</dt><dd>{formatCurrency(selectedCashBankIn)}</dd></div>
+            <div><dt>Panel payments received</dt><dd>{formatCurrency(selectedPanelPaymentIn)}</dd></div>
+            <div><dt>Other money in</dt><dd>{formatCurrency(selectedManualMoneyIn)}</dd></div>
+            <div><dt>Interbank transfers in</dt><dd>{formatCurrency(selectedTransferIn)}</dd></div>
+            <div><dt>Petty cash returned</dt><dd>{formatCurrency(selectedPettyCashReturned)}</dd></div>
+            <div><dt>Manual money out</dt><dd>{formatCurrency(selectedMoneyOut)}</dd></div>
+            <div><dt>Supplier payments</dt><dd>{formatCurrency(selectedSupplierPaymentOut)}</dd></div>
+            <div><dt>Owner drawings</dt><dd>{formatCurrency(selectedOwnerDrawing)}</dd></div>
+            <div><dt>Interbank transfers out</dt><dd>{formatCurrency(selectedTransferOut)}</dd></div>
+            <div><dt>Petty cash issued</dt><dd>{formatCurrency(selectedPettyCashIssued)}</dd></div>
+          </dl>
+        </div>
+      </details>
 
       {showPettyCashManagement ? (
         <section className="section-grid mt-section">
@@ -570,7 +566,7 @@ export default async function BankPage({ searchParams }: { searchParams: Promise
         </section>
       ) : null}
 
-      <section className="section-grid">
+      <section className="mt-section">
         <form action={createBankTransaction} className="form-card manual-bank-form">
           <h2>Record manual bank transaction</h2>
           <div className="form-grid">
@@ -650,91 +646,29 @@ export default async function BankPage({ searchParams }: { searchParams: Promise
           {!creatableBankAccounts.length ? <p className="muted-copy">No creatable bank accounts are assigned to your user.</p> : null}
         </form>
 
-        <aside className="report-panel">
-          <h2>Manual movement summary</h2>
-          <dl className="summary-list">
-            <div>
-              <dt>Money in</dt>
-              <dd>{formatCurrency(selectedManualMoneyIn)}</dd>
-            </div>
-            <div>
-              <dt>Money out</dt>
-              <dd>{formatCurrency(selectedMoneyOut)}</dd>
-            </div>
-            <div>
-              <dt>Supplier payments</dt>
-              <dd>{formatCurrency(selectedSupplierPaymentOut)}</dd>
-            </div>
-            <div>
-              <dt>Panel payments</dt>
-              <dd>{formatCurrency(selectedPanelPaymentIn)}</dd>
-            </div>
-            <div>
-              <dt>Owner drawing</dt>
-              <dd>{formatCurrency(selectedOwnerDrawing)}</dd>
-            </div>
-            <div>
-              <dt>Transfers in / out</dt>
-              <dd>{formatCurrency(selectedTransferIn)} / {formatCurrency(selectedTransferOut)}</dd>
-            </div>
-          </dl>
-        </aside>
       </section>
 
-      <section className="section-grid">
-        <div className="table-section">
-          <h2>Cash in hand by branch</h2>
-          <DataTable
-            columns={["Branch", "Opening balance", "Total cash sales", "Cash banked in by cash date", "Cash locum payments", "Remaining cash in hand"]}
-            rows={cashInHandRows.map((row) => [
-              row.branch.name,
-              formatCurrency(row.openingBalance),
-              formatCurrency(row.cashSales),
-              formatCurrency(row.bankedIn),
-              formatCurrency(row.cashLocumPayments),
-              formatCurrency(row.remaining)
-            ])}
-          />
-        </div>
-
-        <aside className="report-panel">
-          <h2>Bank accounts</h2>
-          <dl className="summary-list">
-            {data.bankAccounts.map((account) => (
-              <div key={account.id}>
-                <dt>{bankAccountLabel(account)}</dt>
-                <dd>{formatCurrency((bankOpeningBalances.get(account.id) ?? 0) + (bankMovements.get(account.id) ?? 0))}</dd>
-              </div>
-            ))}
-          </dl>
-        </aside>
+      <section className="table-section mt-section">
+        <h2>Cash in hand by branch</h2>
+        <DataTable
+          columns={["Branch", "Opening balance", "Total cash sales", "Cash banked in by cash date", "Cash locum payments", "Remaining cash in hand"]}
+          rows={cashInHandRows.map((row) => [
+            row.branch.name,
+            formatCurrency(row.openingBalance),
+            formatCurrency(row.cashSales),
+            formatCurrency(row.bankedIn),
+            formatCurrency(row.cashLocumPayments),
+            formatCurrency(row.remaining)
+          ])}
+        />
       </section>
 
-      <section className="section-grid">
-        <div className="table-section">
-          <h2>Bank position by bank account</h2>
-          <DataTable
-            columns={["Bank account", "Opening balance", "Selected net movement", "Opening plus selected movement"]}
-            rows={data.bankAccounts.map((account) => {
-              const openingBalance = bankOpeningBalances.get(account.id) ?? 0;
-              const movement = bankMovements.get(account.id) ?? 0;
-              return [
-                bankAccountLabel(account),
-                formatCurrency(openingBalance),
-                formatCurrency(movement),
-                formatCurrency(openingBalance + movement)
-              ];
-            })}
-          />
-        </div>
-
-        <div className="table-section">
-          <h2>Net bank movement by branch</h2>
-          <DataTable
-            columns={["Branch", "Net movement with branch tag"]}
-            rows={data.branches.map((branch) => [branch.name, formatCurrency(branchMovements.get(branch.id) ?? 0)])}
-          />
-        </div>
+      <section className="table-section mt-section">
+        <h2>Net bank movement by branch</h2>
+        <DataTable
+          columns={["Branch", "Net movement with branch tag"]}
+          rows={data.branches.map((branch) => [branch.name, formatCurrency(branchMovements.get(branch.id) ?? 0)])}
+        />
       </section>
 
       <section className="table-section mt-section">
