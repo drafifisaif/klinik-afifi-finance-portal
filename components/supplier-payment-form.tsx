@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { createSupplierPaymentEntry } from "@/app/actions";
 import { paymentTypes } from "@/lib/constants";
-import { formatCurrency, formatDate, labelize } from "@/lib/format";
+import { formatCurrency, formatDate } from "@/lib/format";
 import type { BankAccount, PaymentType, Supplier } from "@/lib/types";
 
 type PurchaseOption = {
@@ -25,45 +25,57 @@ type PurchaseOption = {
 
 type Props = {
   bankAccounts: BankAccount[];
+  initialBranchId: string;
+  initialPurchaseMonth: string;
   purchases: PurchaseOption[];
   suppliers: Supplier[];
 };
 
-function getAgingStatus(dueDate?: string | null, outstandingAmount?: number) {
-  if (!dueDate || (outstandingAmount ?? 0) <= 0) return "Current";
-  const today = new Date();
-  const due = new Date(`${dueDate}T00:00:00`);
-  const diffDays = Math.floor((today.getTime() - due.getTime()) / 86400000);
-  if (diffDays <= 0) return "Not due";
-  if (diffDays <= 30) return "1-30 days overdue";
-  if (diffDays <= 60) return "31-60 days overdue";
-  if (diffDays <= 90) return "61-90 days overdue";
-  return "Over 90 days overdue";
+function purchaseMonth(purchase: PurchaseOption) {
+  return (purchase.invoice_date ?? purchase.purchase_date).slice(0, 7);
 }
 
-function purchaseOptionLabel(purchase: PurchaseOption) {
-  const invoicePart = purchase.invoice_no ? `Invoice ${purchase.invoice_no}` : "Invoice -";
-  const duePart = `Due ${purchase.due_date ? formatDate(purchase.due_date) : "-"}`;
-  const balancePart = `Balance ${formatCurrency(purchase.outstanding_amount)}`;
-  return `${purchase.supplier_name ?? "-"} • ${purchase.branch_name ?? "-"} • ${invoicePart} • ${duePart} • ${balancePart}`;
+function monthLabel(value: string) {
+  return new Intl.DateTimeFormat("en-MY", { month: "long", year: "numeric" }).format(new Date(`${value}-01T00:00:00`));
 }
 
-export function SupplierPaymentForm({ bankAccounts, purchases, suppliers }: Props) {
-  const [supplierId, setSupplierId] = useState(suppliers[0]?.id ?? "");
+export function SupplierPaymentForm({ bankAccounts, initialBranchId, initialPurchaseMonth, purchases, suppliers }: Props) {
+  const [branchId, setBranchId] = useState(initialBranchId);
+  const [purchaseMonthFilter, setPurchaseMonthFilter] = useState(initialPurchaseMonth);
+  const branchOptions = [...new Map(purchases.map((purchase) => [purchase.branch_id, purchase.branch_name ?? purchase.branch_id])).entries()];
+  const filteredByBranch = purchases.filter((purchase) => branchId === "all" || purchase.branch_id === branchId);
+  const availableMonths = [...new Set(filteredByBranch.map(purchaseMonth))].sort().reverse();
+  const filteredByMonth = filteredByBranch.filter((purchase) => purchaseMonthFilter === "all" || purchaseMonth(purchase) === purchaseMonthFilter);
+  const availableSuppliers = suppliers.filter((supplier) => filteredByMonth.some((purchase) => purchase.supplier_id === supplier.id));
+  const [supplierId, setSupplierId] = useState(availableSuppliers[0]?.id ?? "");
   const [purchaseEntryId, setPurchaseEntryId] = useState("");
   const [paymentMethod, setPaymentMethod] = useState<PaymentType>("bank_transfer");
 
-  const filteredPurchases = purchases.filter((purchase) => purchase.supplier_id === supplierId && !purchase.is_void && purchase.outstanding_amount > 0);
+  const filteredPurchases = filteredByMonth.filter((purchase) => purchase.supplier_id === supplierId && !purchase.is_void && purchase.outstanding_amount > 0);
   const selectedPurchase = filteredPurchases.find((purchase) => purchase.id === purchaseEntryId);
   const dueDate = selectedPurchase?.due_date ?? null;
-  const agingStatus = useMemo(
-    () => getAgingStatus(dueDate, selectedPurchase?.outstanding_amount ?? 0),
-    [dueDate, selectedPurchase?.outstanding_amount]
-  );
+  const monthTotal = useMemo(() => totalOutstanding(filteredPurchases), [filteredPurchases]);
 
   return (
     <form action={createSupplierPaymentEntry} className="form-card">
-      <h2>Record supplier payment</h2>
+      <h3>One payment per invoice</h3>
+      <p className="supplier-form-intro">Pilih cawangan, bulan bil dan pembekal. Bayaran dipautkan terus kepada satu bil supaya baki bulan itu dikemas kini dengan tepat.</p>
+      <div className="supplier-payment-form-filters">
+        <label>
+          Branch
+          <select value={branchId} onChange={(event) => { setBranchId(event.target.value); setSupplierId(""); setPurchaseEntryId(""); }}>
+            <option value="all">All branches</option>
+            {branchOptions.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+          </select>
+        </label>
+        <label>
+          Purchase month
+          <select value={purchaseMonthFilter} onChange={(event) => { setPurchaseMonthFilter(event.target.value); setSupplierId(""); setPurchaseEntryId(""); }}>
+            <option value="all">All months</option>
+            {availableMonths.map((month) => <option key={month} value={month}>{monthLabel(month)}</option>)}
+          </select>
+        </label>
+      </div>
       <label>
         Supplier
         <select
@@ -75,7 +87,8 @@ export function SupplierPaymentForm({ bankAccounts, purchases, suppliers }: Prop
             setPurchaseEntryId("");
           }}
         >
-          {suppliers.map((supplier) => (
+          <option value="">Select supplier</option>
+          {availableSuppliers.map((supplier) => (
             <option key={supplier.id} value={supplier.id}>
               {supplier.name}
             </option>
@@ -88,7 +101,7 @@ export function SupplierPaymentForm({ bankAccounts, purchases, suppliers }: Prop
           <option value="">Select supplier purchase / invoice</option>
           {filteredPurchases.map((purchase) => (
             <option key={purchase.id} value={purchase.id}>
-              {purchaseOptionLabel(purchase)}
+              {purchase.invoice_no ? `Invoice ${purchase.invoice_no}` : "Invoice not numbered"} · {formatDate(purchase.invoice_date ?? purchase.purchase_date)} · Balance {formatCurrency(purchase.outstanding_amount)}
             </option>
           ))}
         </select>
@@ -103,10 +116,10 @@ export function SupplierPaymentForm({ bankAccounts, purchases, suppliers }: Prop
           <p>Amount paid: {formatCurrency(selectedPurchase.paid_amount)}</p>
           <p>Remaining balance: {formatCurrency(selectedPurchase.outstanding_amount)}</p>
           <p>Invoice date: {formatDate(selectedPurchase.invoice_date ?? selectedPurchase.purchase_date)}</p>
-          <p>Due date: {dueDate ? formatDate(dueDate) : "-"}</p>
-          <p>Status: {labelize(selectedPurchase.status)} ({agingStatus})</p>
+          {dueDate ? <p>Due date: {formatDate(dueDate)}</p> : null}
         </div>
       ) : null}
+      {supplierId && filteredPurchases.length ? <p className="supplier-selected-balance">Unpaid balance for this supplier in the selected view: <strong>{formatCurrency(monthTotal)}</strong></p> : null}
       <label>
         Branch
         <input value={selectedPurchase?.branch_name ?? "-"} disabled />
@@ -153,4 +166,8 @@ export function SupplierPaymentForm({ bankAccounts, purchases, suppliers }: Prop
       </button>
     </form>
   );
+}
+
+function totalOutstanding(rows: PurchaseOption[]) {
+  return rows.reduce((sum, row) => sum + Number(row.outstanding_amount ?? 0), 0);
 }
