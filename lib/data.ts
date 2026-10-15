@@ -1472,7 +1472,7 @@ export async function getFinanceDashboardData(
   const panelClaimsQuery = supabase.from("panel_claims").select("id, branch_id, claim_month, amount, is_void")
     .lte("claim_month", range.endDate);
   const panelPaymentsQuery = supabase.from("panel_payments")
-    .select("id, panel_claim_id, bank_account_id, payment_date, amount, is_void, panel_claims(branch_id, panel_company_id)")
+    .select("id, panel_claim_id, bank_account_id, payment_date, amount, panel_claims(branch_id, panel_company_id)")
     .lte("payment_date", range.endDate);
   const monthlyOpeningBalancesQuery = supabase.from("monthly_opening_balances")
     .select("id, branch_id, balance_month, opening_cash, opening_petty_cash")
