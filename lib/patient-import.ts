@@ -144,10 +144,64 @@ function normalizeHeader(value: string) {
 export function parsePatientBaselineCsv(buffer: Buffer): PatientBaselineParseResult {
   if (buffer.byteLength > 10 * 1024 * 1024) throw new Error("The patient list is too large. Maximum file size is 10 MB.");
   const text = buffer.toString("utf8").replace(/^\uFEFF/, "");
-  const rows: string[][] = [];
-  let row: string[] = [];
+  const headers: string[] = [];
+  let rowNumber = 0;
+  let columnNumber = 0;
   let field = "";
   let quoted = false;
+  let pidColumn = -1;
+  let lastEncounterColumn = -1;
+  let pid = "";
+  let encounter = "";
+  let invalidRows = 0;
+  let duplicateRows = 0;
+  let firstDate = "";
+  let lastDate = "";
+  const byPatient = new Map<string, string>();
+
+  const consumeField = () => {
+    const value = field.trim();
+    if (rowNumber === 0) {
+      headers.push(value);
+    } else if (columnNumber === pidColumn) {
+      pid = value;
+    } else if (columnNumber === lastEncounterColumn) {
+      encounter = value;
+    }
+    field = "";
+    columnNumber += 1;
+  };
+
+  const consumeRow = () => {
+    if (rowNumber === 0) {
+      pidColumn = headers.findIndex((header) => normalizeHeader(header) === "pid");
+      lastEncounterColumn = headers.findIndex((header) => normalizeHeader(header) === "lastencounter");
+      if (pidColumn < 0 || lastEncounterColumn < 0) {
+        throw new Error("The patient list must include PID and Last Encounter columns.");
+      }
+    } else if (pid || encounter) {
+      const lastEncounterDate = excelDate(encounter);
+      if (!pid || !lastEncounterDate) {
+        invalidRows += 1;
+      } else {
+        const patientKey = keyedPatientId(pid);
+        const previousDate = byPatient.get(patientKey);
+        if (previousDate !== undefined) {
+          duplicateRows += 1;
+          if (lastEncounterDate > previousDate) byPatient.set(patientKey, lastEncounterDate);
+        } else {
+          byPatient.set(patientKey, lastEncounterDate);
+        }
+        if (!firstDate || lastEncounterDate < firstDate) firstDate = lastEncounterDate;
+        if (!lastDate || lastEncounterDate > lastDate) lastDate = lastEncounterDate;
+      }
+    }
+    rowNumber += 1;
+    columnNumber = 0;
+    pid = "";
+    encounter = "";
+  };
+
   for (let index = 0; index < text.length; index += 1) {
     const char = text[index];
     if (quoted && char === '"') {
@@ -164,46 +218,18 @@ export function parsePatientBaselineCsv(buffer: Buffer): PatientBaselineParseRes
     } else if (char === '"' && field.length === 0) {
       quoted = true;
     } else if (char === ",") {
-      row.push(field.trim());
-      field = "";
+      consumeField();
     } else if (char === "\r" || char === "\n") {
-      row.push(field.trim());
-      if (row.some((value) => value)) rows.push(row);
-      row = [];
-      field = "";
+      consumeField();
+      consumeRow();
       if (char === "\r" && text[index + 1] === "\n") index += 1;
     } else {
       field += char;
     }
   }
-  row.push(field.trim());
-  if (row.some((value) => value)) rows.push(row);
-
-  const headers = rows[0] ?? [];
-  const pidColumn = headers.findIndex((header) => normalizeHeader(header) === "pid");
-  const lastEncounterColumn = headers.findIndex((header) => normalizeHeader(header) === "lastencounter");
-  if (pidColumn < 0 || lastEncounterColumn < 0) throw new Error("The patient list must include PID and Last Encounter columns.");
-
-  const byPatient = new Map<string, string>();
-  const dates: string[] = [];
-  let invalidRows = 0;
-  let duplicateRows = 0;
-  for (const values of rows.slice(1)) {
-    const pid = String(values[pidColumn] ?? "").trim();
-    const lastEncounterDate = excelDate(String(values[lastEncounterColumn] ?? ""));
-    if (!pid || !lastEncounterDate) {
-      invalidRows += 1;
-      continue;
-    }
-    const patientKey = keyedPatientId(pid);
-    const previousDate = byPatient.get(patientKey);
-    if (previousDate) {
-      duplicateRows += 1;
-      if (lastEncounterDate > previousDate) byPatient.set(patientKey, lastEncounterDate);
-    } else {
-      byPatient.set(patientKey, lastEncounterDate);
-    }
-    dates.push(lastEncounterDate);
+  if (field.length || columnNumber || rowNumber === 0) {
+    consumeField();
+    consumeRow();
   }
 
   if (!byPatient.size) throw new Error("No valid PID and Last Encounter rows were found.");
@@ -211,8 +237,8 @@ export function parsePatientBaselineCsv(buffer: Buffer): PatientBaselineParseRes
     patients: [...byPatient].map(([patientKey, lastEncounterDate]) => ({ patientKey, lastEncounterDate })),
     duplicateRows,
     invalidRows,
-    firstDate: dates.sort()[0],
-    lastDate: dates.at(-1) ?? ""
+    firstDate,
+    lastDate
   };
 }
 
