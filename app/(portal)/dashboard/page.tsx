@@ -186,7 +186,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const [financeBundle, supplierOutstandingRows, operationalData, patientAnalytics] = await Promise.all([
     isFinanceDashboard ? getFinanceDashboardData(profile, range) : Promise.resolve(null),
     isFinanceDashboard ? getSupplierOutstanding(profile) : Promise.resolve([]),
-    isFinanceDashboard ? Promise.resolve(null) : getDashboardOperationalCashData(range),
+    getDashboardOperationalCashData(range),
     hasPermission(profile, "view_patient_analytics") ? getPatientAnalytics() : Promise.resolve(null)
   ]);
   const data: DashboardData = financeBundle?.dashboardData ?? {
@@ -293,6 +293,8 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
 
   const selectedBankBranches = bankingData?.branches.filter((branch) => selectedBranchIdSet.has(branch.id)) ?? [];
   const selectedBankBranchIds = new Set(selectedBankBranches.map((branch) => branch.id));
+  const cashControlData = operationalData ?? bankingData;
+  const selectedCashControlBranches = cashControlData?.branches.filter((branch) => selectedBranchIdSet.has(branch.id)) ?? [];
   const hasOpeningBalanceCaution = isFinanceDashboard && [...data.openingBalances, ...(bankingData?.openingBalances ?? [])]
     .some((balance) =>
       (balance.balance_type === "cash_in_hand" || balance.balance_type === "petty_cash")
@@ -328,22 +330,22 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     return transaction.bank_account_id
       && (transaction.transaction_type === "petty_cash_issued" || transaction.transaction_type === "petty_cash_returned");
   });
-  const cashInHandRows = bankingData
+  const cashInHandRows = cashControlData
     ? buildCashInHandRows({
-        branches: selectedBankBranches,
-        cashBankIns: bankingData.cashBankIns,
-        expenses: bankingData.expenses,
-        monthlyOpeningBalances: bankingData.monthlyOpeningBalances,
-        openingBalances: bankingData.openingBalances,
-        sales: bankingData.sales
+        branches: selectedCashControlBranches,
+        cashBankIns: cashControlData.cashBankIns,
+        expenses: cashControlData.expenses,
+        monthlyOpeningBalances: cashControlData.monthlyOpeningBalances,
+        openingBalances: cashControlData.openingBalances,
+        sales: cashControlData.sales
       }, range)
     : [];
-  const pettyCashRows = bankingData
+  const pettyCashRows = cashControlData
     ? buildPettyCashBalanceRows({
-        branches: selectedBankBranches,
-        monthlyOpeningBalances: bankingData.monthlyOpeningBalances,
-        openingBalances: bankingData.openingBalances,
-        pettyCashTransactions: bankingData.pettyCashTransactions
+        branches: selectedCashControlBranches,
+        monthlyOpeningBalances: cashControlData.monthlyOpeningBalances,
+        openingBalances: cashControlData.openingBalances,
+        pettyCashTransactions: cashControlData.pettyCashTransactions
       })
     : [];
   const cashInHandByBranchId = new Map(cashInHandRows.map((row) => [row.branch.id, row]));
@@ -486,10 +488,10 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const pettyCashDetailLabel = `As of ${formatDate(range.endDate)}`;
   const dashboardBalanceDiagnostics = cashInHandRows.map((cashRow) => {
     const pettyRow = pettyCashByBranchId.get(cashRow.branch.id);
-    const periodCashSales = sales
-      .filter((sale) => sale.branch_id === cashRow.branch.id)
+    const periodCashSales = (cashControlData?.sales ?? [])
+      .filter((sale) => isActiveFinancialRecord(sale) && sale.branch_id === cashRow.branch.id && isWithinDateRange(sale.sale_date, range))
       .reduce((sum, sale) => sum + money(sale.cash_amount), 0);
-    const periodCashBankIns = (bankingData?.cashBankIns ?? [])
+    const periodCashBankIns = (cashControlData?.cashBankIns ?? [])
       .filter((bankIn) => {
         const cashSourceDate = cashBankInSourceDate(bankIn);
         if (!cashSourceDate) return false;
@@ -498,7 +500,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           && isWithinDateRange(cashSourceDate, range);
       })
       .reduce((sum, bankIn) => sum + bankInAmount(bankIn), 0);
-    const periodCashLocumPayments = (bankingData?.expenses ?? [])
+    const periodCashLocumPayments = (cashControlData?.expenses ?? [])
       .filter((expense) => {
         return isActiveFinancialRecord(expense)
           && String(expense.category ?? "").trim().toLowerCase() === "locum_doctor"
