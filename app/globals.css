@@ -1446,92 +1446,6 @@ dd {
   grid-column: span 2;
 }
 
-.opening-balance-record-list {
-  display: grid;
-  gap: 10px;
-  min-width: 0;
-}
-
-.opening-balance-record {
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  min-width: 0;
-  overflow: hidden;
-}
-
-.opening-balance-record-header {
-  align-items: center;
-  display: grid;
-  gap: 14px;
-  grid-template-columns: minmax(0, 1fr) auto auto;
-  padding: 14px 16px;
-}
-
-.opening-balance-record-target,
-.opening-balance-record-actions {
-  display: grid;
-  gap: 5px;
-  min-width: 0;
-}
-
-.opening-balance-record-target > span {
-  color: var(--muted);
-  font-size: 12px;
-  line-height: 1.4;
-}
-
-.opening-balance-record-target > strong,
-.opening-balance-record-amount {
-  overflow-wrap: anywhere;
-}
-
-.opening-balance-record-actions {
-  align-items: end;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  justify-content: flex-end;
-}
-
-.opening-balance-record-details {
-  border-top: 1px solid var(--line);
-  padding: 0 16px;
-}
-
-.opening-balance-record-details > summary {
-  color: var(--teal-deep);
-  cursor: pointer;
-  font-size: 13px;
-  font-weight: 700;
-  padding: 10px 0;
-}
-
-.opening-balance-record-details dl {
-  display: grid;
-  gap: 8px;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  margin: 0 0 14px;
-}
-
-.opening-balance-record-details dl > div {
-  background: #f7fbfb;
-  border-radius: 6px;
-  min-width: 0;
-  padding: 9px 10px;
-}
-
-.opening-balance-record-details dt {
-  color: var(--muted);
-  font-size: 12px;
-  line-height: 1.35;
-}
-
-.opening-balance-record-details dd {
-  margin: 4px 0 0;
-  overflow-wrap: anywhere;
-}
-
 table {
   border-collapse: collapse;
   min-width: 720px;
@@ -2886,35 +2800,6 @@ button:disabled {
 
   .opening-reconciliation-details .opening-reconciliation-note {
     grid-column: 1 / -1;
-  }
-
-  .opening-balance-record-header {
-    align-items: start;
-    gap: 9px 12px;
-    grid-template-columns: minmax(0, 1fr) auto;
-    padding: 12px;
-  }
-
-  .opening-balance-record-amount {
-    grid-column: 2;
-    grid-row: 1;
-    text-align: right;
-  }
-
-  .opening-balance-record-actions {
-    align-items: center;
-    grid-column: 1 / -1;
-    grid-row: 2;
-    justify-content: flex-start;
-    justify-self: start;
-  }
-
-  .opening-balance-record-details {
-    padding-inline: 12px;
-  }
-
-  .opening-balance-record-details dl {
-    grid-template-columns: 1fr;
   }
 
   .patient-summary-grid,
