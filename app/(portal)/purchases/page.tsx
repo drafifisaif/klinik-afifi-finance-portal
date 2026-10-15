@@ -1,5 +1,4 @@
 import { updateSupplierPurchaseEntry, voidSupplierPurchaseEntry } from "@/app/actions";
-import { DataTable } from "@/components/data-table";
 import { DocumentManager } from "@/components/documents/document-manager";
 import { MetricCard } from "@/components/metric-card";
 import { ModuleHeader } from "@/components/module-header";
@@ -144,53 +143,39 @@ export default async function PurchasesPage({ searchParams }: PurchasesPageProps
                   <span className="ledger-summary-chip">{group.paidCount} paid</span>
                 </div>
               </div>
-              <DataTable
-                columns={[
-                  "Invoice date",
-                  "Due date",
-                  "Branch",
-                  "Invoice no",
-                  "Category",
-                  "Total",
-                  "Paid",
-                  "Balance",
-                  "Payment Status",
-                  "Notes",
-                  "Documents",
-                  "Status",
-                  "Edit",
-                  "Void / details"
-                ]}
-                rows={group.rows.map(({ purchase, paidAmount, balanceAmount, paymentStatus }) => {
+              <div className="purchase-entry-list">
+                {group.rows.map(({ purchase, paidAmount, balanceAmount, paymentStatus }) => {
                   const canManage = canEditBranch(profile, purchase.branch_id);
                   const documents = documentMap.get(purchase.id) ?? [];
-                  return [
-                    formatDate(purchase.invoice_date ?? purchase.purchase_date),
-                    formatDate(purchase.due_date),
-                    purchase.branches?.name ?? "-",
-                    purchase.invoice_no ?? "-",
-                    purchase.category ? labelize(purchase.category) : "-",
-                    formatCurrency(purchase.total_amount),
-                    formatCurrency(paidAmount),
-                    formatCurrency(balanceAmount),
-                    <span className={`status-pill ${statusClass(paymentStatus)}`} key={`${purchase.id}-payment-status`}>
-                      {paymentStatus}
-                    </span>,
-                    purchase.notes ?? "-",
-                    <DocumentManager
-                      canDelete={canDeleteDocuments}
-                      documents={documents}
-                      entityId={purchase.id}
-                      entityName="supplier_purchase_entries"
-                      key={`${purchase.id}-documents`}
-                    />,
-                    <span className={`status-pill ${purchase.is_void ? "status-voided" : "status-paid"}`} key={`${purchase.id}-status`}>
-                      {purchase.is_void ? "Voided" : "Active"}
-                    </span>,
-                    !purchase.is_void && canManage ? (
-                      <details className="manual-bank-editor" key={`${purchase.id}-edit`}>
-                        <summary>Edit</summary>
-                        <form action={updateSupplierPurchaseEntry} className="manual-bank-edit-form">
+                  return (
+                    <article className="purchase-entry" key={purchase.id}>
+                      <div className="purchase-entry-top">
+                        <div className="purchase-entry-title">
+                          <strong>{purchase.invoice_no || "Invoice without number"}</strong>
+                          <span>{formatDate(purchase.invoice_date ?? purchase.purchase_date)} · {purchase.branches?.name ?? "Branch not set"}</span>
+                        </div>
+                        <div className="purchase-entry-amount">
+                          <strong>{formatCurrency(balanceAmount)}</strong>
+                          <span>Balance · {formatCurrency(purchase.total_amount)} total</span>
+                        </div>
+                        <span className={`status-pill ${statusClass(paymentStatus)}`}>{paymentStatus}</span>
+                      </div>
+                      <div className="purchase-entry-details">
+                        <span><small>Paid</small>{formatCurrency(paidAmount)}</span>
+                        <span><small>Due date</small>{formatDate(purchase.due_date)}</span>
+                        <span><small>Category</small>{purchase.category ? labelize(purchase.category) : "-"}</span>
+                        <span><small>Record status</small><span className={`status-pill ${purchase.is_void ? "status-voided" : "status-paid"}`}>{purchase.is_void ? "Voided" : "Active"}</span></span>
+                      </div>
+                      {purchase.notes ? <p className="purchase-entry-notes">{purchase.notes}</p> : null}
+                      {purchase.is_void ? (
+                        <p className="purchase-entry-notes">Void reason: {purchase.void_reason ?? "-"}{purchase.voided_at ? ` · ${formatDateTime(purchase.voided_at)}` : ""}</p>
+                      ) : null}
+                      <div className="purchase-entry-actions">
+                        <DocumentManager canDelete={canDeleteDocuments} documents={documents} entityId={purchase.id} entityName="supplier_purchase_entries" />
+                        {!purchase.is_void && canManage ? (
+                          <details className="manual-bank-editor">
+                            <summary>Edit</summary>
+                            <form action={updateSupplierPurchaseEntry} className="manual-bank-edit-form">
                           <input name="purchase_entry_id" type="hidden" value={purchase.id} />
                           <label>
                             Supplier
@@ -261,15 +246,13 @@ export default async function PurchasesPage({ searchParams }: PurchasesPageProps
                           <button className="primary-button compact-button" type="submit">
                             Save
                           </button>
-                        </form>
-                      </details>
-                    ) : (
-                      "-"
-                    ),
-                    !purchase.is_void && canManage ? (
-                      <details className="manual-bank-editor" key={`${purchase.id}-void`}>
-                        <summary>Void</summary>
-                        <form action={voidSupplierPurchaseEntry} className="manual-bank-edit-form void-record-form">
+                            </form>
+                          </details>
+                        ) : null}
+                        {!purchase.is_void && canManage ? (
+                          <details className="manual-bank-editor">
+                            <summary>Void</summary>
+                            <form action={voidSupplierPurchaseEntry} className="manual-bank-edit-form void-record-form">
                           <input name="purchase_entry_id" type="hidden" value={purchase.id} />
                           <p className="void-warning">Voided records stay in history and are excluded from active totals.</p>
                           <label>
@@ -279,26 +262,20 @@ export default async function PurchasesPage({ searchParams }: PurchasesPageProps
                           <button className="primary-button compact-button" type="submit">
                             Void this supplier purchase
                           </button>
-                        </form>
-                      </details>
-                    ) : purchase.is_void ? (
-                      <div key={`${purchase.id}-voided-details`}>
-                        <strong>Voided</strong>
-                        <div>{purchase.void_reason ?? "-"}</div>
-                        <small>{purchase.voided_at ? formatDateTime(purchase.voided_at) : "-"}</small>
+                            </form>
+                          </details>
+                        ) : null}
                       </div>
-                    ) : (
-                      "-"
-                    )
-                  ];
+                    </article>
+                  );
                 })}
-              />
+              </div>
             </article>
           ))}
         </div>
       </section>
 
-      <section className="section-grid mt-section">
+      <section className="section-grid single-column mt-section">
         <SupplierPurchaseForm branches={branches} suppliers={suppliers} />
       </section>
     </>

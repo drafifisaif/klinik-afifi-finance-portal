@@ -2286,6 +2286,101 @@ textarea {
   padding: 6px 10px;
 }
 
+.purchase-entry-list {
+  min-width: 0;
+}
+
+.purchase-entry {
+  border-top: 1px solid var(--line);
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  padding: 16px 0;
+}
+
+.purchase-entry-top {
+  align-items: center;
+  display: grid;
+  gap: 10px 18px;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  min-width: 0;
+}
+
+.purchase-entry-title,
+.purchase-entry-amount {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.purchase-entry-title strong,
+.purchase-entry-amount strong {
+  overflow-wrap: anywhere;
+}
+
+.purchase-entry-title span,
+.purchase-entry-amount span,
+.purchase-entry-notes {
+  color: var(--muted);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.purchase-entry-amount {
+  text-align: right;
+}
+
+.purchase-entry-amount strong {
+  font-size: 18px;
+}
+
+.purchase-entry-details {
+  display: grid;
+  gap: 10px 16px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.purchase-entry-details > span {
+  align-items: flex-start;
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.purchase-entry-details small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.purchase-entry-notes {
+  margin: 0;
+}
+
+.purchase-entry-actions {
+  align-items: flex-start;
+  border-top: 1px solid var(--line);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding-top: 10px;
+}
+
+.purchase-entry-actions .manual-bank-edit-form {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  max-width: min(720px, calc(100vw - 48px));
+}
+
+.purchase-entry-actions .manual-bank-edit-form > label,
+.purchase-entry-actions .manual-bank-edit-form > button,
+.purchase-entry-actions .manual-bank-edit-form > p {
+  min-width: 0;
+}
+
+.purchase-entry-actions .manual-bank-edit-form > label:last-of-type {
+  grid-column: 1 / -1;
+}
+
 .panel-claim-list,
 .panel-payment-record-list {
   display: grid;
@@ -2784,6 +2879,29 @@ button:disabled {
 }
 
 @media (max-width: 700px) {
+  .purchase-entry-top {
+    align-items: start;
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .purchase-entry-top > .status-pill {
+    grid-column: 1 / -1;
+    justify-self: start;
+  }
+
+  .purchase-entry-details {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .purchase-entry-actions .manual-bank-edit-form {
+    grid-template-columns: 1fr;
+    width: min(460px, calc(100vw - 48px));
+  }
+
+  .purchase-entry-actions .manual-bank-edit-form > label:last-of-type {
+    grid-column: auto;
+  }
+
   .opening-reconciliation-header {
     gap: 10px;
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
