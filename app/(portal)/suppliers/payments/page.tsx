@@ -2,7 +2,6 @@ import { updateSupplierPaymentEntry, voidSupplierPaymentEntry } from "@/app/acti
 import { DocumentManager } from "@/components/documents/document-manager";
 import { MetricCard } from "@/components/metric-card";
 import { ModuleHeader } from "@/components/module-header";
-import { SupplierPaymentForm } from "@/components/supplier-payment-form";
 import { SupplierQuickPayment } from "@/components/supplier-quick-payment";
 import { getBankingDataForScope, getSupplierOutstanding, getSupplierPaymentEntries, getSuppliers, totalBy } from "@/lib/data";
 import { formatCurrency, formatDate, formatDateTime, labelize, monthKey } from "@/lib/format";
@@ -156,17 +155,6 @@ export default async function SupplierPaymentsPage({ searchParams }: SupplierPay
             })}
           </div>
         ) : <p className="empty-state">No unpaid purchases match these filters.</p>}
-      </section>
-
-      <section className="table-section mt-section">
-        <h2>Record a supplier payment</h2>
-        <SupplierPaymentForm
-          bankAccounts={bankingData.bankAccounts}
-          initialBranchId={selectedBranch}
-          initialPurchaseMonth={selectedPurchaseMonth}
-          purchases={branchOutstanding}
-          suppliers={suppliers}
-        />
       </section>
 
       <section className="table-section mt-section">
