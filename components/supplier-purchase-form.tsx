@@ -29,8 +29,9 @@ export function SupplierPurchaseForm({ branches, suppliers }: Props) {
   const dueDate = useMemo(() => addDays(invoiceDate, Math.max(0, Number(effectiveTerm) || 0)), [effectiveTerm, invoiceDate]);
 
   return (
-    <form action={createSupplierPurchaseEntry} className="form-card">
-      <h2>Record purchase</h2>
+    <details className="form-card purchase-create-disclosure">
+      <summary>Record purchase</summary>
+      <form action={createSupplierPurchaseEntry} className="form-grid purchase-create-fields">
       <label>
         Supplier
         <select name="supplier_id" required value={supplierId} onChange={(event) => setSupplierId(event.target.value)}>
@@ -125,9 +126,10 @@ export function SupplierPurchaseForm({ branches, suppliers }: Props) {
         Notes
         <textarea name="notes" />
       </label>
-      <button className="primary-button" type="submit">
-        Save purchase
-      </button>
-    </form>
+        <button className="primary-button purchase-create-submit" type="submit">
+          Save purchase
+        </button>
+      </form>
+    </details>
   );
 }

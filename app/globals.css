@@ -2381,6 +2381,28 @@ textarea {
   grid-column: 1 / -1;
 }
 
+.purchase-create-disclosure > summary {
+  color: var(--teal-deep);
+  cursor: pointer;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.purchase-create-disclosure[open] > summary {
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 2px;
+  padding-bottom: 12px;
+}
+
+.purchase-create-fields {
+  gap: 14px 18px;
+}
+
+.purchase-create-submit {
+  grid-column: 1 / -1;
+  justify-self: start;
+}
+
 .panel-claim-list,
 .panel-payment-record-list {
   display: grid;
