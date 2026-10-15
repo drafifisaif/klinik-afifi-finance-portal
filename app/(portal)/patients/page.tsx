@@ -1,8 +1,7 @@
 import { ModuleHeader } from "@/components/module-header";
 import { PatientReportImport } from "@/components/patients/patient-report-import";
 import { PatientBaselineImport } from "@/components/patients/patient-baseline-import";
-import { PatientTrendChart } from "@/components/patients/patient-trend-chart";
-import { PatientSummaryCards } from "@/components/patients/patient-summary-cards";
+import { PatientMonthOverview } from "@/components/patients/patient-month-overview";
 import { getPatientAnalytics } from "@/lib/patient-analytics";
 import { formatDateTime } from "@/lib/format";
 import { hasPermission, requirePermission } from "@/lib/permissions";
@@ -13,15 +12,6 @@ export default async function PatientsPage() {
   const profile = await requirePermission("view_patient_analytics");
   const { summaries, batches, baseline, error } = await getPatientAnalytics();
   const canImport = hasPermission(profile, "manage_patient_imports");
-  const latest = summaries.filter((row) => row.is_complete).sort((a, b) =>
-    b.period_month.localeCompare(a.period_month) || b.period_no - a.period_no
-  )[0];
-  const latestRows = latest ? summaries.filter((row) => row.period_month === latest.period_month && row.period_no === latest.period_no) : [];
-  const totals = latestRows.reduce((result, row) => ({
-    visits: result.visits + row.visit_count,
-    unique: result.unique + row.unique_patient_count,
-    newPatients: result.newPatients + row.new_patient_count
-  }), { visits: 0, unique: 0, newPatients: 0 });
 
   return (
     <div className="page-stack">
@@ -33,46 +23,7 @@ export default async function PatientsPage() {
 
       {error ? <div className="patient-setup-warning" role="alert">{error}</div> : null}
 
-      {latest ? (
-        <div className="patient-latest-context">
-          Tempoh terkini: <strong>{latest.period_start} hingga {latest.period_end}</strong>
-          <span>{latestRows.every((row) => row.is_complete) ? "Laporan lengkap" : "Data belum lengkap"}</span>
-        </div>
-      ) : null}
-
-      <PatientSummaryCards
-        completedPeriods={summaries.filter((row) => row.is_complete).length}
-        newPatients={totals.newPatients}
-        periodNo={latest?.period_no}
-        uniquePatients={totals.unique}
-        visits={totals.visits}
-      />
-
-      <PatientTrendChart summaries={summaries} branchScoped={profile.role === "branch_pic"} />
-
-      <section className="patient-section" aria-labelledby="patient-branch-summary-title">
-        <div className="patient-section-heading">
-          <div><span className="owner-section-kicker">PECAHAN CAWANGAN</span><h2 id="patient-branch-summary-title">Ringkasan tempoh terkini</h2></div>
-          <p>{latest ? `${latest.period_start} hingga ${latest.period_end}` : "Akan muncul selepas laporan diimport"}</p>
-        </div>
-        <div className="table-scroll">
-          <table className="data-table">
-            <thead><tr><th>Cawangan</th><th>Lawatan</th><th>Pesakit unik</th><th>PID pertama kali direkod</th><th>Status data</th><th>Kemaskini terakhir</th></tr></thead>
-            <tbody>
-              {latestRows.length ? latestRows.map((row) => (
-                <tr key={row.branch_id}>
-                  <td>{row.branches?.name ?? "Cawangan"}</td>
-                  <td>{row.visit_count.toLocaleString()}</td>
-                  <td>{row.unique_patient_count.toLocaleString()}</td>
-                  <td>{row.new_patient_count.toLocaleString()}</td>
-                  <td><span className={`status-pill ${row.is_complete ? "status-paid" : "status-partial"}`}>{row.is_complete ? "Lengkap" : "Belum lengkap"}</span></td>
-                  <td>{row.is_complete ? `${row.last_imported_by_name ?? "Finance"} · ${row.last_imported_at ? formatDateTime(row.last_imported_at) : "Masa tidak direkod"}` : "Belum upload"}</td>
-                </tr>
-              )) : <tr><td colSpan={6}>Belum ada laporan untuk dipaparkan.</td></tr>}
-            </tbody>
-          </table>
-        </div>
-      </section>
+      <PatientMonthOverview summaries={summaries} branchScoped={profile.role === "branch_pic"} />
 
       {canImport ? <PatientReportImport /> : null}
       {canImport ? <PatientBaselineImport currentBaseline={baseline} /> : null}

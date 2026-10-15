@@ -4,12 +4,18 @@ export function PatientSummaryCards({
   completedPeriods,
   newPatients,
   periodNo,
+  periodLabel,
+  uniqueLabel,
+  uniqueTitle,
   uniquePatients,
   visits
 }: {
   completedPeriods: number;
   newPatients: number;
   periodNo?: number;
+  periodLabel?: string;
+  uniqueLabel?: string;
+  uniqueTitle?: string;
   uniquePatients: number;
   visits: number;
 }) {
@@ -17,11 +23,11 @@ export function PatientSummaryCards({
     <div className="patient-summary-grid">
       <article className="patient-summary-card">
         <span className="patient-summary-icon tone-blue"><Activity size={20} /></span>
-        <div><p>Jumlah lawatan</p><strong>{visits.toLocaleString()}</strong><small>{periodNo ? `Tempoh ${periodNo}` : "Belum ada import"}</small></div>
+        <div><p>Jumlah lawatan</p><strong>{visits.toLocaleString()}</strong><small>{periodLabel ?? (periodNo ? `Tempoh ${periodNo}` : "Belum ada import")}</small></div>
       </article>
       <article className="patient-summary-card">
         <span className="patient-summary-icon tone-teal"><UsersRound size={20} /></span>
-        <div><p>Pesakit unik</p><strong>{uniquePatients.toLocaleString()}</strong><small>PID unik mengikut cawangan dalam tempoh</small></div>
+        <div><p>{uniqueTitle ?? "Pesakit unik"}</p><strong>{uniquePatients.toLocaleString()}</strong><small>{uniqueLabel ?? "PID unik mengikut cawangan dalam tempoh"}</small></div>
       </article>
       <article className="patient-summary-card">
         <span className="patient-summary-icon tone-amber"><UserRoundPlus size={20} /></span>

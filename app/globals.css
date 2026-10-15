@@ -198,6 +198,43 @@ textarea {
   font-weight: 700;
 }
 
+.patient-month-filter {
+  align-items: end;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.patient-month-filter label {
+  color: #405657;
+  display: grid;
+  font-size: 13px;
+  font-weight: 700;
+  gap: 7px;
+  min-width: min(280px, 100%);
+}
+
+.patient-month-filter select {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--ink);
+  min-height: 44px;
+  padding: 9px 11px;
+}
+
+.patient-month-filter p {
+  color: var(--muted);
+  font-size: 13px;
+  margin: 0 0 10px;
+}
+
+.patient-monthly-chart {
+  border-top: 1px solid var(--line);
+  margin-top: 22px;
+  padding-top: 22px;
+}
+
 .patient-baseline-notice {
   background: #fff8e8;
   border: 1px solid #f1d79a;
