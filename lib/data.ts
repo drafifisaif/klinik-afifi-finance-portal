@@ -1,4 +1,4 @@
-import { createAdminClient } from "@/lib/supabase-admin";
+import { createAdminClient, hasSupabaseAdminEnv } from "@/lib/supabase-admin";
 import { createClient, getSupabaseHost, hasSupabaseEnv } from "@/lib/supabase-server";
 import { branchPicHiddenExpenseCategories } from "@/lib/constants";
 import { canViewAllBranches, filterBranchesForProfile, filterDashboardDataForProfile, getCurrentProfile, normalizeRole } from "@/lib/permissions";
@@ -1768,7 +1768,7 @@ export async function getSupplierPaymentEntries() {
   const profile = await getCurrentProfile();
   if (!profile?.is_active) return [] as SupplierPaymentEntry[];
 
-  if (!hasSupabaseEnv()) {
+  if (!hasSupabaseEnv() || !hasSupabaseAdminEnv()) {
     return canViewAllBranches(profile)
       ? supplierPaymentEntriesDemo
       : supplierPaymentEntriesDemo.filter((entry) => entry.branch_id === profile.branch_id);
@@ -1860,7 +1860,7 @@ export function branchName(data: DashboardData, branchId: string) {
 
 export async function getSupplierOutstanding(profileOverride?: Profile | null) {
   const profile = profileOverride === undefined ? await getCurrentProfile() : profileOverride;
-  if (!hasSupabaseEnv()) {
+  if (!hasSupabaseEnv() || !hasSupabaseAdminEnv()) {
     const rows = supplierPurchaseEntriesDemo.map((row) => {
       const paidAmount = supplierPaymentEntriesDemo
         .filter((payment) => !payment.is_void && payment.supplier_purchase_entry_id === row.id)

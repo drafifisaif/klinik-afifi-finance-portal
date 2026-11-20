@@ -1861,6 +1861,356 @@ tr:last-child td {
   max-width: 100%;
 }
 
+.supplier-step-heading {
+  margin: 28px 0 14px;
+}
+
+.supplier-step-heading > span,
+.supplier-selection-bar > div > span {
+  color: var(--teal);
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.supplier-step-heading h2,
+.supplier-selection-bar h2 {
+  font-size: 22px;
+  margin: 5px 0;
+}
+
+.supplier-step-heading p,
+.supplier-selection-bar p {
+  color: var(--muted);
+  margin: 0;
+}
+
+.supplier-branch-grid,
+.supplier-month-grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  min-width: 0;
+}
+
+.supplier-branch-card,
+.supplier-month-card {
+  align-items: center;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  color: var(--ink);
+  display: grid;
+  gap: 14px;
+  grid-template-columns: 44px minmax(0, 1fr) minmax(120px, auto);
+  min-width: 0;
+  padding: 18px;
+  text-decoration: none;
+  transition: border-color 120ms ease, transform 120ms ease;
+}
+
+.supplier-branch-card:hover,
+.supplier-month-card:hover {
+  border-color: var(--teal);
+  transform: translateY(-1px);
+}
+
+.supplier-branch-icon,
+.supplier-month-icon {
+  align-items: center;
+  background: #e4f5f2;
+  border-radius: 8px;
+  color: var(--teal-deep);
+  display: inline-flex;
+  height: 44px;
+  justify-content: center;
+  width: 44px;
+}
+
+.supplier-branch-copy,
+.supplier-month-copy,
+.supplier-branch-balance,
+.supplier-month-total {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.supplier-branch-copy strong,
+.supplier-month-copy strong {
+  font-size: 17px;
+  overflow-wrap: anywhere;
+}
+
+.supplier-branch-copy small,
+.supplier-month-copy small,
+.supplier-branch-balance small,
+.supplier-month-total small {
+  color: var(--muted);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.supplier-branch-balance,
+.supplier-month-total {
+  justify-items: end;
+  text-align: right;
+}
+
+.supplier-branch-balance strong,
+.supplier-month-total strong {
+  font-size: 18px;
+  overflow-wrap: anywhere;
+}
+
+.supplier-selection-bar {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+  justify-content: space-between;
+  margin: 26px 0 16px;
+}
+
+.supplier-back-link {
+  align-items: center;
+  color: var(--teal-deep);
+  display: inline-flex;
+  font-weight: 750;
+  gap: 7px;
+  text-decoration: none;
+}
+
+.supplier-month-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.supplier-month-card {
+  grid-template-columns: 40px minmax(0, 1fr) minmax(118px, auto);
+  padding: 15px;
+}
+
+.supplier-month-icon {
+  height: 40px;
+  width: 40px;
+}
+
+.supplier-month-total em {
+  color: var(--muted);
+  font-size: 12px;
+  font-style: normal;
+}
+
+.supplier-month-card.is-empty .supplier-month-total strong {
+  color: var(--muted);
+}
+
+.supplier-month-metrics {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 20px 0;
+}
+
+.supplier-month-groups {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.supplier-month-group,
+.supplier-history-disclosure {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  min-width: 0;
+}
+
+.supplier-month-group-main {
+  align-items: center;
+  display: grid;
+  gap: 16px;
+  grid-template-columns: minmax(150px, 1fr) minmax(135px, 0.8fr) minmax(250px, 1.3fr) auto;
+  min-width: 0;
+  padding: 17px 18px;
+}
+
+.supplier-month-supplier,
+.supplier-month-status,
+.supplier-month-status > small,
+.supplier-month-amounts > span {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.supplier-month-supplier h3 {
+  font-size: 17px;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.supplier-month-supplier > span,
+.supplier-month-status > small,
+.supplier-month-amounts small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.supplier-month-status .status-pill {
+  justify-self: start;
+}
+
+.supplier-month-amounts {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  min-width: 0;
+}
+
+.supplier-month-amounts strong {
+  font-size: 15px;
+  overflow-wrap: anywhere;
+}
+
+.supplier-month-amounts .has-balance strong {
+  color: #ae3048;
+}
+
+.supplier-month-payment {
+  min-width: 0;
+  position: relative;
+}
+
+.supplier-month-payment > summary {
+  align-items: center;
+  background: var(--teal);
+  border-radius: 8px;
+  color: #fff;
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 14px;
+  font-weight: 750;
+  justify-content: center;
+  list-style: none;
+  min-height: 46px;
+  padding: 0 16px;
+  white-space: nowrap;
+}
+
+.supplier-month-payment > summary::-webkit-details-marker,
+.supplier-invoice-details > summary::-webkit-details-marker,
+.supplier-history-disclosure > summary::-webkit-details-marker {
+  display: none;
+}
+
+.supplier-month-payment[open] > summary {
+  background: var(--teal-deep);
+}
+
+.supplier-month-payment .manual-bank-edit-form {
+  background: #f7fbfb;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  min-width: min(380px, calc(100vw - 48px));
+  padding: 14px;
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  z-index: 5;
+}
+
+.preview-readonly-note {
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px solid #f1d79b;
+  border-radius: 6px;
+  background: #fff8e8;
+  color: #76551b;
+  font-size: 0.9rem;
+}
+
+.supplier-invoice-details {
+  border-top: 1px solid var(--line);
+}
+
+.supplier-invoice-details > summary,
+.supplier-history-disclosure > summary {
+  align-items: center;
+  color: var(--teal-deep);
+  cursor: pointer;
+  display: flex;
+  font-size: 13px;
+  font-weight: 750;
+  gap: 8px;
+  justify-content: space-between;
+  list-style: none;
+  padding: 12px 18px;
+}
+
+.supplier-invoice-details > summary:hover,
+.supplier-history-disclosure > summary:hover {
+  background: #f7fbfb;
+}
+
+.supplier-invoice-list {
+  border-top: 1px solid var(--line);
+}
+
+.supplier-invoice-row {
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+  display: grid;
+  gap: 10px 16px;
+  grid-template-columns: minmax(150px, 1fr) auto minmax(105px, auto) minmax(105px, auto);
+  min-width: 0;
+  padding: 12px 18px;
+}
+
+.supplier-invoice-row:last-child {
+  border-bottom: 0;
+}
+
+.supplier-invoice-row > div,
+.supplier-invoice-row > span:not(.status-pill) {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.supplier-invoice-row small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.supplier-invoice-row strong {
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.supplier-history-disclosure {
+  margin-top: 20px;
+}
+
+.supplier-history-disclosure > summary {
+  color: var(--ink);
+  font-size: 15px;
+  padding: 16px 18px;
+}
+
+.supplier-history-disclosure > summary span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.supplier-history-disclosure[open] > .supplier-payment-list {
+  border-top: 1px solid var(--line);
+  padding: 12px;
+}
+
 .empty-state {
   background: var(--panel);
   border: 1px solid var(--line);
@@ -3167,5 +3517,102 @@ button:disabled {
   .shell.shell-collapsed .sidebar-toggle {
     width: 32px;
     height: 32px;
+  }
+}
+
+@media (max-width: 1080px) {
+  .supplier-month-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .supplier-month-group-main {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .supplier-month-amounts {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  .supplier-month-payment {
+    grid-column: 2;
+    grid-row: 1;
+    justify-self: end;
+  }
+}
+
+@media (max-width: 700px) {
+  .supplier-branch-grid,
+  .supplier-month-grid,
+  .supplier-month-metrics {
+    grid-template-columns: 1fr;
+  }
+
+  .supplier-branch-card,
+  .supplier-month-card {
+    gap: 10px;
+    grid-template-columns: 40px minmax(0, 1fr) minmax(100px, auto);
+    padding: 14px;
+  }
+
+  .supplier-branch-icon,
+  .supplier-month-icon {
+    height: 38px;
+    width: 38px;
+  }
+
+  .supplier-branch-copy strong,
+  .supplier-month-copy strong {
+    font-size: 15px;
+  }
+
+  .supplier-branch-balance strong,
+  .supplier-month-total strong {
+    font-size: 15px;
+  }
+
+  .supplier-month-group-main {
+    align-items: start;
+    grid-template-columns: minmax(0, 1fr) auto;
+    padding: 14px;
+  }
+
+  .supplier-month-supplier,
+  .supplier-month-status,
+  .supplier-month-amounts {
+    grid-column: 1 / -1;
+    grid-row: auto;
+  }
+
+  .supplier-month-payment {
+    grid-column: 1 / -1;
+    grid-row: auto;
+    justify-self: stretch;
+    width: 100%;
+  }
+
+  .supplier-month-payment > summary {
+    width: 100%;
+  }
+
+  .supplier-month-payment .manual-bank-edit-form {
+    grid-template-columns: 1fr;
+    min-width: 0;
+    position: static;
+    width: 100%;
+  }
+
+  .supplier-invoice-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    padding: 12px 14px;
+  }
+
+  .supplier-invoice-row > div:first-child {
+    grid-column: 1 / -1;
+  }
+
+  .supplier-selection-bar {
+    align-items: flex-start;
+    flex-direction: column;
   }
 }

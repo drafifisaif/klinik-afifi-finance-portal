@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { getAuditChangedFields, logAuditEvent } from "@/lib/audit";
 import { importConfigs, type ImportType } from "@/lib/import-config";
 import { panelReceivingBankAccounts, panelReceivingBankError, panelReceivingBankRequirement } from "@/lib/panel-accounting";
-import { createAdminClient } from "@/lib/supabase-admin";
+import { createAdminClient, hasSupabaseAdminEnv } from "@/lib/supabase-admin";
 import { createClient, getSupabaseHost, hasSupabaseEnv } from "@/lib/supabase-server";
 import {
   canEditBranch,
@@ -3574,6 +3574,151 @@ export async function createSupplierPaymentEntry(formData: FormData) {
   revalidatePath("/dashboard");
   revalidatePath("/bank");
   revalidatePath("/reports/cashflow");
+}
+
+export async function createSupplierMonthPayment(formData: FormData) {
+  if (!hasSupabaseEnv()) return;
+
+  const profile = await requirePermission("view_supplier_payments");
+  if (!isSupplierPaymentEntryManager(profile)) {
+    failSupplierPaymentEntry("You do not have permission to create supplier payments.");
+  }
+
+  const branchId = text(formData, "branch_id");
+  const supplierId = text(formData, "supplier_id");
+  const purchaseMonth = text(formData, "purchase_month");
+  const paymentDate = text(formData, "payment_date");
+  const paymentMethod = text(formData, "payment_method") ?? "bank_transfer";
+  const bankAccountId = text(formData, "bank_account_id");
+  const amountCents = Math.round(number(formData, "amount") * 100);
+  const referenceNo = text(formData, "reference_no");
+  const notes = text(formData, "notes");
+  const fail = (message: string): never => {
+    const query = new URLSearchParams({
+      branch: branchId ?? "",
+      error: message,
+      purchase_month: purchaseMonth ?? ""
+    });
+    redirect(`/suppliers/payments?${query.toString()}`);
+  };
+
+  if (!hasSupabaseAdminEnv()) fail("Preview ini belum disambungkan untuk menyimpan bayaran.");
+
+  if (!branchId || !supplierId) fail("Cawangan dan pembekal diperlukan.");
+  if (!purchaseMonth || !/^\d{4}-\d{2}$/.test(purchaseMonth)) fail("Bulan invois tidak sah.");
+  if (!paymentDate || !/^\d{4}-\d{2}-\d{2}$/.test(paymentDate)) fail("Tarikh bayaran diperlukan.");
+  if (amountCents <= 0) fail("Jumlah bayaran mesti lebih daripada sifar.");
+  if (!canManageSupplierPaymentEntry(profile, branchId!)) {
+    fail("You do not have permission to record supplier payments for this branch.");
+  }
+  if (paymentUsesBankAccount(paymentMethod as PaymentType) && !bankAccountId) {
+    fail("Pilih akaun bank untuk bayaran ini.");
+  }
+
+  const adminSupabase = createAdminClient();
+  if (bankAccountId) {
+    const { data: bankAccount, error: bankAccountError } = await adminSupabase
+      .from("bank_accounts")
+      .select("id, is_active")
+      .eq("id", bankAccountId)
+      .eq("is_active", true)
+      .maybeSingle();
+    if (bankAccountError || !bankAccount) fail("Akaun bank yang dipilih tidak aktif atau tidak tersedia.");
+    await requireBankAccountPermission(bankAccountId, "create_transaction");
+  }
+
+  const { data: purchaseRows, error: purchaseError } = await adminSupabase
+    .from("supplier_purchase_entries")
+    .select("id, supplier_id, branch_id, invoice_date, purchase_date, total_amount, is_void")
+    .eq("branch_id", branchId!)
+    .eq("supplier_id", supplierId!)
+    .is("is_void", false);
+  if (purchaseError || !purchaseRows) fail("Invois pembekal tidak dapat dibaca.");
+
+  const monthPurchases = purchaseRows!
+    .filter((purchase) => (purchase.invoice_date ?? purchase.purchase_date).slice(0, 7) === purchaseMonth)
+    .sort((a, b) => `${a.invoice_date ?? a.purchase_date}|${a.id}`.localeCompare(`${b.invoice_date ?? b.purchase_date}|${b.id}`));
+  if (!monthPurchases.length) fail("Tiada invois aktif untuk pembekal dan bulan ini.");
+
+  const purchaseIds = monthPurchases.map((purchase) => purchase.id);
+  const { data: existingPayments, error: paymentError } = await adminSupabase
+    .from("supplier_payment_entries")
+    .select("supplier_purchase_entry_id, amount")
+    .in("supplier_purchase_entry_id", purchaseIds)
+    .is("is_void", false);
+  if (paymentError || !existingPayments) fail("Rekod bayaran sedia ada tidak dapat dibaca.");
+
+  const paidByPurchase = new Map<string, number>();
+  existingPayments!.forEach((payment) => {
+    if (!payment.supplier_purchase_entry_id) return;
+    paidByPurchase.set(
+      payment.supplier_purchase_entry_id,
+      (paidByPurchase.get(payment.supplier_purchase_entry_id) ?? 0) + Math.round(Number(payment.amount ?? 0) * 100)
+    );
+  });
+  const balances = monthPurchases.map((purchase) => ({
+    purchaseId: purchase.id,
+    balanceCents: Math.max(0, Math.round(Number(purchase.total_amount ?? 0) * 100) - (paidByPurchase.get(purchase.id) ?? 0))
+  })).filter((purchase) => purchase.balanceCents > 0);
+  const outstandingCents = balances.reduce((sum, purchase) => sum + purchase.balanceCents, 0);
+  if (!outstandingCents) fail("Semua invois pembekal untuk bulan ini sudah dibayar.");
+  if (amountCents > outstandingCents) fail("Jumlah bayaran melebihi baki belum bayar bulan ini.");
+
+  let remainingCents = amountCents;
+  const timestamp = new Date().toISOString();
+  const rows = balances.flatMap((purchase) => {
+    if (remainingCents <= 0) return [];
+    const allocationCents = Math.min(remainingCents, purchase.balanceCents);
+    remainingCents -= allocationCents;
+    return [{
+      amount: allocationCents / 100,
+      bank_account_id: bankAccountId,
+      branch_id: branchId!,
+      created_at: timestamp,
+      created_by: profile.id,
+      notes,
+      payment_date: paymentDate,
+      payment_method: paymentMethod,
+      reference_no: referenceNo,
+      supplier_id: supplierId!,
+      supplier_purchase_entry_id: purchase.purchaseId,
+      updated_at: timestamp,
+      updated_by: profile.id
+    }];
+  });
+
+  const { data: createdPayments, error: createError } = await adminSupabase
+    .from("supplier_payment_entries")
+    .insert(rows)
+    .select("id, supplier_purchase_entry_id, supplier_id, branch_id, payment_date, payment_method, bank_account_id, amount, reference_no, notes, is_void, void_reason, voided_at, voided_by, created_by, updated_by, created_at, updated_at");
+  if (createError || !createdPayments) {
+    console.error("createSupplierMonthPayment failed", {
+      action: "createSupplierMonthPayment",
+      branchId,
+      purchaseMonth,
+      supplierId,
+      code: createError?.code,
+      error: createError?.message
+    });
+    fail("Bayaran pembekal tidak berjaya disimpan.");
+  }
+
+  await Promise.all(createdPayments!.map((payment) => logAuditEvent({
+    action: "create",
+    afterData: supplierPaymentEntryAuditData(payment),
+    bankAccountId: payment.bank_account_id,
+    branchId: payment.branch_id,
+    description: `Monthly supplier payment for ${purchaseMonth}.`,
+    entityId: payment.id,
+    entityName: "supplier_payment_entries"
+  })));
+
+  revalidatePath("/suppliers/payments");
+  revalidatePath("/purchases");
+  revalidatePath("/dashboard");
+  revalidatePath("/bank");
+  revalidatePath("/reports/cashflow");
+  redirect(`/suppliers/payments?branch=${encodeURIComponent(branchId!)}&purchase_month=${encodeURIComponent(purchaseMonth!)}`);
 }
 
 export async function updateSupplierPaymentEntry(formData: FormData) {
