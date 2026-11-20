@@ -6,10 +6,10 @@ import { ModuleHeader } from "@/components/module-header";
 import { SupplierMonthPayment } from "@/components/supplier-month-payment";
 import { getBankingDataForScope, getBranches, getSupplierOutstanding, getSupplierPaymentEntries, getSuppliers, totalBy } from "@/lib/data";
 import { hasSupabaseAdminEnv } from "@/lib/supabase-admin";
-import { formatCurrency, formatDate, formatDateTime, labelize, monthKey } from "@/lib/format";
+import { formatCurrency, formatDate, formatDateTime, labelize } from "@/lib/format";
 import { canEditBranch, normalizeRole, requirePermission } from "@/lib/permissions";
 import { getTransactionDocuments } from "@/lib/transaction-documents";
-import { ArrowLeft, Building2, CalendarDays, CircleDollarSign, ReceiptText, Truck } from "lucide-react";
+import { ArrowLeft, Building2, CircleDollarSign, ReceiptText, Truck } from "lucide-react";
 
 type SupplierPaymentsPageProps = {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
@@ -20,11 +20,11 @@ function searchValue(value: string | string[] | undefined) {
   return value ?? null;
 }
 
-function monthLabel(value: string) {
-  return monthKey(`${value}-01`);
+function monthShort(value: string) {
+  return ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][Number(value.slice(5, 7)) - 1] ?? value;
 }
 
-const months2026 = Array.from({ length: 12 }, (_, index) => `2026-${String(index + 1).padStart(2, "0")}`);
+const paymentYears = [2025, 2026];
 
 export default async function SupplierPaymentsPage({ searchParams }: SupplierPaymentsPageProps) {
   const profile = await requirePermission("view_supplier_payments");
@@ -40,7 +40,15 @@ export default async function SupplierPaymentsPage({ searchParams }: SupplierPay
   const requestedBranch = searchValue(params.branch);
   const selectedBranch = requestedBranch === "all" ? null : requestedBranch;
   const requestedMonth = searchValue(params.purchase_month);
-  const selectedPurchaseMonth = requestedMonth && /^\d{4}-\d{2}$/.test(requestedMonth) ? requestedMonth : null;
+  const requestedYear = Number(searchValue(params.purchase_year));
+  const selectedYear = paymentYears.includes(requestedYear)
+    ? requestedYear
+    : requestedMonth && /^\d{4}-\d{2}$/.test(requestedMonth)
+      ? Number(requestedMonth.slice(0, 4))
+      : null;
+  const selectedPurchaseMonth = requestedMonth && /^\d{4}-\d{2}$/.test(requestedMonth) && Number(requestedMonth.slice(0, 4)) === selectedYear
+    ? requestedMonth
+    : null;
   const activePurchases = outstandingRows.filter((row) => !row.is_void);
   const branchById = new Map<string, string>();
   const branchIdByName = new Map<string, string>();
@@ -61,10 +69,16 @@ export default async function SupplierPaymentsPage({ searchParams }: SupplierPay
   const branchOptions = [...branchById].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
   const currentBranch = branchOptions.find((branch) => branch.id === selectedBranch);
   const branchRows = activePurchases.filter((row) => !selectedBranch || canonicalBranchId(row) === selectedBranch);
-  const monthKeys = [...new Set(branchRows.map((row) => (row.invoice_date ?? row.purchase_date).slice(0, 7)))];
-  const earlierMonths = monthKeys.filter((month) => !months2026.includes(month)).sort();
-  const displayMonths = selectedBranch ? [...months2026, ...earlierMonths] : [];
-  const selectedMonthRows = branchRows.filter((row) => !selectedPurchaseMonth || (row.invoice_date ?? row.purchase_date).slice(0, 7) === selectedPurchaseMonth);
+  const yearRows = (year: number) => branchRows.filter((row) => Number((row.invoice_date ?? row.purchase_date).slice(0, 4)) === year);
+  const selectedYearRows = selectedYear ? yearRows(selectedYear) : [];
+  const displayMonths = selectedYear ? Array.from({ length: 12 }, (_, index) => `${selectedYear}-${String(index + 1).padStart(2, "0")}`) : [];
+  const selectedMonthRows = selectedYearRows.filter((row) => !selectedPurchaseMonth || (row.invoice_date ?? row.purchase_date).slice(0, 7) === selectedPurchaseMonth);
+  const monthSummary = (rows: typeof branchRows) => {
+    const paid = totalBy(rows, (row) => row.paid_amount);
+    const outstanding = totalBy(rows, (row) => row.outstanding_amount);
+    const status = !rows.length ? "empty" : outstanding <= 0 ? "paid" : paid > 0 ? "partial" : "unpaid";
+    return { paid, outstanding, status };
+  };
   const supplierGroups = new Map<string, typeof selectedMonthRows>();
   selectedMonthRows.forEach((row) => {
     supplierGroups.set(row.supplier_id, [...(supplierGroups.get(row.supplier_id) ?? []), row]);
@@ -131,24 +145,51 @@ export default async function SupplierPaymentsPage({ searchParams }: SupplierPay
         </>
       ) : !currentBranch ? (
         <section className="table-section mt-section"><p className="empty-state">Cawangan tidak ditemui.</p></section>
-      ) : !selectedPurchaseMonth ? (
+      ) : !selectedYear ? (
         <>
           <div className="supplier-selection-bar">
             <Link className="supplier-back-link" href="/suppliers/payments"><ArrowLeft size={17} /> Semua cawangan</Link>
-            <div><span>Langkah 2</span><h2>{currentBranch.name} · pilih bulan invois</h2></div>
+            <div><span>Langkah 2</span><h2>{currentBranch.name} · pilih tahun</h2></div>
+          </div>
+          {errorMessage ? <section className="table-section mt-section"><p className="void-warning">{errorMessage}</p></section> : null}
+          <section className="supplier-year-grid">
+            {paymentYears.map((year) => {
+              const rows = yearRows(year);
+              const months = Array.from({ length: 12 }, (_, index) => {
+                const month = `${year}-${String(index + 1).padStart(2, "0")}`;
+                return monthSummary(rows.filter((row) => (row.invoice_date ?? row.purchase_date).slice(0, 7) === month));
+              });
+              const unpaid = months.filter((month) => month.status === "unpaid").length;
+              const partial = months.filter((month) => month.status === "partial").length;
+              const paidMonths = months.filter((month) => month.status === "paid").length;
+              const balance = totalBy(rows, (row) => row.outstanding_amount);
+              return (
+                <Link className="supplier-year-card" href={`/suppliers/payments?branch=${selectedBranch}&purchase_year=${year}`} key={year}>
+                  <span className="supplier-year-number">{year}</span>
+                  <span className="supplier-year-summary"><strong>{formatCurrency(balance)}</strong><small>Baki belum dibayar</small></span>
+                  <span className="supplier-year-status"><span>{unpaid} belum bayar</span><span>{partial} separa</span><span>{paidMonths} selesai</span></span>
+                </Link>
+              );
+            })}
+          </section>
+        </>
+      ) : !selectedPurchaseMonth ? (
+        <>
+          <div className="supplier-selection-bar">
+            <Link className="supplier-back-link" href={`/suppliers/payments?branch=${selectedBranch}`}><ArrowLeft size={17} /> {currentBranch.name} · semua tahun</Link>
+            <div><span>Langkah 3</span><h2>{selectedYear} · pilih bulan</h2></div>
           </div>
           {errorMessage ? <section className="table-section mt-section"><p className="void-warning">{errorMessage}</p></section> : null}
           <section className="supplier-month-grid">
             {displayMonths.map((month) => {
-              const rows = branchRows.filter((row) => (row.invoice_date ?? row.purchase_date).slice(0, 7) === month);
-              const outstanding = totalBy(rows, (row) => row.outstanding_amount);
-              const paid = totalBy(rows, (row) => row.paid_amount);
+              const rows = selectedYearRows.filter((row) => (row.invoice_date ?? row.purchase_date).slice(0, 7) === month);
+              const { outstanding, status } = monthSummary(rows);
               const suppliersInMonth = new Set(rows.map((row) => row.supplier_id)).size;
               return (
-                <Link className={`supplier-month-card${rows.length ? "" : " is-empty"}`} href={`/suppliers/payments?branch=${selectedBranch}&purchase_month=${month}`} key={month}>
-                  <span className="supplier-month-icon"><CalendarDays size={20} /></span>
-                  <span className="supplier-month-copy"><strong>{monthLabel(month)}</strong><small>{rows.length ? `${suppliersInMonth} pembekal · ${rows.length} invois` : "Tiada invois direkodkan"}</small></span>
-                  <span className="supplier-month-total"><small>Belum bayar</small><strong>{formatCurrency(outstanding)}</strong><em>{paid > 0 && outstanding === 0 ? "Selesai" : outstanding > 0 && paid > 0 ? "Ada bayaran separa" : outstanding > 0 ? "Perlu dibayar" : ""}</em></span>
+                <Link className={`supplier-month-card status-bg-${status}`} href={`/suppliers/payments?branch=${selectedBranch}&purchase_year=${selectedYear}&purchase_month=${month}`} key={month}>
+                  <span className="supplier-month-name">{monthShort(month)}</span>
+                  <span className="supplier-month-info"><strong>{rows.length ? `${suppliersInMonth} pembekal · ${rows.length} invois` : "Tiada invois"}</strong><small>{status === "paid" ? "Paid" : status === "partial" ? "Half paid" : status === "unpaid" ? "Unpaid" : "Belum direkodkan"}</small></span>
+                  <span className="supplier-month-total"><small>Baki</small><strong>{formatCurrency(outstanding)}</strong></span>
                 </Link>
               );
             })}
@@ -157,8 +198,8 @@ export default async function SupplierPaymentsPage({ searchParams }: SupplierPay
       ) : (
         <>
           <div className="supplier-selection-bar supplier-selection-bar-month">
-            <Link className="supplier-back-link" href={`/suppliers/payments?branch=${selectedBranch}`}><ArrowLeft size={17} /> {currentBranch.name} · semua bulan</Link>
-            <div><span>Langkah 3</span><h2>{monthLabel(selectedPurchaseMonth)}</h2><p>{currentBranch.name} · ringkasan pembekal mengikut bulan invois</p></div>
+            <Link className="supplier-back-link" href={`/suppliers/payments?branch=${selectedBranch}&purchase_year=${selectedYear}`}><ArrowLeft size={17} /> {selectedYear} · semua bulan</Link>
+            <div><span>Langkah 4</span><h2>{monthShort(selectedPurchaseMonth)} {selectedYear}</h2><p>{currentBranch.name} · ringkasan pembekal</p></div>
           </div>
           {errorMessage ? <section className="table-section mt-section"><p className="void-warning">{errorMessage}</p></section> : null}
           <section className="dashboard-grid supplier-month-metrics">

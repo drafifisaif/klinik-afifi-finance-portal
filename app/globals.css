@@ -1986,23 +1986,139 @@ tr:last-child td {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
-.supplier-month-card {
-  grid-template-columns: 40px minmax(0, 1fr) minmax(118px, auto);
-  padding: 15px;
+.supplier-year-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  min-width: 0;
 }
 
-.supplier-month-icon {
-  height: 40px;
-  width: 40px;
+.supplier-year-card {
+  align-items: center;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--teal);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  color: var(--ink);
+  display: grid;
+  gap: 12px 18px;
+  grid-template-columns: minmax(0, 1fr) minmax(130px, auto);
+  min-width: 0;
+  padding: 22px;
+  text-decoration: none;
+  transition: border-color 120ms ease, transform 120ms ease;
 }
 
-.supplier-month-total em {
+.supplier-year-card:hover {
+  border-color: var(--teal);
+  transform: translateY(-1px);
+}
+
+.supplier-year-number {
+  font-size: 27px;
+  font-weight: 800;
+}
+
+.supplier-year-summary {
+  display: grid;
+  gap: 3px;
+  justify-items: end;
+  min-width: 0;
+  text-align: right;
+}
+
+.supplier-year-summary strong {
+  font-size: 18px;
+  overflow-wrap: anywhere;
+}
+
+.supplier-year-summary small {
   color: var(--muted);
   font-size: 12px;
-  font-style: normal;
 }
 
-.supplier-month-card.is-empty .supplier-month-total strong {
+.supplier-year-status {
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 12px;
+  gap: 8px 18px;
+  grid-column: 1 / -1;
+  padding-top: 10px;
+}
+
+.supplier-month-card {
+  border-radius: 8px;
+  gap: 8px 16px;
+  grid-template-columns: minmax(48px, auto) minmax(0, 1fr) minmax(104px, auto);
+  padding: 16px 18px;
+}
+
+.supplier-month-name {
+  font-size: 22px;
+  font-weight: 800;
+}
+
+.supplier-month-info {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.supplier-month-info strong {
+  font-size: 13px;
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+
+.supplier-month-info small {
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.supplier-month-total strong {
+  font-size: 16px;
+}
+
+.supplier-month-total small {
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.supplier-month-card.status-bg-paid {
+  background: #edf8f2;
+  border-color: #b9dfc9;
+}
+
+.supplier-month-card.status-bg-paid .supplier-month-info small {
+  color: #176b46;
+}
+
+.supplier-month-card.status-bg-partial {
+  background: #fff9e6;
+  border-color: #ecdca6;
+}
+
+.supplier-month-card.status-bg-partial .supplier-month-info small {
+  color: #876314;
+}
+
+.supplier-month-card.status-bg-unpaid {
+  background: #fff1f3;
+  border-color: #efc4cc;
+}
+
+.supplier-month-card.status-bg-unpaid .supplier-month-info small {
+  color: #9d3447;
+}
+
+.supplier-month-card.status-bg-empty {
+  background: #f8fafa;
+}
+
+.supplier-month-card.status-bg-empty .supplier-month-total strong {
   color: var(--muted);
 }
 
@@ -3525,6 +3641,10 @@ button:disabled {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .supplier-year-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .supplier-month-group-main {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   }
@@ -3544,7 +3664,8 @@ button:disabled {
 @media (max-width: 700px) {
   .supplier-branch-grid,
   .supplier-month-grid,
-  .supplier-month-metrics {
+  .supplier-month-metrics,
+  .supplier-year-grid {
     grid-template-columns: 1fr;
   }
 
@@ -3564,6 +3685,23 @@ button:disabled {
   .supplier-branch-copy strong,
   .supplier-month-copy strong {
     font-size: 15px;
+  }
+
+  .supplier-month-card {
+    grid-template-columns: minmax(44px, auto) minmax(0, 1fr) minmax(92px, auto);
+    padding: 13px 14px;
+  }
+
+  .supplier-month-name {
+    font-size: 20px;
+  }
+
+  .supplier-month-total strong {
+    font-size: 14px;
+  }
+
+  .supplier-year-card {
+    padding: 18px;
   }
 
   .supplier-branch-balance strong,
