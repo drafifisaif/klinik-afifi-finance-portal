@@ -135,6 +135,141 @@ textarea {
   min-width: 0;
 }
 
+.patient-analysis-nav {
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-bottom: 12px;
+}
+
+.patient-analysis-nav a,
+.patient-analysis-nav span {
+  align-items: center;
+  border-radius: 7px;
+  color: #355152;
+  display: inline-flex;
+  font-size: 13px;
+  font-weight: 700;
+  gap: 8px;
+  min-height: 38px;
+  padding: 8px 12px;
+  text-decoration: none;
+}
+
+.patient-analysis-nav [aria-current="page"] {
+  background: #eaf5f4;
+  color: var(--teal-deep);
+}
+
+.patient-analysis-nav a:hover { background: #f0f7f6; }
+
+.gloco-monthly-page { min-width: 0; }
+
+.gloco-monthly-summary {
+  display: grid;
+  gap: 16px;
+}
+
+.gloco-monthly-title {
+  align-items: end;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 20px;
+  justify-content: space-between;
+}
+
+.gloco-monthly-title h2 {
+  color: var(--ink);
+  font-size: 24px;
+  margin: 3px 0 0;
+}
+
+.gloco-monthly-title small { color: var(--muted); overflow-wrap: anywhere; }
+
+.gloco-data-table { min-width: 760px; }
+
+.gloco-warning {
+  background: #fff7e7;
+  border: 1px solid #f0d18e;
+  border-radius: 8px;
+  color: #745010;
+  line-height: 1.5;
+  margin-top: 16px;
+  padding: 13px 16px;
+}
+
+.gloco-warning strong { display: block; margin-bottom: 5px; }
+.gloco-warning ul { margin: 0; padding-left: 20px; }
+.gloco-warning li + li { margin-top: 4px; }
+
+.gloco-clean-check {
+  background: #edf7f3;
+  border: 1px solid #d4ebe3;
+  border-radius: 8px;
+  color: #176a5f;
+  font-size: 13px;
+  margin: 16px 0 0;
+  padding: 11px 14px;
+}
+
+.gloco-charge-grid {
+  display: grid;
+  gap: 0 22px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.gloco-charge-grid > div {
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  min-width: 0;
+  padding: 13px 0;
+}
+
+.gloco-charge-grid span { color: var(--muted); }
+.gloco-charge-grid strong { color: var(--ink); text-align: right; }
+
+.gloco-upload-form { display: grid; gap: 12px; }
+
+.gloco-file-picker {
+  align-items: center;
+  border: 1px dashed #b8d2d0;
+  border-radius: 8px;
+  color: #355152;
+  display: flex;
+  gap: 11px;
+  min-height: 54px;
+  overflow-wrap: anywhere;
+  padding: 12px 14px;
+  position: relative;
+}
+
+.gloco-file-picker svg { color: var(--teal-deep); flex: 0 0 auto; }
+.gloco-file-picker input { cursor: pointer; inset: 0; opacity: 0; position: absolute; width: 100%; }
+
+.gloco-preview {
+  background: #f5f9f9;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  margin-top: 14px;
+  padding: 15px;
+}
+
+.gloco-preview > div:first-child { display: grid; gap: 4px; }
+.gloco-preview > div:first-child strong { color: var(--ink); }
+.gloco-preview > div:first-child span,
+.gloco-preview > small { color: var(--muted); line-height: 1.5; }
+.gloco-preview > small { display: block; margin-top: 10px; }
+
+.gloco-empty { align-items: start; display: grid; gap: 8px; }
+.gloco-empty svg { color: var(--teal-deep); }
+.gloco-empty h2, .gloco-empty p { margin: 0; }
+.gloco-empty p, .gloco-empty-hint { color: var(--muted); }
+
 .patient-summary-card {
   align-items: start;
   display: flex;
@@ -3592,6 +3727,15 @@ button:disabled {
 
   .patient-import-actions {
     align-items: stretch;
+    flex-direction: column;
+  }
+
+  .gloco-charge-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .gloco-monthly-title {
+    align-items: start;
     flex-direction: column;
   }
 }
