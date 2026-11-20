@@ -10,13 +10,16 @@ type Preview = {
   branches: Record<string, number>;
   startDate: string;
   endDate: string;
+  periods: number;
+  weeklyCounts: number[];
 };
 
 const periods = [
   { value: "1", label: "Minggu 1 · 1–7" },
   { value: "2", label: "Minggu 2 · 8–14" },
   { value: "3", label: "Minggu 3 · 15–21" },
-  { value: "4", label: "Minggu 4 · 22–akhir bulan" }
+  { value: "4", label: "Minggu 4 · 22–akhir bulan" },
+  { value: "0", label: "Sebulan penuh · pecah ikut minggu" }
 ];
 
 export function PatientReportImport() {
@@ -57,7 +60,7 @@ export function PatientReportImport() {
           <span className="owner-section-kicker">FINANCE MANAGER</span>
           <h2 id="patient-import-title">Upload laporan GLOCO</h2>
         </div>
-        <p>Satu fail gabungan untuk semua cawangan. Maklumat nama, alamat dan telefon tidak dibaca untuk analisis.</p>
+        <p>Muat naik satu minggu atau satu bulan penuh untuk semua cawangan. Fail bulanan dipecahkan automatik ikut minggu; nama dan maklumat hubungan tidak digunakan.</p>
       </div>
       <form ref={formRef} className="patient-import-form">
         <label>
@@ -94,6 +97,7 @@ export function PatientReportImport() {
         <div className="patient-preview" aria-label="Pratonton laporan">
           <strong>{preview.startDate} hingga {preview.endDate}</strong>
           <span>{preview.rows.toLocaleString()} lawatan</span>
+          {preview.periods === 4 ? <span>Minggu 1–4: {preview.weeklyCounts.map((count) => count.toLocaleString()).join(" · ")} lawatan</span> : null}
           <span>{preview.candidateNewIds.toLocaleString()} PID belum ada dalam data portal</span>
           {preview.invalidRows > 0 ? <span className="patient-warning-text">{preview.invalidRows.toLocaleString()} baris tidak sepadan. Betulkan laporan sebelum simpan.</span> : <span>Semua baris dapat dibaca</span>}
           <span>{Object.entries(preview.branches).map(([branch, count]) => `${branch}: ${count}`).join(" · ")}</span>

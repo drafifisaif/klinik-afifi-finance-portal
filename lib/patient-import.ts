@@ -47,6 +47,15 @@ export function getPatientImportPeriod(month: string, periodNo: number) {
   };
 }
 
+export function getPatientImportMonth(month: string) {
+  if (!/^\d{4}-\d{2}$/.test(month)) throw new Error("Choose a valid reporting month.");
+  const [year, monthNumber] = month.split("-").map(Number);
+  if (monthNumber < 1 || monthNumber > 12) throw new Error("Choose a valid reporting month.");
+  const monthStart = `${year}-${String(monthNumber).padStart(2, "0")}-01`;
+  const lastDay = new Date(Date.UTC(year, monthNumber, 0)).getUTCDate();
+  return { monthStart, startDate: monthStart, endDate: `${month}-${String(lastDay).padStart(2, "0")}` };
+}
+
 const parser = new XMLParser({
   ignoreAttributes: false,
   attributeNamePrefix: "@_",

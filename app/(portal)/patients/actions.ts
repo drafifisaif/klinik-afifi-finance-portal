@@ -5,7 +5,7 @@ import { randomUUID } from "node:crypto";
 import { createClient } from "@/lib/supabase-server";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { getCurrentProfile, hasPermission } from "@/lib/permissions";
-import { getPatientImportPeriod, parsePatientBaselineCsv, parsePatientEncounterWorkbook } from "@/lib/patient-import";
+import { getPatientImportMonth, getPatientImportPeriod, parsePatientBaselineCsv, parsePatientEncounterWorkbook } from "@/lib/patient-import";
 
 type PatientUploadResult = {
   ok: boolean;
@@ -17,6 +17,8 @@ type PatientUploadResult = {
     branches: Record<string, number>;
     startDate: string;
     endDate: string;
+    periods: number;
+    weeklyCounts: number[];
   };
 };
 
@@ -159,7 +161,8 @@ async function parseUpload(formData: FormData) {
 
   const month = String(formData.get("period_month") ?? "");
   const periodNo = Number(formData.get("period_no"));
-  const period = getPatientImportPeriod(month, periodNo);
+  const isFullMonth = periodNo === 0;
+  const period = isFullMonth ? getPatientImportMonth(month) : getPatientImportPeriod(month, periodNo);
   const supabase = await createClient();
   const { data: branchRows, error: branchError } = await supabase
     .from("branches")
@@ -176,12 +179,12 @@ async function parseUpload(formData: FormData) {
     throw new Error("The report contains encounters outside the selected reporting period.");
   }
 
-  return { period, parsed, profile, supabase };
+  return { period, parsed, profile, supabase, isFullMonth };
 }
 
 export async function previewPatientReport(formData: FormData): Promise<PatientUploadResult> {
   try {
-    const { parsed, period, supabase } = await parseUpload(formData);
+    const { parsed, period, supabase, isFullMonth } = await parseUpload(formData);
     const patientKeys = [...new Set(parsed.encounters.map((encounter) => encounter.patientKey))];
     let knownCount = 0;
 
@@ -203,7 +206,11 @@ export async function previewPatientReport(formData: FormData): Promise<PatientU
         candidateNewIds,
         branches: parsed.branchCounts,
         startDate: period.startDate,
-        endDate: period.endDate
+        endDate: period.endDate,
+        periods: isFullMonth ? 4 : 1,
+        weeklyCounts: isFullMonth
+          ? [1, 2, 3, 4].map((week) => parsed.encounters.filter((encounter) => Math.ceil(Number(encounter.encounterDate.slice(-2)) / 7) === week).length)
+          : [parsed.encounters.length]
       }
     };
   } catch (error) {
@@ -213,20 +220,27 @@ export async function previewPatientReport(formData: FormData): Promise<PatientU
 
 export async function importPatientReport(formData: FormData): Promise<PatientUploadResult> {
   try {
-    const { period, parsed, profile, supabase } = await parseUpload(formData);
-    const { data, error } = await supabase.rpc("import_patient_encounters", {
-      p_period_month: period.monthStart,
-      p_period_no: period.periodNo,
-      p_period_start: period.startDate,
-      p_period_end: period.endDate,
-      p_source_filename: "GLOCO report",
-      p_encounters: parsed.encounters.map((encounter) => ({
-        patient_key: encounter.patientKey,
-        encounter_key: encounter.encounterKey,
-        encounter_date: encounter.encounterDate,
-        branch_id: encounter.branchId
-      }))
-    });
+    const { period, parsed, profile, supabase, isFullMonth } = await parseUpload(formData);
+    const encounters = parsed.encounters.map((encounter) => ({
+      patient_key: encounter.patientKey,
+      encounter_key: encounter.encounterKey,
+      encounter_date: encounter.encounterDate,
+      branch_id: encounter.branchId
+    }));
+    const { data, error } = isFullMonth
+      ? await supabase.rpc("import_patient_encounters_month", {
+        p_period_month: period.monthStart,
+        p_source_filename: "GLOCO report",
+        p_encounters: encounters
+      })
+      : await supabase.rpc("import_patient_encounters", {
+        p_period_month: period.monthStart,
+        p_period_no: Number(formData.get("period_no")),
+        p_period_start: period.startDate,
+        p_period_end: period.endDate,
+        p_source_filename: "GLOCO report",
+        p_encounters: encounters
+      });
 
     if (error) {
       console.error("importPatientReport failed", {
@@ -234,6 +248,7 @@ export async function importPatientReport(formData: FormData): Promise<PatientUp
         role: profile.role,
         periodStart: period.startDate,
         periodEnd: period.endDate,
+        fullMonth: isFullMonth,
         rowCount: parsed.encounters.length,
         code: error.code,
         message: error.message,
@@ -244,16 +259,18 @@ export async function importPatientReport(formData: FormData): Promise<PatientUp
       throw new Error("The patient report could not be imported. Check the selected period and report rows.");
     }
 
-    const result = Array.isArray(data) ? data[0] : data;
-    const imported = Number(result?.inserted_count ?? 0);
-    const duplicates = Number(result?.duplicate_count ?? 0);
-    const newIds = Number(result?.new_patient_count ?? 0);
+    const results = Array.isArray(data) ? data : data ? [data] : [];
+    const imported = results.reduce((total, result) => total + Number(result?.inserted_count ?? 0), 0);
+    const duplicates = results.reduce((total, result) => total + Number(result?.duplicate_count ?? 0), 0);
+    const newIds = results.reduce((total, result) => total + Number(result?.new_patient_count ?? 0), 0);
     revalidatePath("/patients");
     revalidatePath("/dashboard");
 
     return {
       ok: true,
-      message: `Import complete: ${imported} visits added, ${duplicates} duplicate rows skipped, ${newIds} IDs first seen in portal data. ${parsed.invalidRows} invalid rows were ignored.`
+      message: isFullMonth
+        ? `Laporan bulanan selesai: ${imported} lawatan ditambah dan dipecahkan kepada 4 minggu. ${duplicates} baris pendua dilangkau; ${newIds} PID pertama kali direkod dalam data portal.`
+        : `Import complete: ${imported} visits added, ${duplicates} duplicate rows skipped, ${newIds} IDs first seen in portal data. ${parsed.invalidRows} invalid rows were ignored.`
     };
   } catch (error) {
     return { ok: false, message: error instanceof Error ? error.message : "The patient report could not be imported." };
