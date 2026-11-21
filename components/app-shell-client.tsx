@@ -19,6 +19,7 @@ import {
   History,
   Landmark,
   LayoutDashboard,
+  Menu,
   type LucideIcon,
   LogOut,
   ReceiptText,
@@ -26,6 +27,7 @@ import {
   ShieldCheck,
   Stethoscope,
   Truck,
+  X,
   Users,
   UsersRound,
   WalletCards
@@ -75,6 +77,7 @@ function isActiveRoute(pathname: string, href: string) {
 export function AppShellClient({ appName, branches, children, navigation }: AppShellClientProps) {
   const pathname = usePathname();
   const [isDesktopCollapsed, setIsDesktopCollapsed] = useState(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [hasLoadedPreference, setHasLoadedPreference] = useState(false);
 
   useEffect(() => {
@@ -87,6 +90,10 @@ export function AppShellClient({ appName, branches, children, navigation }: AppS
     if (!hasLoadedPreference) return;
     window.localStorage.setItem(SIDEBAR_STORAGE_KEY, String(isDesktopCollapsed));
   }, [hasLoadedPreference, isDesktopCollapsed]);
+
+  useEffect(() => {
+    setIsMobileMenuOpen(false);
+  }, [pathname]);
 
   const shellClassName = useMemo(() => {
     return `shell${isDesktopCollapsed ? " shell-collapsed" : ""}${hasLoadedPreference ? " shell-ready" : ""}`;
@@ -114,9 +121,20 @@ export function AppShellClient({ appName, branches, children, navigation }: AppS
           >
             {isDesktopCollapsed ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}
           </button>
+
+          <button
+            aria-controls="mobile-navigation"
+            aria-expanded={isMobileMenuOpen}
+            aria-label={isMobileMenuOpen ? "Tutup menu" : "Buka menu"}
+            className="mobile-menu-toggle"
+            type="button"
+            onClick={() => setIsMobileMenuOpen((current) => !current)}
+          >
+            {isMobileMenuOpen ? <X size={20} /> : <Menu size={20} />}
+          </button>
         </div>
 
-        <div className="sidebar-menu">
+        <div className={`sidebar-menu${isMobileMenuOpen ? " mobile-menu-open" : ""}`} id="mobile-navigation">
           <nav className="nav-list" aria-label="Main navigation">
             {navigation.map((item) => {
               const Icon = iconMap[item.icon] ?? Stethoscope;
@@ -128,6 +146,7 @@ export function AppShellClient({ appName, branches, children, navigation }: AppS
                   href={item.href}
                   key={item.href}
                   title={isDesktopCollapsed ? item.label : undefined}
+                  onClick={() => setIsMobileMenuOpen(false)}
                 >
                   <Icon size={18} />
                   <span>{item.label}</span>
@@ -147,6 +166,7 @@ export function AppShellClient({ appName, branches, children, navigation }: AppS
                   href={href}
                   key={branch.id}
                   title={isDesktopCollapsed ? branch.name : undefined}
+                  onClick={() => setIsMobileMenuOpen(false)}
                 >
                   <Building2 size={15} />
                   <span>{branch.name}</span>
@@ -156,7 +176,7 @@ export function AppShellClient({ appName, branches, children, navigation }: AppS
           </nav>
         </div>
 
-        <form action={signOut} className="sidebar-footer">
+        <form action={signOut} className={`sidebar-footer${isMobileMenuOpen ? " mobile-menu-open" : ""}`}>
           <button className="ghost-button" title={isDesktopCollapsed ? "Sign out" : undefined} type="submit">
             <LogOut size={17} />
             <span>Sign out</span>

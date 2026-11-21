@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { FileSpreadsheet, Upload } from "lucide-react";
 import { previewEncounterAnalysis, saveEncounterAnalysis } from "@/app/(portal)/patient-analysis/actions";
@@ -34,11 +34,24 @@ function compactMoney(value: number) {
 }
 
 function TrendChart({ months, series, valueFormat, label }: { months: string[]; series: { name: string; color: string; values: number[] }[]; valueFormat: (value: number) => string; label: string }) {
+  const chartRef = useRef<HTMLDivElement>(null);
+  const [width, setWidth] = useState(920);
+
+  useEffect(() => {
+    const element = chartRef.current;
+    if (!element) return;
+    const observer = new ResizeObserver(([entry]) => {
+      const nextWidth = Math.round(entry.contentRect.width);
+      if (nextWidth > 0) setWidth((current) => current === nextWidth ? current : nextWidth);
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+
   if (!months.length || !series.length) return <p className="encounter-chart-empty">Tiada data untuk dipaparkan.</p>;
-  const width = 920;
-  const height = 290;
-  const left = 76;
-  const right = 18;
+  const height = Math.min(290, Math.max(220, width * 0.32));
+  const left = Math.min(82, Math.max(58, width * 0.19));
+  const right = 22;
   const top = 18;
   const bottom = 48;
   const plotWidth = width - left - right;
@@ -47,7 +60,7 @@ function TrendChart({ months, series, valueFormat, label }: { months: string[]; 
   const x = (index: number) => left + (months.length === 1 ? plotWidth / 2 : index * plotWidth / (months.length - 1));
   const y = (value: number) => top + plotHeight - value / max * plotHeight;
   const ticks = Array.from({ length: 5 }, (_, index) => max * index / 4);
-  return <div className="encounter-chart-wrap">
+  return <div className="encounter-chart-wrap" ref={chartRef}>
     <svg className="encounter-line-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label={label}>
       {ticks.map((tick, index) => <g key={index}><line className="encounter-chart-grid" x1={left} x2={width - right} y1={y(tick)} y2={y(tick)} /><text className="encounter-chart-axis" x={left - 10} y={y(tick) + 4} textAnchor="end">{valueFormat(tick)}</text></g>)}
       {months.map((item, index) => <text className="encounter-chart-axis" key={item} x={x(index)} y={height - 16} textAnchor="middle">{shortMonth(item)}</text>)}
