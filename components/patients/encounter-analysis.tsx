@@ -283,3 +283,32 @@ export function EncounterAnalysis({ reports, error, canUpload }: { reports: Enco
     {ordered.length ? <p className="patient-chart-note encounter-provenance">Sumber: {filtered.map((item) => item.source_filename).join(" · ")} · Dikemaskini {filtered.map((item) => new Date(item.imported_at).toLocaleDateString("ms-MY")).join(" · ")}</p> : null}
   </div>;
 }
+
+export function EncounterDashboardPreview({ reports, selectedBranchIds, error }: { reports: EncounterAnalysisImport[]; selectedBranchIds: string[]; error: string | null }) {
+  const orderedReports = [...reports].sort((a, b) => a.report_month.localeCompare(b.report_month));
+  const year = orderedReports.at(-1)?.report_month.slice(0, 4) ?? "2026";
+  const yearReports = orderedReports.filter((report) => report.report_month.startsWith(`${year}-`));
+  const branches = [...new Map(yearReports.flatMap((report) => report.report_data.branches).map((branch) => [branch.branch_id, { id: branch.branch_id, name: branch.branch_name }])).values()]
+    .filter((branch) => selectedBranchIds.includes(branch.id));
+  const visitsTrend = branches.map((branch, index) => ({
+    name: branch.name,
+    color: branchColors[index % branchColors.length],
+    values: yearReports.map((report) => report.report_data.branches.find((item) => item.branch_id === branch.id)?.visits ?? 0)
+  }));
+  const salesTrend = branches.map((branch, index) => ({
+    name: branch.name,
+    color: branchColors[index % branchColors.length],
+    values: yearReports.map((report) => report.report_data.branches.find((item) => item.branch_id === branch.id)?.net_charges ?? 0)
+  }));
+
+  return <section className="dashboard-encounter-preview" aria-labelledby="dashboard-encounter-title">
+    <div className="dashboard-patient-heading">
+      <div><p className="owner-section-kicker">ANALISIS LAWATAN · {year}</p><h2 id="dashboard-encounter-title">Trend klinik</h2><p>Prestasi bulanan untuk cawangan yang dipilih.</p></div>
+      <a className="secondary-button compact-button" href="/patient-analysis">Buka analisis penuh</a>
+    </div>
+    {yearReports.length && branches.length ? <div className="dashboard-encounter-charts">
+      <article className="patient-section encounter-trend-section"><div className="patient-section-heading"><div><span className="owner-section-kicker">LAWATAN</span><h2>Pesakit mengikut cawangan</h2></div></div><TrendChart months={yearReports.map((item) => item.report_month)} series={visitsTrend} valueFormat={(value) => integer.format(Math.round(value))} label={`Trend lawatan bulanan mengikut cawangan bagi ${year}`} /></article>
+      <article className="patient-section encounter-trend-section"><div className="patient-section-heading"><div><span className="owner-section-kicker">CAJ GLOCO</span><h2>Jualan mengikut cawangan</h2></div></div><TrendChart months={yearReports.map((item) => item.report_month)} series={salesTrend} valueFormat={compactMoney} label={`Trend caj bersih bulanan mengikut cawangan bagi ${year}`} /></article>
+    </div> : <p className="dashboard-encounter-empty">{error ?? `Belum ada laporan lawatan terperinci untuk ${year}. Analisis penuh boleh dibuka untuk menyemak atau memuat naik laporan.`}</p>}
+  </section>;
+}

@@ -2,8 +2,7 @@ import { DataTable } from "@/components/data-table";
 import { ExportCsvLink } from "@/components/export-csv-link";
 import { MetricCard } from "@/components/metric-card";
 import { ModuleHeader } from "@/components/module-header";
-import { PatientSummaryCards } from "@/components/patients/patient-summary-cards";
-import { PatientTrendChart } from "@/components/patients/patient-trend-chart";
+import { EncounterDashboardPreview } from "@/components/patients/encounter-analysis";
 import {
   bankAccountLabel,
   bankInAmount,
@@ -20,11 +19,11 @@ import {
 } from "@/lib/bank-reporting";
 import { branchGroups, getBranchGroup, resolveSelectedBranchIds, toParamArray } from "@/lib/branch-reporting";
 import { getDashboardOperationalCashData, getFinanceDashboardData, getSupplierOutstanding, totalBy } from "@/lib/data";
+import { getEncounterAnalysisImports } from "@/lib/gloco-encounter-analysis";
 import { formatCurrency, formatDate, monthKey } from "@/lib/format";
 import { bankOpeningBalanceTotal, needsOpeningBalanceCaution, outstandingOpeningBalanceTotal } from "@/lib/opening-balances";
 import { activePanelPayments, activePanelClaims, panelClaimOutstandingAmount } from "@/lib/panel-accounting";
 import { canViewAllBranches, hasPermission, normalizeRole, requirePermission } from "@/lib/permissions";
-import { getPatientAnalytics } from "@/lib/patient-analytics";
 import type { BankAccount, BankingData, BankTransaction, DashboardData, PettyCashTransaction } from "@/lib/types";
 import {
   BadgeDollarSign,
@@ -183,11 +182,11 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const isOwnerDashboard = role === "owner";
   const isOwnerExperience = isOwnerDashboard || role === "finance";
   const isBranchPicDashboard = role === "branch_pic";
-  const [financeBundle, supplierOutstandingRows, operationalData, patientAnalytics] = await Promise.all([
+  const [financeBundle, supplierOutstandingRows, operationalData, encounterAnalysis] = await Promise.all([
     isFinanceDashboard ? getFinanceDashboardData(profile, range) : Promise.resolve(null),
     isFinanceDashboard ? getSupplierOutstanding(profile) : Promise.resolve([]),
     getDashboardOperationalCashData(range),
-    hasPermission(profile, "view_patient_analytics") ? getPatientAnalytics() : Promise.resolve(null)
+    isOwnerExperience && hasPermission(profile, "view_patient_analytics") ? getEncounterAnalysisImports() : Promise.resolve(null)
   ]);
   const data: DashboardData = financeBundle?.dashboardData ?? {
     branches: operationalData?.branches ?? [],
@@ -442,19 +441,6 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       sales: branchSales
     };
   });
-  const patientSummaries = (patientAnalytics?.summaries ?? []).filter((row) => selectedBranchIdSet.has(row.branch_id));
-  const latestPatientPeriod = [...patientSummaries].filter((row) => row.is_complete).sort((a, b) =>
-    b.period_month.localeCompare(a.period_month) || b.period_no - a.period_no
-  )[0];
-  const latestPatientRows = latestPatientPeriod
-    ? patientSummaries.filter((row) => row.period_month === latestPatientPeriod.period_month && row.period_no === latestPatientPeriod.period_no)
-    : [];
-  const patientVisits = totalBy(latestPatientRows.filter((row) => row.is_complete), (row) => row.visit_count);
-  const patientUnique = totalBy(latestPatientRows.filter((row) => row.is_complete), (row) => row.unique_patient_count);
-  const patientNewIds = totalBy(latestPatientRows.filter((row) => row.is_complete), (row) => row.new_patient_count);
-  const patientCompletedPeriods = patientSummaries.filter((row) => row.is_complete).length;
-  const patientMissingBranches = latestPatientRows.filter((row) => !row.is_complete).map((row) => row.branches?.name ?? "Cawangan");
-
   const monthlySales = new Map<string, number>();
   const monthlyCosts = new Map<string, number>();
   const monthlyProfit = new Map<string, number>();
@@ -566,7 +552,34 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         </div>
       ) : null}
 
+      {isOwnerExperience ? (
+        <section className="owner-overview" aria-label="Ringkasan kewangan klinik">
+          <article className="owner-summary-card owner-summary-sales">
+            <span>Jualan terus</span>
+            <strong>{formatCurrency(directSales)}</strong>
+            <p>Jualan klinik dalam tempoh ini, tidak termasuk tuntutan panel.</p>
+          </article>
+          <article className="owner-summary-card owner-summary-costs">
+            <span>Belanja direkodkan</span>
+            <strong>{formatCurrency(accrualExpenses)}</strong>
+            <p>Belanja operasi dan pembelian barang dalam tempoh ini.</p>
+          </article>
+          <article className={`owner-summary-card ${totalCashInHand < 0 ? "owner-summary-alert" : "owner-summary-cash"}`}>
+            <span>Tunai di tangan</span>
+            <strong>{formatCurrency(totalCashInHand)}</strong>
+            <p>Anggaran baki tunai selepas bank-in dan locum tunai.</p>
+          </article>
+          <article className={`owner-summary-card ${supplierOverdue > 0 ? "owner-summary-alert" : "owner-summary-costs"}`}>
+            <span>Bil supplier sudah lewat</span>
+            <strong>{formatCurrency(supplierOverdue)}</strong>
+            <p>Bil belum dibayar yang sudah melepasi tarikh akhir.</p>
+          </article>
+        </section>
+      ) : null}
+
       {isFinanceDashboard ? (
+        <details className="dashboard-filter-disclosure">
+          <summary><span>Penapis dashboard</span><small>{range.label} · {selectedGroup.label} · {selectedBranches.length} cawangan</small></summary>
         <form className="reporting-filter dashboard-filter" method="get">
           <label>
             Date filter
@@ -613,6 +626,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
             Showing {range.label}: {formatDate(range.startDate)} to {formatDate(range.endDate)}. Reporting group: {selectedGroup.label}. Branches: {selectedBranchLabel}
           </p>
         </form>
+        </details>
       ) : null}
 
       {!isFinanceDashboard ? (
@@ -653,29 +667,6 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
 
       {isOwnerExperience ? (
         <>
-          <section className="owner-overview" aria-label="Ringkasan kewangan mudah">
-            <article className="owner-summary-card owner-summary-sales">
-              <span>Jualan terus</span>
-              <strong>{formatCurrency(directSales)}</strong>
-              <p>Jualan klinik dalam tempoh ini, tidak termasuk tuntutan panel.</p>
-            </article>
-            <article className="owner-summary-card owner-summary-costs">
-              <span>Belanja direkodkan</span>
-              <strong>{formatCurrency(accrualExpenses)}</strong>
-              <p>Belanja operasi dan pembelian barang dalam tempoh ini.</p>
-            </article>
-            <article className={`owner-summary-card ${totalCashInHand < 0 ? "owner-summary-alert" : "owner-summary-cash"}`}>
-              <span>Tunai di tangan</span>
-              <strong>{formatCurrency(totalCashInHand)}</strong>
-              <p>Anggaran baki tunai selepas bank-in dan locum tunai.</p>
-            </article>
-            <article className={`owner-summary-card ${supplierOverdue > 0 ? "owner-summary-alert" : "owner-summary-costs"}`}>
-              <span>Bil supplier sudah lewat</span>
-              <strong>{formatCurrency(supplierOverdue)}</strong>
-              <p>Bil belum dibayar yang sudah melepasi tarikh akhir.</p>
-            </article>
-          </section>
-
           <section className="owner-attention" aria-labelledby="owner-attention-title">
             <div>
               <p className="owner-section-kicker">UNTUK SEMAKAN</p>
@@ -701,59 +692,10 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
             </ul>
           </section>
 
-          <p className="owner-accounting-note">
-            <strong>Nota mudah:</strong> tuntutan panel dikira sebagai jualan apabila dikeluarkan, tetapi hanya menjadi tunai apabila bayaran diterima. Cash Bank-In ialah pindahan tunai ke bank, bukan jualan baru.
-          </p>
-
         </>
       ) : null}
 
-      {patientAnalytics && (isOwnerDashboard || role === "finance") ? (
-        <section className="dashboard-patient-analytics" aria-labelledby="dashboard-patient-title">
-          <div className="dashboard-patient-heading">
-            <div>
-              <p className="owner-section-kicker">LAWATAN PESAKIT</p>
-              <h2 id="dashboard-patient-title">Ringkasan laporan cawangan</h2>
-              <p>{latestPatientPeriod ? `${formatDate(latestPatientPeriod.period_start)} hingga ${formatDate(latestPatientPeriod.period_end)}` : "Belum ada laporan pesakit diimport."}</p>
-            </div>
-            <a className="secondary-button compact-button" href="/patients">Buka analisis pesakit</a>
-          </div>
-          <PatientSummaryCards
-            completedPeriods={patientCompletedPeriods}
-            newPatients={patientNewIds}
-            periodNo={latestPatientPeriod?.period_no}
-            uniquePatients={patientUnique}
-            visits={patientVisits}
-          />
-          {patientMissingBranches.length ? (
-            <p className="dashboard-patient-alert">Belum dikemaskini: {patientMissingBranches.join(", ")}</p>
-          ) : latestPatientPeriod ? <p className="dashboard-patient-ok">Semua cawangan terpilih sudah hantar laporan untuk tempoh ini.</p> : null}
-          {patientAnalytics.error ? <small role="status">{patientAnalytics.error}</small> : null}
-          <PatientTrendChart summaries={patientSummaries} />
-        </section>
-      ) : patientAnalytics ? (
-        <section className="dashboard-patient-summary" aria-labelledby="dashboard-patient-title">
-          <div>
-            <p className="owner-section-kicker">LAWATAN PESAKIT</p>
-            <h2 id="dashboard-patient-title">Ringkasan laporan cawangan</h2>
-            <p>{latestPatientPeriod ? `${formatDate(latestPatientPeriod.period_start)} hingga ${formatDate(latestPatientPeriod.period_end)}` : "Belum ada laporan pesakit diimport."}</p>
-          </div>
-          {latestPatientPeriod ? (
-            <>
-              <div className="dashboard-patient-metrics">
-                <span><strong>{patientVisits.toLocaleString()}</strong> lawatan</span>
-                <span><strong>{patientNewIds.toLocaleString()}</strong> PID pertama kali direkod</span>
-              </div>
-              {patientMissingBranches.length ? (
-                <p className="dashboard-patient-alert">Belum dikemaskini: {patientMissingBranches.join(", ")}</p>
-              ) : <p className="dashboard-patient-ok">Semua cawangan sudah hantar laporan untuk tempoh ini.</p>}
-            </>
-          ) : null}
-          <a className="secondary-button compact-button" href="/patients">Buka analisis pesakit</a>
-          {patientAnalytics.error ? <small role="status">{patientAnalytics.error}</small> : null}
-          {latestPatientPeriod ? <small>PID pertama kali direkod berdasarkan sejarah import portal yang tersedia.</small> : null}
-        </section>
-      ) : null}
+      {isOwnerExperience && encounterAnalysis ? <EncounterDashboardPreview reports={encounterAnalysis.reports} selectedBranchIds={selectedBranchIds} error={encounterAnalysis.error} /> : null}
 
       {isFinanceDashboard ? (
       <details className={`owner-detail-disclosure ${isOwnerExperience ? "" : "owner-detail-expanded"}`} open={!isOwnerExperience}>
