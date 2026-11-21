@@ -207,11 +207,11 @@ export function EncounterAnalysis({ reports, error, canUpload }: { reports: Enco
   const yearReports = comparisonYears.map((item) => ordered.filter((report) => report.report_month.startsWith(`${item}-`)));
   const sharedMonths = previousYear && currentYear
     ? Array.from({ length: 12 }, (_, index) => String(index + 1).padStart(2, "0")).filter((monthNumber) =>
-      yearReports.every((items) => items.some((report) => report.report_month.endsWith(`-${monthNumber}`)))
+      yearReports.every((items) => items.some((report) => report.report_month.slice(5, 7) === monthNumber))
     )
     : [];
   const sharedMonthGroups = yearReports.map((items) => sharedMonths.map((monthNumber) => {
-    const report = items.find((item) => item.report_month.endsWith(`-${monthNumber}`))!;
+    const report = items.find((item) => item.report_month.slice(5, 7) === monthNumber)!;
     return { report, group: chooseGroup(report.report_data, branch, priceLevel) };
   }));
   const comparisonTotals = sharedMonthGroups.map((items) => items.reduce((sum, item) => addGroup(sum, item.group), emptyGroup()));
@@ -219,29 +219,29 @@ export function EncounterAnalysis({ reports, error, canUpload }: { reports: Enco
     name: comparisonYears[index],
     color: index === 0 ? "#3168ef" : "#0f9588",
     values: sharedMonths.map((monthNumber) => {
-      const report = items.find((item) => item.report_month.endsWith(`-${monthNumber}`));
+      const report = items.find((item) => item.report_month.slice(5, 7) === monthNumber);
       return report ? chooseGroup(report.report_data, branch, priceLevel)[metric] : null;
     }),
     pointLabels: sharedMonths.map((monthNumber) => {
-      const report = items.find((item) => item.report_month.endsWith(`-${monthNumber}`));
+      const report = items.find((item) => item.report_month.slice(5, 7) === monthNumber);
       const value = report ? chooseGroup(report.report_data, branch, priceLevel)[metric] : 0;
       return `${comparisonYears[index]} · ${monthsMs[Number(monthNumber) - 1]} · ${metric === "visits" ? integer.format(Math.round(value)) + " lawatan" : money.format(value)}`;
     })
   }));
   const patientComparisonSeries = yearReports.flatMap((items, yearIndex) => [
     { name: `${comparisonYears[yearIndex]} · baharu`, color: yearIndex === 0 ? "#78a5f5" : "#5dc4b5", values: sharedMonths.map((monthNumber) => {
-      const report = items.find((item) => item.report_month.endsWith(`-${monthNumber}`));
+      const report = items.find((item) => item.report_month.slice(5, 7) === monthNumber);
       return report ? chooseGroup(report.report_data, branch, priceLevel).new_patients : null;
     }), pointLabels: sharedMonths.map((monthNumber) => {
-      const report = items.find((item) => item.report_month.endsWith(`-${monthNumber}`));
+      const report = items.find((item) => item.report_month.slice(5, 7) === monthNumber);
       const value = report ? chooseGroup(report.report_data, branch, priceLevel).new_patients : 0;
       return `${comparisonYears[yearIndex]} · ${monthsMs[Number(monthNumber) - 1]} · ${integer.format(value)} pesakit baharu`;
     }) },
     { name: `${comparisonYears[yearIndex]} · sedia ada`, color: yearIndex === 0 ? "#b5cafa" : "#a0e0d8", values: sharedMonths.map((monthNumber) => {
-      const report = items.find((item) => item.report_month.endsWith(`-${monthNumber}`));
+      const report = items.find((item) => item.report_month.slice(5, 7) === monthNumber);
       return report ? chooseGroup(report.report_data, branch, priceLevel).existing_patients : null;
     }), pointLabels: sharedMonths.map((monthNumber) => {
-      const report = items.find((item) => item.report_month.endsWith(`-${monthNumber}`));
+      const report = items.find((item) => item.report_month.slice(5, 7) === monthNumber);
       const value = report ? chooseGroup(report.report_data, branch, priceLevel).existing_patients : 0;
       return `${comparisonYears[yearIndex]} · ${monthsMs[Number(monthNumber) - 1]} · ${integer.format(value)} pesakit sedia ada`;
     }) }
