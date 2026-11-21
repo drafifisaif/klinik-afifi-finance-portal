@@ -727,6 +727,31 @@ textarea {
 .encounter-preview-table { margin-top: 14px; }
 .encounter-provenance { overflow-wrap: anywhere; }
 
+.encounter-chart-wrap { display: grid; gap: 10px; min-width: 0; }
+.encounter-line-chart { display: block; height: auto; overflow: visible; width: 100%; }
+.encounter-chart-grid { stroke: #e4eeee; stroke-width: 1; }
+.encounter-chart-axis { fill: #687d7e; font-size: 12px; }
+.encounter-chart-legend { align-items: center; display: flex; flex-wrap: wrap; gap: 8px 18px; }
+.encounter-chart-legend span { align-items: center; color: #52696a; display: inline-flex; font-size: 12px; gap: 7px; }
+.encounter-chart-legend i { border-radius: 50%; height: 9px; width: 9px; }
+.encounter-chart-empty { color: var(--muted); font-size: 13px; margin: 0; }
+.encounter-owner-brief { align-items: center; display: grid; gap: 20px; grid-template-columns: minmax(190px, 0.35fr) minmax(0, 1fr); }
+.encounter-owner-brief h2,
+.encounter-owner-brief p { margin: 0; }
+.encounter-owner-brief p { color: #52696a; line-height: 1.6; }
+.encounter-insight-list { display: grid; }
+.encounter-insight-list article { align-items: baseline; border-bottom: 1px solid #e8efef; display: grid; gap: 12px 20px; grid-template-columns: minmax(120px, 0.45fr) minmax(170px, 0.65fr) minmax(0, 2fr); padding: 13px 0; }
+.encounter-insight-list article:last-child { border-bottom: 0; }
+.encounter-insight-list article > span { color: var(--muted); font-size: 12px; }
+.encounter-insight-list article > strong { color: var(--ink); font-size: 14px; overflow-wrap: anywhere; }
+.encounter-insight-list article > p { color: #52696a; font-size: 12px; line-height: 1.5; margin: 0; }
+.encounter-payer-row { grid-template-columns: minmax(120px, 0.55fr) minmax(120px, 1.4fr) minmax(230px, 1fr); }
+.encounter-payer-bar { background: #d84c70; border-radius: 999px; display: flex; height: 10px; overflow: hidden; }
+.encounter-payer-bar i:first-child { background: #0f9588; }
+.encounter-payer-bar i:last-child { background: #d84c70; }
+.encounter-payer-row small { line-height: 1.5; }
+.encounter-payer-row small strong { color: var(--ink); font-size: 12px; }
+
 .sidebar-menu {
   display: grid;
   flex: 1 1 auto;
@@ -3854,6 +3879,15 @@ button:disabled {
     flex-direction: column;
   }
 
+  .encounter-owner-brief {
+    grid-template-columns: 1fr;
+  }
+
+  .encounter-insight-list article {
+    gap: 5px;
+    grid-template-columns: 1fr;
+  }
+
   .patient-chart-controls {
     flex-direction: column;
     min-width: 100%;
@@ -3882,6 +3916,10 @@ button:disabled {
   .encounter-branch-row {
     align-items: start;
     grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .encounter-payer-row {
+    grid-template-columns: 1fr;
   }
 
   .encounter-branch-price-split {

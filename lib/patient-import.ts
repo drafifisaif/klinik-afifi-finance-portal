@@ -364,6 +364,10 @@ export type EncounterAnalysisGroup = {
   net_charges: number;
   charges: Record<string, number>;
   payments: Record<string, number>;
+  cities?: Record<string, number>;
+  genders?: Record<string, number>;
+  weekdays?: Record<string, number>;
+  hours?: Record<string, number>;
 };
 
 export type ParsedEncounterAnalysis = {
@@ -378,6 +382,7 @@ export type ParsedEncounterAnalysis = {
   net_charges: number;
   charges: Record<string, number>;
   payments: Record<string, number>;
+  cities?: Record<string, number>;
   price_levels: Record<string, EncounterAnalysisGroup>;
   patient_types: Record<string, number>;
   genders: Record<string, number>;
@@ -448,7 +453,8 @@ export function parseEncounterAnalysisWorkbook(buffer: Buffer, branches: Branch[
     metrics: {
       visits: 0, unique_patients: 0, new_patients: 0, existing_patients: 0, gross_charges: 0, net_charges: 0,
       charges: Object.fromEntries(analysisChargeLabels.map((label) => [label, 0])),
-      payments: Object.fromEntries(analysisPaymentLabels.map((label) => [label, 0]))
+      payments: Object.fromEntries(analysisPaymentLabels.map((label) => [label, 0])),
+      cities: {}, genders: {}, weekdays: {}, hours: {}
     },
     people: new Map()
   });
@@ -467,7 +473,7 @@ export function parseEncounterAnalysisWorkbook(buffer: Buffer, branches: Branch[
   let invalidRows = 0;
 
   const addNumber = (target: Record<string, number>, label: string, value: number) => { target[label] = cents((target[label] ?? 0) + value); };
-  const addEncounter = (group: InternalGroup, pid: string, patientType: string, charges: Record<string, number>, payments: Record<string, number>) => {
+  const addEncounter = (group: InternalGroup, pid: string, patientType: string, charges: Record<string, number>, payments: Record<string, number>, city: string, gender: string, weekday: string, hour: string | null) => {
     const m = group.metrics;
     m.visits += 1;
     if (!group.people.has(pid)) group.people.set(pid, new Set());
@@ -475,6 +481,10 @@ export function parseEncounterAnalysisWorkbook(buffer: Buffer, branches: Branch[
     if (patientType) types.add(patientType);
     for (const label of analysisChargeLabels) addNumber(m.charges, label, charges[label]);
     for (const label of analysisPaymentLabels) addNumber(m.payments, label, payments[label]);
+    addNumber(m.cities!, city, 1);
+    addNumber(m.genders!, gender, 1);
+    addNumber(m.weekdays!, weekday, 1);
+    if (hour) addNumber(m.hours!, hour, 1);
     const gross = charges.Prescription + charges.Doctor + charges.Other + charges.Manual;
     m.gross_charges = cents(m.gross_charges + gross);
     m.net_charges = cents(m.net_charges + gross + charges.Discount + charges.Rounding);
@@ -498,6 +508,10 @@ export function parseEncounterAnalysisWorkbook(buffer: Buffer, branches: Branch[
     const priceText = normalizeHeader(row[required.price]);
     const priceKey = priceText === "selfpay" ? "Selfpay" : priceText.includes("panel") || priceText.includes("insurance") ? "Panel" : "Lain-lain";
     const gender = String(row[required.gender] ?? "").trim() || "Tidak dinyatakan";
+    const city = String(row[findColumn("City")] ?? "").trim() || "Tidak dinyatakan";
+    const weekday = weekdayLabels[date.getUTCDay()];
+    const hourMatch = rawDate.match(/\s(\d{1,2}):/);
+    const hour = hourMatch ? `${String(Number(hourMatch[1])).padStart(2, "0")}:00` : null;
     const charges = Object.fromEntries(analysisChargeLabels.map((label) => {
       const amount = analysisAmount(row[chargeColumns[label]]);
       return [label, amount];
@@ -510,16 +524,16 @@ export function parseEncounterAnalysisWorkbook(buffer: Buffer, branches: Branch[
 
     const branchGroup = branchGroups.get(branch.id) ?? makeGroup();
     branchGroups.set(branch.id, branchGroup);
-    addEncounter(overall, pid, type, charges, payments);
-    addEncounter(branchGroup, pid, type, charges, payments);
+    addEncounter(overall, pid, type, charges, payments, city, gender, weekday, hour);
+    addEncounter(branchGroup, pid, type, charges, payments, city, gender, weekday, hour);
     const priceGroup = priceGroups.get(priceKey) ?? makeGroup();
     priceGroups.set(priceKey, priceGroup);
-    addEncounter(priceGroup, pid, type, charges, payments);
+    addEncounter(priceGroup, pid, type, charges, payments, city, gender, weekday, hour);
     const branchPrices = branchPriceGroups.get(branch.id) ?? new Map<string, InternalGroup>();
     branchPriceGroups.set(branch.id, branchPrices);
     const branchPriceGroup = branchPrices.get(priceKey) ?? makeGroup();
     branchPrices.set(priceKey, branchPriceGroup);
-    addEncounter(branchPriceGroup, pid, type, charges, payments);
+    addEncounter(branchPriceGroup, pid, type, charges, payments, city, gender, weekday, hour);
 
     if (!allPeople.has(pid)) allPeople.set(pid, { types: new Set(), branches: new Set() });
     const person = allPeople.get(pid)!;
@@ -527,9 +541,8 @@ export function parseEncounterAnalysisWorkbook(buffer: Buffer, branches: Branch[
     person.branches.add(branch.id);
     addNumber(patientTypes, type === "new" ? "New" : type === "existing" ? "Existing" : "Lain-lain", 1);
     addNumber(genders, gender, 1);
-    addNumber(weekdays, weekdayLabels[date.getUTCDay()], 1);
-    const hour = rawDate.match(/\s(\d{1,2}):/);
-    if (hour) addNumber(hours, `${String(Number(hour[1])).padStart(2, "0")}:00`, 1);
+    addNumber(weekdays, weekday, 1);
+    if (hour) addNumber(hours, hour, 1);
     validRows += 1;
   }
 
@@ -562,6 +575,7 @@ export function parseEncounterAnalysisWorkbook(buffer: Buffer, branches: Branch[
     net_charges: overall.metrics.net_charges,
     charges: overall.metrics.charges,
     payments: overall.metrics.payments,
+    cities: overall.metrics.cities,
     price_levels: Object.fromEntries([...priceGroups.entries()].map(([key, group]) => [key, group.metrics])),
     patient_types: patientTypes,
     genders,

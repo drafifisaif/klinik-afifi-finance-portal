@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase-server";
 import { getCurrentProfile, hasPermission } from "@/lib/permissions";
+import type { EncounterAnalysisImport } from "@/lib/gloco-encounter-analysis";
 import { parseEncounterAnalysisWorkbook, type ParsedEncounterAnalysis } from "@/lib/patient-import";
 
 type PreparedReport = { file: File; report: ParsedEncounterAnalysis };
@@ -58,19 +59,26 @@ export async function saveEncounterAnalysis(formData: FormData) {
     if (!profile || !hasPermission(profile, "manage_patient_imports")) throw new Error("Hanya Owner atau Finance boleh menyimpan analisis lawatan.");
     const reports = await prepareReports(formData);
     const supabase = await createClient();
-    const { error } = await supabase.from("gloco_encounter_analysis_imports").insert(reports.map(({ file, report }) => ({
+    const { data, error } = await supabase.from("gloco_encounter_analysis_imports").insert(reports.map(({ file, report }) => ({
       report_month: report.report_month,
       source_filename: file.name.slice(0, 180),
       report_data: report,
       imported_by: profile.id
-    })));
+    }))).select("id, report_month, source_filename, imported_at, report_data");
     if (error) {
       console.error("saveEncounterAnalysis failed", { code: error.code, message: error.message });
       if (error.code === "42P01" || error.code === "PGRST205") throw new Error("Jadual analisis belum dipasang dalam Supabase Finance.");
       throw new Error("Analisis tidak dapat disimpan. Tiada PID mentah dimasukkan.");
     }
+    if (!data || data.length !== reports.length) {
+      throw new Error("Simpanan berjaya dihantar tetapi rekod tidak dapat dibaca semula. Semak polisi akses Supabase Finance.");
+    }
     revalidatePath("/patient-analysis");
-    return { ok: true as const, message: `${reports.length} laporan berjaya disimpan. Import baharu bagi bulan sama akan menjadi versi terkini.` };
+    return {
+      ok: true as const,
+      message: `${reports.length} laporan berjaya disimpan dan dibaca semula. Data trend sudah dikemaskini.`,
+      saved: data as unknown as EncounterAnalysisImport[]
+    };
   } catch (error) {
     return { ok: false as const, message: error instanceof Error ? error.message : "Analisis tidak dapat disimpan." };
   }
