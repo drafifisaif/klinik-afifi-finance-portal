@@ -354,3 +354,219 @@ export function parsePatientEncounterWorkbook(buffer: Buffer, branches: Branch[]
 
   return { encounters, invalidRows, branchCounts, dates: [...dates].sort() };
 }
+
+export type EncounterAnalysisGroup = {
+  visits: number;
+  unique_patients: number;
+  new_patients: number;
+  existing_patients: number;
+  gross_charges: number;
+  net_charges: number;
+  charges: Record<string, number>;
+  payments: Record<string, number>;
+};
+
+export type ParsedEncounterAnalysis = {
+  report_month: string;
+  total_visits: number;
+  unique_patients: number;
+  cross_branch_patients: number;
+  branch_patient_excess: number;
+  new_patients: number;
+  existing_patients: number;
+  gross_charges: number;
+  net_charges: number;
+  charges: Record<string, number>;
+  payments: Record<string, number>;
+  price_levels: Record<string, EncounterAnalysisGroup>;
+  patient_types: Record<string, number>;
+  genders: Record<string, number>;
+  weekdays: Record<string, number>;
+  hours: Record<string, number>;
+  branches: Array<EncounterAnalysisGroup & { branch_id: string; branch_name: string; price_levels: Record<string, EncounterAnalysisGroup> }>;
+};
+
+const analysisChargeLabels = ["Prescription", "Doctor", "Other", "Manual", "Discount", "Rounding"] as const;
+const analysisPaymentLabels = ["Cash", "Cheque", "Credit Card", "Debit Card", "Wire Transfer", "Others", "Write Off"] as const;
+
+function analysisAmount(value: unknown) {
+  const text = String(value ?? "").trim().replace(/,/g, "");
+  if (!text || text === "-") return 0;
+  const parsed = Number(text);
+  return Number.isFinite(parsed) ? Math.round(parsed * 100) / 100 : null;
+}
+
+function cents(value: number) {
+  return Math.round(value * 100) / 100;
+}
+
+export function parseEncounterAnalysisWorkbook(buffer: Buffer, branches: Branch[]): ParsedEncounterAnalysis {
+  if (buffer.byteLength > 12 * 1024 * 1024) throw new Error("Fail laporan melebihi had 12 MB.");
+  let files: Record<string, Uint8Array>;
+  try { files = unzipSync(new Uint8Array(buffer)); }
+  catch { throw new Error("Fail Excel tidak dapat dibaca. Muat turun semula laporan daripada GLOCO."); }
+
+  const worksheet = parser.parse(xmlFile(files, firstWorksheetPath(files))) as { worksheet?: { sheetData?: { row?: unknown } } };
+  const rows = asArray(worksheet.worksheet?.sheetData?.row as Record<string, unknown> | Record<string, unknown>[] | undefined);
+  const strings = sharedStringList(files);
+  const grid = rows.map((row) => {
+    const cells = asArray(row.c as Record<string, unknown> | Record<string, unknown>[] | undefined);
+    const values: string[] = [];
+    for (const cell of cells) {
+      const reference = String(cell["@_r"] ?? "");
+      if (reference) values[columnNumber(reference)] = cellText(cell, strings);
+    }
+    return values;
+  });
+  const headerIndex = grid.findIndex((row) =>
+    row.some((cell) => normalizeHeader(cell) === "encounterdate") &&
+    row.some((cell) => normalizeHeader(cell) === "pidencounter") &&
+    row.some((cell) => normalizeHeader(cell) === "branchname")
+  );
+  if (headerIndex < 0) throw new Error("Laporan perlu ada lajur Encounter Date, PID/Encounter dan Branch Name.");
+
+  const header = grid[headerIndex];
+  const subHeader = grid[headerIndex + 1] ?? [];
+  const findColumn = (label: string, useSubHeader = false) => {
+    const source = useSubHeader ? subHeader : header;
+    return source.findIndex((cell) => normalizeHeader(cell) === normalizeHeader(label));
+  };
+  const required = {
+    date: findColumn("Encounter Date"), pid: findColumn("PID/Encounter"), price: findColumn("Price Level"),
+    gender: findColumn("Patient Gender"), type: findColumn("Patient Type"), branch: findColumn("Branch Name")
+  };
+  if (Object.values(required).some((index) => index < 0)) throw new Error("Ada lajur wajib yang tiada dalam laporan.");
+  const chargeColumns = Object.fromEntries(analysisChargeLabels.map((label) => [label, findColumn(label, true)]));
+  const paymentColumns = Object.fromEntries(analysisPaymentLabels.map((label) => [label, findColumn(label, true)]));
+  if (Object.values(chargeColumns).some((index) => index < 0) || Object.values(paymentColumns).some((index) => index < 0)) {
+    throw new Error("Lajur kategori caj atau cara bayaran tidak lengkap.");
+  }
+
+  const branchByName = new Map(branches.map((branch) => [normalizeBranchName(branch.name), branch]));
+  type InternalGroup = { metrics: EncounterAnalysisGroup; people: Map<string, Set<string>> };
+  const makeGroup = (): InternalGroup => ({
+    metrics: {
+      visits: 0, unique_patients: 0, new_patients: 0, existing_patients: 0, gross_charges: 0, net_charges: 0,
+      charges: Object.fromEntries(analysisChargeLabels.map((label) => [label, 0])),
+      payments: Object.fromEntries(analysisPaymentLabels.map((label) => [label, 0]))
+    },
+    people: new Map()
+  });
+  const overall = makeGroup();
+  const branchGroups = new Map<string, InternalGroup>();
+  const priceGroups = new Map<string, InternalGroup>();
+  const branchPriceGroups = new Map<string, Map<string, InternalGroup>>();
+  const allPeople = new Map<string, { types: Set<string>; branches: Set<string> }>();
+  const patientTypes: Record<string, number> = {};
+  const genders: Record<string, number> = {};
+  const weekdays: Record<string, number> = {};
+  const hours: Record<string, number> = {};
+  const dateSet = new Set<string>();
+  const weekdayLabels = ["Ahad", "Isnin", "Selasa", "Rabu", "Khamis", "Jumaat", "Sabtu"];
+  let validRows = 0;
+  let invalidRows = 0;
+
+  const addNumber = (target: Record<string, number>, label: string, value: number) => { target[label] = cents((target[label] ?? 0) + value); };
+  const addEncounter = (group: InternalGroup, pid: string, patientType: string, charges: Record<string, number>, payments: Record<string, number>) => {
+    const m = group.metrics;
+    m.visits += 1;
+    if (!group.people.has(pid)) group.people.set(pid, new Set());
+    const types = group.people.get(pid)!;
+    if (patientType) types.add(patientType);
+    for (const label of analysisChargeLabels) addNumber(m.charges, label, charges[label]);
+    for (const label of analysisPaymentLabels) addNumber(m.payments, label, payments[label]);
+    const gross = charges.Prescription + charges.Doctor + charges.Other + charges.Manual;
+    m.gross_charges = cents(m.gross_charges + gross);
+    m.net_charges = cents(m.net_charges + gross + charges.Discount + charges.Rounding);
+  };
+
+  for (const row of grid.slice(headerIndex + 2)) {
+    const rawDate = String(row[required.date] ?? "").trim();
+    const rawCombined = String(row[required.pid] ?? "").trim();
+    if (!rawDate && !rawCombined) continue;
+    if (!/^\d{1,2}[/-]\d{1,2}[/-]\d{4}/.test(rawDate) || !rawCombined.includes("/")) continue;
+
+    const separatorIndex = rawCombined.lastIndexOf("/");
+    const pid = rawCombined.slice(0, separatorIndex).trim().toUpperCase();
+    const encounterDate = excelDate(rawDate);
+    const branch = branchByName.get(normalizeBranchName(String(row[required.branch] ?? "")));
+    if (!pid || !encounterDate || !branch) { invalidRows += 1; continue; }
+    const date = new Date(`${encounterDate}T00:00:00Z`);
+    const month = encounterDate.slice(0, 7);
+    dateSet.add(month);
+    const type = String(row[required.type] ?? "").trim().toLowerCase();
+    const priceText = normalizeHeader(row[required.price]);
+    const priceKey = priceText === "selfpay" ? "Selfpay" : priceText.includes("panel") || priceText.includes("insurance") ? "Panel" : "Lain-lain";
+    const gender = String(row[required.gender] ?? "").trim() || "Tidak dinyatakan";
+    const charges = Object.fromEntries(analysisChargeLabels.map((label) => {
+      const amount = analysisAmount(row[chargeColumns[label]]);
+      return [label, amount];
+    })) as Record<string, number>;
+    const payments = Object.fromEntries(analysisPaymentLabels.map((label) => {
+      const amount = analysisAmount(row[paymentColumns[label]]);
+      return [label, amount];
+    })) as Record<string, number>;
+    if ([...Object.values(charges), ...Object.values(payments)].some((amount) => amount === null)) { invalidRows += 1; continue; }
+
+    const branchGroup = branchGroups.get(branch.id) ?? makeGroup();
+    branchGroups.set(branch.id, branchGroup);
+    addEncounter(overall, pid, type, charges, payments);
+    addEncounter(branchGroup, pid, type, charges, payments);
+    const priceGroup = priceGroups.get(priceKey) ?? makeGroup();
+    priceGroups.set(priceKey, priceGroup);
+    addEncounter(priceGroup, pid, type, charges, payments);
+    const branchPrices = branchPriceGroups.get(branch.id) ?? new Map<string, InternalGroup>();
+    branchPriceGroups.set(branch.id, branchPrices);
+    const branchPriceGroup = branchPrices.get(priceKey) ?? makeGroup();
+    branchPrices.set(priceKey, branchPriceGroup);
+    addEncounter(branchPriceGroup, pid, type, charges, payments);
+
+    if (!allPeople.has(pid)) allPeople.set(pid, { types: new Set(), branches: new Set() });
+    const person = allPeople.get(pid)!;
+    if (type) person.types.add(type);
+    person.branches.add(branch.id);
+    addNumber(patientTypes, type === "new" ? "New" : type === "existing" ? "Existing" : "Lain-lain", 1);
+    addNumber(genders, gender, 1);
+    addNumber(weekdays, weekdayLabels[date.getUTCDay()], 1);
+    const hour = rawDate.match(/\s(\d{1,2}):/);
+    if (hour) addNumber(hours, `${String(Number(hour[1])).padStart(2, "0")}:00`, 1);
+    validRows += 1;
+  }
+
+  if (!validRows || dateSet.size !== 1) throw new Error("Fail mesti mengandungi rekod lawatan untuk satu bulan sahaja.");
+  if (invalidRows) throw new Error(`${invalidRows.toLocaleString()} baris lawatan tidak lengkap atau cawangan tidak dikenali. Tiada analisis disimpan.`);
+  const allGroups = [overall, ...branchGroups.values(), ...priceGroups.values(), ...[...branchPriceGroups.values()].flatMap((groups) => [...groups.values()])];
+  for (const group of allGroups) {
+    group.metrics.unique_patients = group.people.size;
+    for (const types of group.people.values()) {
+      if (types.has("new")) group.metrics.new_patients += 1;
+      else if (types.has("existing")) group.metrics.existing_patients += 1;
+    }
+  }
+  const branchList = branches.filter((branch) => branchGroups.has(branch.id)).map((branch) => ({
+    branch_id: branch.id,
+    branch_name: branch.name,
+    ...branchGroups.get(branch.id)!.metrics,
+    price_levels: Object.fromEntries([...(branchPriceGroups.get(branch.id) ?? new Map())].map(([key, group]) => [key, group.metrics]))
+  }));
+  const uniquePatients = allPeople.size;
+  return {
+    report_month: `${[...dateSet][0]}-01`,
+    total_visits: overall.metrics.visits,
+    unique_patients: uniquePatients,
+    cross_branch_patients: [...allPeople.values()].filter((person) => person.branches.size > 1).length,
+    branch_patient_excess: branchList.reduce((sum, branch) => sum + branch.unique_patients, 0) - uniquePatients,
+    new_patients: [...allPeople.values()].filter((person) => person.types.has("new")).length,
+    existing_patients: [...allPeople.values()].filter((person) => !person.types.has("new") && person.types.has("existing")).length,
+    gross_charges: overall.metrics.gross_charges,
+    net_charges: overall.metrics.net_charges,
+    charges: overall.metrics.charges,
+    payments: overall.metrics.payments,
+    price_levels: Object.fromEntries([...priceGroups.entries()].map(([key, group]) => [key, group.metrics])),
+    patient_types: patientTypes,
+    genders,
+    weekdays,
+    hours,
+    branches: branchList
+  };
+}

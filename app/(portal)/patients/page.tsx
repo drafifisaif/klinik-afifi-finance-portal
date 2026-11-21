@@ -5,8 +5,6 @@ import { PatientMonthOverview } from "@/components/patients/patient-month-overvi
 import { getPatientAnalytics } from "@/lib/patient-analytics";
 import { formatDateTime } from "@/lib/format";
 import { hasPermission, requirePermission } from "@/lib/permissions";
-import Link from "next/link";
-import { FileSpreadsheet } from "lucide-react";
 
 export const maxDuration = 60;
 
@@ -20,13 +18,8 @@ export default async function PatientsPage() {
       <ModuleHeader
         eyebrow="ANALISIS PESAKIT"
         title="Pesakit & lawatan"
-        description="Lihat lawatan, pesakit unik dan trend mengikut cawangan daripada laporan GLOCO yang dimuat naik."
+        description="Lihat trend pesakit daripada rekod PID yang diimport. Analisis caj dan Selfpay/Panel tersedia dalam menu Analisis Lawatan."
       />
-
-      <nav className="patient-analysis-nav" aria-label="Pilihan analisis pesakit">
-        <span aria-current="page">Analisis PID</span>
-        <Link href="/patients/gloco-monthly"><FileSpreadsheet size={17} /> Ringkasan GLOCO bulanan</Link>
-      </nav>
 
       {error ? <div className="patient-setup-warning" role="alert">{error}</div> : null}
 
