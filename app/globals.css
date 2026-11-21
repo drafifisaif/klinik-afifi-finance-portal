@@ -735,6 +735,25 @@ textarea {
 .encounter-chart-legend span { align-items: center; color: #52696a; display: inline-flex; font-size: 12px; gap: 7px; }
 .encounter-chart-legend i { border-radius: 50%; height: 9px; width: 9px; }
 .encounter-chart-empty { color: var(--muted); font-size: 13px; margin: 0; }
+.encounter-comparison-section { display: grid; gap: 14px; }
+.encounter-comparison-caption { color: var(--muted); font-size: 13px; margin: -4px 0 0; }
+.encounter-comparison-summary { background: #edf7f5; border: 1px solid #d5e9e6; border-radius: 8px; color: #355152; padding: 13px 16px; }
+.encounter-comparison-summary p { line-height: 1.55; margin: 0; }
+.encounter-comparison-charts { gap: 22px 18px; }
+.encounter-comparison-chart { border-top: 1px solid #e8efef; min-width: 0; padding-top: 12px; }
+.encounter-comparison-chart h3 { color: var(--ink); font-size: 15px; margin: 0 0 8px; }
+.encounter-comparison-chart-wide { grid-column: 1 / -1; }
+.encounter-quarter-heading { align-items: end; border-top: 1px solid #e8efef; margin-top: 4px; padding-top: 18px; }
+.encounter-quarter-select { color: #405657; display: grid; font-size: 12px; font-weight: 700; gap: 6px; min-width: min(220px, 100%); }
+.encounter-quarter-select select { background: #fff; border: 1px solid var(--line); border-radius: 8px; color: var(--ink); min-height: 40px; padding: 8px 10px; }
+.encounter-quarter-coverage { display: grid; gap: 8px; }
+.encounter-quarter-coverage p { align-items: center; color: var(--muted); display: flex; flex-wrap: wrap; gap: 7px 14px; margin: 0; }
+.encounter-quarter-coverage p > strong { color: var(--ink); min-width: 38px; }
+.encounter-quarter-coverage span { align-items: center; display: inline-flex; font-size: 11px; gap: 5px; }
+.encounter-quarter-coverage i { border-radius: 999px; font-style: normal; padding: 3px 7px; }
+.encounter-quarter-coverage .is-complete { background: #e5f4ed; color: #276849; }
+.encounter-quarter-coverage .is-partial { background: #fff3d9; color: #946314; }
+.encounter-quarter-coverage .is-empty { background: #f0f3f3; color: #687d7e; }
 .encounter-owner-brief { align-items: center; display: grid; gap: 20px; grid-template-columns: minmax(190px, 0.35fr) minmax(0, 1fr); }
 .encounter-owner-brief h2,
 .encounter-owner-brief p { margin: 0; }
@@ -3970,6 +3989,18 @@ button:disabled {
   .encounter-filter-panel,
   .encounter-analysis-columns {
     grid-template-columns: 1fr;
+  }
+
+  .encounter-comparison-chart-wide {
+    grid-column: auto;
+  }
+
+  .encounter-quarter-heading {
+    align-items: start;
+  }
+
+  .encounter-quarter-select {
+    min-width: 100%;
   }
 
   .encounter-branch-row {

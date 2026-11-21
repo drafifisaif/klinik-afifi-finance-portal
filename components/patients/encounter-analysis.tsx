@@ -33,7 +33,14 @@ function compactMoney(value: number) {
   return money.format(value);
 }
 
-function TrendChart({ months, series, valueFormat, label }: { months: string[]; series: { name: string; color: string; values: number[] }[]; valueFormat: (value: number) => string; label: string }) {
+function percentChange(previous: number, current: number) {
+  if (!previous) return current ? null : 0;
+  return (current - previous) / Math.abs(previous) * 100;
+}
+
+type TrendSeries = { name: string; color: string; values: (number | null)[]; pointLabels?: string[] };
+
+function TrendChart({ months, series, valueFormat, label, axisLabels }: { months: string[]; series: TrendSeries[]; valueFormat: (value: number) => string; label: string; axisLabels?: string[] }) {
   const chartRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(920);
 
@@ -56,17 +63,22 @@ function TrendChart({ months, series, valueFormat, label }: { months: string[]; 
   const bottom = 48;
   const plotWidth = width - left - right;
   const plotHeight = height - top - bottom;
-  const max = Math.max(1, ...series.flatMap((line) => line.values));
+  const max = Math.max(1, ...series.flatMap((line) => line.values.filter((value): value is number => value !== null)));
   const x = (index: number) => left + (months.length === 1 ? plotWidth / 2 : index * plotWidth / (months.length - 1));
   const y = (value: number) => top + plotHeight - value / max * plotHeight;
   const ticks = Array.from({ length: 5 }, (_, index) => max * index / 4);
   return <div className="encounter-chart-wrap" ref={chartRef}>
     <svg className="encounter-line-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label={label}>
       {ticks.map((tick, index) => <g key={index}><line className="encounter-chart-grid" x1={left} x2={width - right} y1={y(tick)} y2={y(tick)} /><text className="encounter-chart-axis" x={left - 10} y={y(tick) + 4} textAnchor="end">{valueFormat(tick)}</text></g>)}
-      {months.map((item, index) => <text className="encounter-chart-axis" key={item} x={x(index)} y={height - 16} textAnchor="middle">{shortMonth(item)}</text>)}
+      {months.map((item, index) => <text className="encounter-chart-axis" key={item} x={x(index)} y={height - 16} textAnchor="middle">{axisLabels?.[index] ?? shortMonth(item)}</text>)}
       {series.map((line) => <g key={line.name}>
-        <polyline fill="none" stroke={line.color} strokeWidth="3" strokeLinejoin="round" strokeLinecap="round" points={line.values.map((value, index) => `${x(index)},${y(value)}`).join(" ")} />
-        {line.values.map((value, index) => <circle key={`${line.name}-${months[index]}`} cx={x(index)} cy={y(value)} r="4.5" fill={line.color}><title>{`${line.name} · ${formatMonth(months[index])}: ${valueFormat(value)}`}</title></circle>)}
+        {line.values.reduce<number[][]>((runs, value, index) => {
+          if (value === null) return runs;
+          if (index === 0 || line.values[index - 1] === null) runs.push([]);
+          runs.at(-1)?.push(index);
+          return runs;
+        }, []).filter((run) => run.length > 1).map((run, index) => <polyline key={`${line.name}-run-${index}`} fill="none" stroke={line.color} strokeWidth="3" strokeLinejoin="round" strokeLinecap="round" points={run.map((point) => `${x(point)},${y(line.values[point]!)}`).join(" ")} />)}
+        {line.values.map((value, index) => value === null ? null : <circle key={`${line.name}-${months[index]}`} cx={x(index)} cy={y(value)} r="4.5" fill={line.color}><title>{line.pointLabels?.[index] ?? `${line.name} · ${formatMonth(months[index])}: ${valueFormat(value)}`}</title></circle>)}
       </g>)}
     </svg>
     <div className="encounter-chart-legend">{series.map((line) => <span key={line.name}><i style={{ background: line.color }} />{line.name}</span>)}</div>
@@ -122,14 +134,20 @@ export function EncounterAnalysis({ reports, error, canUpload }: { reports: Enco
     return [...latestByMonth.values()].sort((a, b) => a.report_month.localeCompare(b.report_month));
   }, [reports, savedReports]);
   const years = [...new Set(ordered.map((item) => item.report_month.slice(0, 4)))].sort();
+  const availableYearKey = years.join(",");
   const [year, setYear] = useState(years.at(-1) ?? "");
   const [month, setMonth] = useState("all");
   const [branch, setBranch] = useState("all");
   const [priceLevel, setPriceLevel] = useState("all");
+  const [quarterMetric, setQuarterMetric] = useState<"visits" | "net_charges">("visits");
   const [preview, setPreview] = useState<PreviewRow[] | null>(null);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const formRef = useRef<HTMLFormElement>(null);
+  useEffect(() => {
+    const availableYears = availableYearKey.split(",").filter(Boolean);
+    if (availableYears.length && !availableYears.includes(year)) setYear(availableYears.at(-1) ?? "");
+  }, [availableYearKey, year]);
   const monthOptions = ordered.filter((item) => item.report_month.startsWith(`${year}-`));
   const filtered = month === "all" ? monthOptions : monthOptions.filter((item) => item.report_month === month);
   const branchOptions = [...new Map(ordered.flatMap((item) => item.report_data.branches).map((item) => [item.branch_id, { id: item.branch_id, name: item.branch_name }])).values()];
@@ -183,6 +201,74 @@ export function EncounterAnalysis({ reports, error, canUpload }: { reports: Enco
   const trafficLeader = [...branchRows].sort((a, b) => b.metrics.visits - a.metrics.visits)[0];
   const salesLeader = [...branchRows].sort((a, b) => b.metrics.net_charges - a.metrics.net_charges)[0];
   const topCharge = categoryRows.filter(([key]) => key !== "Discount" && key !== "Rounding").sort((a, b) => b[1] - a[1])[0];
+  const comparisonYears = years.slice(-2);
+  const previousYear = comparisonYears[0];
+  const currentYear = comparisonYears[1];
+  const yearReports = comparisonYears.map((item) => ordered.filter((report) => report.report_month.startsWith(`${item}-`)));
+  const sharedMonths = previousYear && currentYear
+    ? Array.from({ length: 12 }, (_, index) => String(index + 1).padStart(2, "0")).filter((monthNumber) =>
+      yearReports.every((items) => items.some((report) => report.report_month.endsWith(`-${monthNumber}`)))
+    )
+    : [];
+  const sharedMonthGroups = yearReports.map((items) => sharedMonths.map((monthNumber) => {
+    const report = items.find((item) => item.report_month.endsWith(`-${monthNumber}`))!;
+    return { report, group: chooseGroup(report.report_data, branch, priceLevel) };
+  }));
+  const comparisonTotals = sharedMonthGroups.map((items) => items.reduce((sum, item) => addGroup(sum, item.group), emptyGroup()));
+  const comparisonMonthlySeries = (metric: "visits" | "net_charges") => yearReports.map((items, index) => ({
+    name: comparisonYears[index],
+    color: index === 0 ? "#3168ef" : "#0f9588",
+    values: sharedMonths.map((monthNumber) => {
+      const report = items.find((item) => item.report_month.endsWith(`-${monthNumber}`));
+      return report ? chooseGroup(report.report_data, branch, priceLevel)[metric] : null;
+    }),
+    pointLabels: sharedMonths.map((monthNumber) => {
+      const report = items.find((item) => item.report_month.endsWith(`-${monthNumber}`));
+      const value = report ? chooseGroup(report.report_data, branch, priceLevel)[metric] : 0;
+      return `${comparisonYears[index]} · ${monthsMs[Number(monthNumber) - 1]} · ${metric === "visits" ? integer.format(Math.round(value)) + " lawatan" : money.format(value)}`;
+    })
+  }));
+  const patientComparisonSeries = yearReports.flatMap((items, yearIndex) => [
+    { name: `${comparisonYears[yearIndex]} · baharu`, color: yearIndex === 0 ? "#78a5f5" : "#5dc4b5", values: sharedMonths.map((monthNumber) => {
+      const report = items.find((item) => item.report_month.endsWith(`-${monthNumber}`));
+      return report ? chooseGroup(report.report_data, branch, priceLevel).new_patients : null;
+    }), pointLabels: sharedMonths.map((monthNumber) => {
+      const report = items.find((item) => item.report_month.endsWith(`-${monthNumber}`));
+      const value = report ? chooseGroup(report.report_data, branch, priceLevel).new_patients : 0;
+      return `${comparisonYears[yearIndex]} · ${monthsMs[Number(monthNumber) - 1]} · ${integer.format(value)} pesakit baharu`;
+    }) },
+    { name: `${comparisonYears[yearIndex]} · sedia ada`, color: yearIndex === 0 ? "#b5cafa" : "#a0e0d8", values: sharedMonths.map((monthNumber) => {
+      const report = items.find((item) => item.report_month.endsWith(`-${monthNumber}`));
+      return report ? chooseGroup(report.report_data, branch, priceLevel).existing_patients : null;
+    }), pointLabels: sharedMonths.map((monthNumber) => {
+      const report = items.find((item) => item.report_month.endsWith(`-${monthNumber}`));
+      const value = report ? chooseGroup(report.report_data, branch, priceLevel).existing_patients : 0;
+      return `${comparisonYears[yearIndex]} · ${monthsMs[Number(monthNumber) - 1]} · ${integer.format(value)} pesakit sedia ada`;
+    }) }
+  ]);
+  const quarters = [1, 2, 3, 4];
+  const quarterSeries = yearReports.map((items, yearIndex) => {
+    const values = quarters.map((quarter) => {
+      const reportsInQuarter = items.filter((report) => Math.ceil(Number(report.report_month.slice(5, 7)) / 3) === quarter);
+      const totalsInQuarter = reportsInQuarter.reduce((sum, report) => addGroup(sum, chooseGroup(report.report_data, branch, priceLevel)), emptyGroup());
+      const metricValue = quarterMetric === "visits" ? totalsInQuarter.visits : totalsInQuarter.net_charges;
+      return reportsInQuarter.length ? metricValue : null;
+    });
+    const pointLabels = quarters.map((quarter) => {
+      const reportsInQuarter = items.filter((report) => Math.ceil(Number(report.report_month.slice(5, 7)) / 3) === quarter);
+      const totalMonths = items.filter((report) => Math.ceil(Number(report.report_month.slice(5, 7)) / 3) === quarter).length;
+      const group = reportsInQuarter.reduce((sum, report) => addGroup(sum, chooseGroup(report.report_data, branch, priceLevel)), emptyGroup());
+      const amount = quarterMetric === "visits" ? integer.format(group.visits) : money.format(group.net_charges);
+      return `${comparisonYears[yearIndex]} · Suku ${quarter} · ${totalMonths}/3 bulan · ${amount}`;
+    });
+    return { name: comparisonYears[yearIndex], color: yearIndex === 0 ? "#3168ef" : "#0f9588", values, pointLabels };
+  });
+  const comparableVisitChange = comparisonTotals.length === 2 ? percentChange(comparisonTotals[0].visits, comparisonTotals[1].visits) : null;
+  const comparableSalesChange = comparisonTotals.length === 2 ? percentChange(comparisonTotals[0].net_charges, comparisonTotals[1].net_charges) : null;
+  const previousPerVisit = comparisonTotals[0]?.visits ? comparisonTotals[0].net_charges / comparisonTotals[0].visits : null;
+  const currentPerVisit = comparisonTotals[1]?.visits ? comparisonTotals[1].net_charges / comparisonTotals[1].visits : null;
+  const perVisitChange = previousPerVisit !== null && currentPerVisit !== null ? percentChange(previousPerVisit, currentPerVisit) : null;
+  const comparisonPeriodLabel = sharedMonths.map((monthNumber) => monthsMs[Number(monthNumber) - 1].slice(0, 3)).join(", ");
 
   async function runPreview() {
     if (!formRef.current) return;
@@ -231,6 +317,30 @@ export function EncounterAnalysis({ reports, error, canUpload }: { reports: Enco
         <div><span className="owner-section-kicker">RINGKASAN UNTUK OWNER · {year}</span><h2>Gambaran tempoh pilihan</h2></div>
         <p>{visitChange === null ? "Muat naik laporan bulan sebelumnya untuk mula melihat perubahan." : visitChange === 0 ? `Lawatan kekal hampir sama antara ${formatMonth(lastTwoMonths[0].report_month)} dengan ${formatMonth(lastTwoMonths[1].report_month)}.` : `Lawatan ${visitChange > 0 ? "meningkat" : "menurun"} dari ${formatMonth(lastTwoMonths[0].report_month)} ke ${formatMonth(lastTwoMonths[1].report_month)}.`} {salesChange === null ? "" : salesChange === 0 ? "Caj bersih juga kekal hampir sama." : `Caj bersih bergerak ${salesChange > 0 ? "naik" : "turun"}; bandingkan dengan graf pesakit untuk melihat sama ada perubahan datang daripada jumlah lawatan atau campuran caj.`} {branch === "all" && trafficLeader ? `${trafficLeader.name} paling sibuk dalam tempoh pilihan${salesLeader && salesLeader.id !== trafficLeader.id ? `, tetapi ${salesLeader.name} mendahului dari segi caj bersih` : " dan turut mencatat caj bersih tertinggi"}.` : branch !== "all" ? `Paparan difokuskan pada ${branchOptions.find((item) => item.id === branch)?.name ?? "cawangan pilihan"}.` : "Pilih tempoh yang mempunyai data untuk melihat perbandingan cawangan."}</p>
       </section>
+
+      {comparisonYears.length === 2 ? <section className="patient-section encounter-comparison-section">
+        <div className="patient-section-heading"><div><span className="owner-section-kicker">PERBANDINGAN TAHUNAN</span><h2>{previousYear} berbanding {currentYear}</h2></div><p>Perbandingan guna bulan yang ada dalam kedua-dua tahun, bukan jumlah setahun yang tempohnya berbeza.</p></div>
+        {sharedMonths.length ? <>
+          <p className="encounter-comparison-caption">Tempoh sepadan: {comparisonPeriodLabel} · {branch === "all" ? "Semua cawangan" : branchOptions.find((item) => item.id === branch)?.name} · {priceLevel === "all" ? "Selfpay + Panel" : priceLevel}</p>
+          <div className="encounter-comparison-summary">
+            <p>Dalam tempoh sepadan, lawatan {comparableVisitChange === null ? "belum boleh dibandingkan" : comparableVisitChange === 0 ? "kekal hampir sama" : `${comparableVisitChange > 0 ? "meningkat" : "menurun"} ${Math.abs(comparableVisitChange).toFixed(1)}%`} dan caj bersih {comparableSalesChange === null ? "belum boleh dibandingkan" : comparableSalesChange === 0 ? "kekal hampir sama" : `${comparableSalesChange > 0 ? "meningkat" : "menurun"} ${Math.abs(comparableSalesChange).toFixed(1)}%`} pada {currentYear} berbanding {previousYear}. {perVisitChange === null ? "" : `Caj bersih bagi setiap lawatan ${perVisitChange === 0 ? "hampir sama" : `${perVisitChange > 0 ? "meningkat" : "menurun"} ${Math.abs(perVisitChange).toFixed(1)}%`}; ini membantu bezakan perubahan jumlah pesakit daripada perubahan purata caj.`}</p>
+          </div>
+          <div className="encounter-analysis-columns encounter-comparison-charts">
+            <article className="encounter-comparison-chart"><h3>Trend lawatan</h3><TrendChart months={sharedMonths} axisLabels={sharedMonths.map((item) => monthsMs[Number(item) - 1].slice(0, 3))} series={comparisonMonthlySeries("visits")} valueFormat={(value) => integer.format(Math.round(value))} label={`Perbandingan lawatan bulanan ${previousYear} dan ${currentYear}`} /></article>
+            <article className="encounter-comparison-chart"><h3>Trend caj bersih</h3><TrendChart months={sharedMonths} axisLabels={sharedMonths.map((item) => monthsMs[Number(item) - 1].slice(0, 3))} series={comparisonMonthlySeries("net_charges")} valueFormat={compactMoney} label={`Perbandingan caj bersih bulanan ${previousYear} dan ${currentYear}`} /></article>
+            <article className="encounter-comparison-chart encounter-comparison-chart-wide"><h3>Pesakit baharu dan sedia ada</h3><TrendChart months={sharedMonths} axisLabels={sharedMonths.map((item) => monthsMs[Number(item) - 1].slice(0, 3))} series={patientComparisonSeries} valueFormat={(value) => integer.format(Math.round(value))} label={`Perbandingan pesakit baharu dan sedia ada bulanan ${previousYear} dan ${currentYear}`} /></article>
+          </div>
+          <p className="patient-chart-note">Pesakit baharu/sedia ada dipaparkan mengikut kiraan setiap bulan; jumlah bulan berlainan bukan bilangan pesakit unik setahun.</p>
+        </> : <p className="encounter-chart-empty">Belum ada bulan yang sepadan untuk dibandingkan. Pastikan sekurang-kurangnya satu bulan bagi setiap tahun sudah dimuat naik.</p>}
+
+        <div className="patient-section-heading encounter-quarter-heading"><div><span className="owner-section-kicker">PRESTASI SUKU TAHUN</span><h2>Quarter {previousYear}–{currentYear}</h2></div><label className="encounter-quarter-select">Paparan<select value={quarterMetric} onChange={(event) => setQuarterMetric(event.target.value as "visits" | "net_charges")}><option value="visits">Jumlah lawatan</option><option value="net_charges">Caj bersih</option></select></label></div>
+        <TrendChart months={quarters.map(String)} axisLabels={quarters.map((item) => `Q${item}`)} series={quarterSeries} valueFormat={quarterMetric === "visits" ? (value) => integer.format(Math.round(value)) : compactMoney} label={`Perbandingan suku tahun ${previousYear} dan ${currentYear} mengikut ${quarterMetric === "visits" ? "lawatan" : "caj bersih"}`} />
+        <div className="encounter-quarter-coverage">{comparisonYears.map((item, index) => <p key={item}><strong>{item}</strong>{quarters.map((quarter) => {
+          const count = yearReports[index].filter((report) => Math.ceil(Number(report.report_month.slice(5, 7)) / 3) === quarter).length;
+          return <span key={quarter}>Q{quarter} <i className={count === 3 ? "is-complete" : count ? "is-partial" : "is-empty"}>{count}/3 bln</i></span>;
+        })}</p>)}</div>
+        <p className="patient-chart-note">Suku yang belum lengkap dipaparkan sebagai data separa, bukan sifar. Bandingkan suku penuh dengan suku penuh untuk bacaan yang adil.</p>
+      </section> : null}
 
       <section className="patient-section encounter-trend-section">
         <div className="patient-section-heading"><div><span className="owner-section-kicker">TREND PESAKIT</span><h2>Lawatan mengikut cawangan</h2></div><p>Lihat arah lawatan dari bulan ke bulan. Pilih satu cawangan di atas untuk fokus.</p></div>
