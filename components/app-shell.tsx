@@ -6,7 +6,6 @@ const navigation: { href: string; label: string; icon: string; permission: Permi
   { href: "/dashboard", label: "Dashboard", icon: "LayoutDashboard", permission: "view_dashboard" },
   { href: "/branches", label: "Branches", icon: "Building2", permission: "view_branches" },
   { href: "/sales", label: "Daily Sales", icon: "CreditCard", permission: "edit_finance" },
-  { href: "/patients", label: "Pesakit", icon: "UsersRound", permission: "view_patient_analytics" },
   { href: "/patient-analysis", label: "Analisis Lawatan", icon: "BarChart3", permission: "view_patient_analytics" },
   { href: "/expenses", label: "Expenses", icon: "ReceiptText", permission: "edit_finance" },
   { href: "/payroll", label: "Gaji & Caruman", icon: "BadgeDollarSign", permission: "view_payroll" },
