@@ -31,6 +31,7 @@ import {
   CircleDollarSign,
   Coins,
   CreditCard,
+  ExternalLink,
   Landmark,
   ReceiptText,
   ShieldAlert,
@@ -574,6 +575,28 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
             <strong>{formatCurrency(supplierOverdue)}</strong>
             <p>Bil belum dibayar yang sudah melepasi tarikh akhir.</p>
           </article>
+        </section>
+      ) : null}
+
+      {isOwnerExperience && hasPermission(profile, "view_patient_analytics") ? (
+        <section className="dashboard-gloco-connect" aria-label="Sambungan GLOCO">
+          <div className="dashboard-gloco-copy">
+            <strong>GLOCO</strong>
+            <span>Buka browser GLOCO di VPS untuk kemas kini analisis.</span>
+            <details>
+              <summary>Sambungan pertama kali</summary>
+              <p>Buka Terminal pada komputer ini, jalankan arahan di bawah dan biarkan Terminal terbuka. Kemudian tekan Connect GLOCO.</p>
+              <code>ssh -i ~/.ssh/id_ed25519 -N -L 6080:127.0.0.1:6080 root@13.140.76.182</code>
+            </details>
+          </div>
+          <a
+            className="primary-button compact-button dashboard-gloco-link"
+            href="http://localhost:6080/vnc.html?autoconnect=true&resize=remote"
+            rel="noopener noreferrer"
+            target="_blank"
+          >
+            <ExternalLink size={16} /> Connect GLOCO
+          </a>
         </section>
       ) : null}
 

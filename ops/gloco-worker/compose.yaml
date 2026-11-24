@@ -1,0 +1,73 @@
+services:
+  finance-gloco-worker:
+    image: mcr.microsoft.com/playwright:v1.64.1-noble
+    container_name: finance-gloco-worker
+    init: true
+    user: "1001:1001"
+    working_dir: /home/pwuser
+    command:
+      - sh
+      - -lc
+      - npm install --prefix /state/runtime --no-audit --no-fund playwright@1.64.1 && exec sleep infinity
+    restart: unless-stopped
+    cpus: 1.0
+    mem_limit: 1536m
+    pids_limit: 256
+    shm_size: 512m
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=128m,mode=1777
+      - /tmp/.X11-unix:rw,nodev,noexec,nosuid,size=1m,mode=1777,uid=0,gid=0
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    environment:
+      PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
+      NODE_PATH: /state/runtime/node_modules
+      npm_config_cache: /tmp/npm-cache
+    volumes:
+      - ./state:/state
+    networks:
+      - finance_egress
+
+  finance-gloco-login:
+    build:
+      context: .
+      dockerfile: Dockerfile.login
+    image: finance-gloco-login:1.64.1
+    container_name: finance-gloco-login
+    init: true
+    user: "1001:1001"
+    command: ["/opt/gloco-login/start-login.sh"]
+    restart: unless-stopped
+    cpus: 1.0
+    mem_limit: 1536m
+    pids_limit: 256
+    shm_size: 512m
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=128m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    environment:
+      DISPLAY: :99
+      HOME: /state/home
+      PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
+      NODE_PATH: /state/runtime/node_modules
+      npm_config_cache: /tmp/npm-cache
+    volumes:
+      - ./state:/state
+    ports:
+      - "127.0.0.1:6080:6080"
+    networks:
+      - finance_egress
+
+networks:
+  finance_egress:
+    name: finance-gloco-egress
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.enable_icc: "false"
